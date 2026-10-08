@@ -1,0 +1,54 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-24.04
+    services:
+      db:
+        # amd64 runners can use the upstream PostGIS image directly.
+        image: postgis/postgis:17-3.5
+        env:
+          POSTGRES_USER: jobatlas
+          POSTGRES_PASSWORD: jobatlas
+          POSTGRES_DB: jobatlas
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U jobatlas" --health-interval 5s --health-timeout 5s
+          --health-retries 20
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      DATABASE_URL: postgresql+psycopg://jobatlas:jobatlas@localhost:5432/jobatlas
+      JOBATLAS_TEST_DATABASE_URL: postgresql+psycopg://jobatlas:jobatlas@localhost:5432/jobatlas_test
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          version: "0.12.23"
+      - run: uv sync --frozen --python 3.12
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run alembic upgrade head && uv run alembic check
+      - run: uv run pytest -q
+
+  web:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24.15.0"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npx vite build

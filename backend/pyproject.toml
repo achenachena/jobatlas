@@ -1,0 +1,61 @@
+[project]
+name = "jobatlas-backend"
+version = "0.1.0"
+description = "JobAtlas API, scheduler and workers"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi>=0.142,<0.143",
+    "uvicorn[standard]>=0.54,<0.55",
+    "sqlalchemy[asyncio]>=2.1,<2.2",
+    "alembic>=1.20,<1.21",
+    "psycopg[binary,pool]>=3.3,<3.4",
+    "geoalchemy2>=0.20,<0.21",
+    "celery[redis]>=5.6,<5.7",
+    "redis>=6,<9",
+    "httpx>=0.28,<0.29",
+    "pydantic-settings>=2.15,<2.16",
+    "typer>=0.27,<0.28",
+    "structlog>=26.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1,<9.2",
+    "pytest-asyncio>=1.4,<1.5",
+    "respx>=0.23,<0.24",
+    "ruff>=0.16,<0.17",
+]
+
+[project.scripts]
+jobatlas = "app.cli:app"
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "integration: needs a real PostgreSQL/PostGIS (JOBATLAS_TEST_DATABASE_URL)",
+    "live: hits real external services; never part of the default run",
+]
+addopts = "-m 'not live'"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S", "DTZ"]
+ignore = ["S101"]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "typer.Option", "typer.Argument"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "DTZ"]
+"migrations/**" = ["E501", "S608"]

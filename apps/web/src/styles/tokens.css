@@ -1,0 +1,50 @@
+/* Design tokens: the single source for colour, type, spacing, radii, borders, shadows and
+   status. Stage 3 extends these for the anime-inspired map and components. */
+:root {
+  --color-bg: #f4f7ff;
+  --color-surface: #ffffff;
+  --color-line: #d7def5;
+  --color-ink-strong: #1d2350;
+  --color-ink: #2f3768;
+  --color-ink-muted: #5f6894;
+  --color-accent: #5b6cff;
+  --color-accent-2: #ff7ab8;
+  --color-status-ok: #1f9d6b;
+  --color-status-warn: #c77700;
+  --color-status-error: #d33d5a;
+
+  --font-family: "Nunito", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-size-sm: 0.875rem;
+  --font-size-md: 1rem;
+  --font-size-display: clamp(2rem, 6vw, 3.25rem);
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --border-width: 1.5px;
+  --shadow-card: 0 1px 2px rgb(29 35 80 / 0.06), 0 8px 24px rgb(91 108 255 / 0.12);
+  --motion-fast: 150ms;
+  --motion-base: 220ms;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #12152e;
+    --color-surface: #1c2044;
+    --color-line: #333a6b;
+    --color-ink-strong: #f2f4ff;
+    --color-ink: #d9ddf7;
+    --color-ink-muted: #a3a9d1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-fast: 0ms;
+    --motion-base: 0ms;
+  }
+}

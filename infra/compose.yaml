@@ -1,0 +1,91 @@
+name: jobatlas
+
+x-backend: &backend
+  build:
+    context: ../backend
+  env_file:
+    - path: ../.env
+      required: false
+  environment:
+    DATABASE_URL: postgresql+psycopg://jobatlas:jobatlas@db:5432/jobatlas
+    REDIS_URL: redis://redis:6379/0
+  depends_on:
+    db:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  restart: unless-stopped
+
+services:
+  db:
+    build: ./postgres
+    image: jobatlas-postgis:17-3
+    environment:
+      POSTGRES_USER: jobatlas
+      POSTGRES_PASSWORD: jobatlas
+      POSTGRES_DB: jobatlas
+    ports:
+      - "${JOBATLAS_DB_PORT:-54329}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jobatlas -d jobatlas"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7.4.6-alpine
+    ports:
+      - "${JOBATLAS_REDIS_PORT:-63799}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # Migrations run once, from this dedicated step only; workers never migrate.
+  migrate:
+    <<: *backend
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+
+  api:
+    <<: *backend
+    command: ["uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "${JOBATLAS_API_PORT:-8010}:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    <<: *backend
+    command: ["celery", "-A", "app.workers.celery_app", "worker", "--loglevel=INFO", "--concurrency=4"]
+    stop_grace_period: 60s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  # Exactly one scheduler. It only enqueues; schedule state lives in PostgreSQL.
+  scheduler:
+    <<: *backend
+    command: ["celery", "-A", "app.workers.celery_app", "beat", "--loglevel=INFO", "--schedule=/tmp/celerybeat-schedule"]
+    deploy:
+      replicas: 1
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  web:
+    build:
+      context: ../apps/web
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8010}
+    ports:
+      - "${JOBATLAS_WEB_PORT:-5173}:5173"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
