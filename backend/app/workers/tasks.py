@@ -68,3 +68,30 @@ def discover_commoncrawl(self) -> dict:
         sync_source_task.delay(str(source_id))
     log.info("discovery_done", **stats["verify"])
     return stats
+
+
+@celery_app.task(name="jobatlas.freshness_sweep")
+def freshness_sweep_task() -> int:
+    from app.services.lifecycle import freshness_sweep
+
+    with sync_session() as session:
+        return freshness_sweep(session)
+
+
+@celery_app.task(name="jobatlas.geocode_pending")
+def geocode_pending_task() -> dict:
+    from app.services.geocode import build_geocoder
+    from app.services.locations import geocode_pending
+
+    with sync_session() as session, SafeHttpClient() as client:
+        stats = geocode_pending(session, build_geocoder(client))
+    return stats.__dict__
+
+
+@celery_app.task(name="jobatlas.enrich_company_offices")
+def enrich_company_offices_task() -> dict:
+    from app.services.company_sites import enrich_companies
+
+    with sync_session() as session, SafeHttpClient() as client:
+        stats = enrich_companies(session, client)
+    return stats.__dict__

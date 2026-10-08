@@ -24,6 +24,9 @@ celery_app.conf.update(
             "task": "jobatlas.schedule_due_sources",
             "schedule": float(settings.scheduler_tick_seconds),
         },
+        "freshness-sweep": {"task": "jobatlas.freshness_sweep", "schedule": 3600.0},
+        "geocode-pending": {"task": "jobatlas.geocode_pending", "schedule": 86400.0},
+        "enrich-company-offices": {"task": "jobatlas.enrich_company_offices", "schedule": 86400.0},
         "discover-commoncrawl": {
             "task": "jobatlas.discover_commoncrawl",
             "schedule": float(settings.discovery_interval_minutes * 60),

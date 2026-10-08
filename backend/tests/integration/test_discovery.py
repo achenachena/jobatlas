@@ -3,7 +3,7 @@ import pytest
 from sqlalchemy import func, select
 
 from app.discovery import commoncrawl, pipeline
-from app.models import DiscoveryCandidate, DiscoveryWatermark, Source
+from app.models import Company, DiscoveryCandidate, DiscoveryWatermark, Source
 from tests.unit.test_commoncrawl import BASE, HOST, build_index, range_handler
 
 pytestmark = pytest.mark.integration
@@ -33,24 +33,48 @@ def test_verify_registers_live_boards_without_any_typed_company_name(
     _cand(session, "ashby", "someorg", "https://jobs.ashbyhq.com/someorg")
     fake_web.json(GH, "/v1/boards/acme", {"name": "Acme Robotics", "content": ""})
     fake_web.add(GH, "/v1/boards/gone", httpx.Response(404, json={"error": "not found"}))
+    fake_web.json(
+        "api.ashbyhq.com", "/posting-api/job-board/someorg?includeCompensation=true", {"jobs": []}
+    )
+    fake_web.add(
+        "jobs.ashbyhq.com",
+        "/someorg",
+        httpx.Response(200, text="<html><head><title>Some Org Jobs</title></head></html>"),
+    )
 
     stats = pipeline.verify_candidates(session, make_client())
-    assert stats.deferred_unsupported == 1
     assert stats.rejected == 1
-    assert len(stats.accepted_new_source) == 1
+    assert len(stats.accepted_new_source) == 2
 
     src = session.scalar(select(Source).where(Source.tenant_key == "acme"))
     assert src.discovered_via == "commoncrawl"
     assert src.next_run_at is not None  # initial sync is due immediately
+    names = set(session.scalars(select(Company.name)))
+    assert names == {"Acme Robotics", "Some Org"}  # from the boards, not typed by anyone
     states = dict(
         session.execute(select(DiscoveryCandidate.tenant_key, DiscoveryCandidate.state)).all()
     )
-    assert states == {"acme": "accepted", "gone": "rejected", "someorg": "deferred"}
+    assert states == {"acme": "accepted", "gone": "rejected", "someorg": "accepted"}
 
     # Re-running finds nothing new and creates no duplicates.
     again = pipeline.verify_candidates(session, make_client())
     assert again.checked == 0
-    assert session.scalar(select(func.count()).select_from(Source)) == 1
+    assert session.scalar(select(func.count()).select_from(Source)) == 2
+
+
+def test_candidates_parked_before_adapter_existed_are_requeued(session, make_client, fake_web):
+    session.add(
+        DiscoveryCandidate(
+            canonical_url="https://jobs.lever.co/acme", provider="lever", tenant_key="acme",
+            channel="commoncrawl", state="deferred", rejection_reason="adapter_not_implemented",
+            attempts=0,
+        )
+    )  # fmt: skip
+    session.commit()
+    fake_web.json("api.lever.co", "/v0/postings/acme?mode=json&skip=0&limit=100", [])
+    fake_web.add("jobs.lever.co", "/acme", httpx.Response(200, text="<title>Acme Inc</title>"))
+    stats = pipeline.verify_candidates(session, make_client())
+    assert len(stats.accepted_new_source) == 1
 
 
 def test_transient_verification_failure_retries_then_defers(session, make_client, fake_web):

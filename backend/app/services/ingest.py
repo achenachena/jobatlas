@@ -1,12 +1,15 @@
-"""Sync one source: fetch → normalize → relevance filter → idempotent upsert.
+"""Sync one source: fetch → normalize → relevance filter → idempotent upsert → lifecycle.
 
 Invariants (DEVELOPMENT.md §3, §6.3, §7):
 - A failed fetch (timeout, 403, 429, 5xx, parse error, partial pages) never changes job
   status and never advances last_verified_at.
 - Upserts key on (source_id, external_id); re-running the same sync creates nothing new.
 - Content changes update the existing job; first_seen_at is never modified.
-- Missing from a *complete* listing only increments a counter. Closing needs the
-  provider-specific closure evidence handled by the lifecycle service (stage 2).
+- A job seen in another source is merged only on strong evidence: the same canonical job URL,
+  or the same requisition id within the same company. Same title/company/city never merges.
+- Missing from a complete listing only increments a counter; closing is the lifecycle
+  service's decision. Suspicious listings (empty or sharply shrunk) are treated as
+  incomplete and quarantined rather than used as absence evidence.
 """
 
 from __future__ import annotations
@@ -15,25 +18,49 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from app.core.logging import get_logger
 from app.core.timeutil import utcnow
-from app.models import Job, JobEvent, JobSourceRecord, Source, SourceRun
+from app.models import (
+    Job,
+    JobEligibilityRegion,
+    JobEvent,
+    JobSourceRecord,
+    Source,
+    SourceRun,
+)
 from app.net.safe_http import FetchError, SafeHttpClient
 from app.providers.base import NormalizedJob, ProviderError, SourceRef, raw_hash
 from app.providers.registry import get_provider
-from app.services.region_match import is_target_relevant
+from app.services.locations import (
+    add_evidence,
+    link_remote_job_to_company,
+    refresh_location_status,
+    sync_job_addresses,
+)
+from app.services.region_match import (
+    Eligibility,
+    covers,
+    is_within,
+    match_location_text,
+    parse_eligibility,
+)
 from app.services.sources import (
     acquire_lock,
     next_run_after_failure,
     next_run_after_success,
     release_lock,
 )
+from app.services.urls import canonical_job_url
 
 log = get_logger(__name__)
 MAX_PAGES = 200
+# Anomaly guard: a complete listing this much smaller than the last complete one is suspect.
+SHRINK_RATIO = 0.5
+SHRINK_MIN_PREVIOUS = 20
+EMPTY_MIN_PREVIOUS = 5
 
 
 @dataclass
@@ -45,9 +72,34 @@ class SyncResult:
     records_relevant: int = 0
     created: int = 0
     updated: int = 0
+    merged: int = 0
+    closed: int = 0
     is_complete: bool = False
     error_class: str | None = None
     skipped_reasons: dict[str, int] = field(default_factory=dict)
+
+
+@dataclass
+class Relevance:
+    relevant: bool
+    region_id: str | None
+    eligibility: Eligibility | None
+
+
+def assess(n: NormalizedJob) -> Relevance:
+    """Target-region relevance plus the label region and (remote) eligibility."""
+    labels = [n.location_text, *n.extra_location_labels]
+    labels += [a.city for a in n.structured_addresses if a.city]
+    matches = [m for m in (match_location_text(label) for label in labels) if m]
+    gta = next((m.region_id for m in matches if is_within(m.region_id, "gta")), None)
+    region_id = gta or (matches[0].region_id if matches else None)
+    eligibility = None
+    if n.workplace_type == "remote":
+        eligibility = parse_eligibility([*labels, *n.eligibility_texts])
+    relevant = gta is not None or (
+        eligibility is not None and covers(eligibility.includes, eligibility.excludes, "gta")
+    )
+    return Relevance(relevant, region_id, eligibility)
 
 
 def publishability(job: Job) -> str | None:
@@ -66,12 +118,13 @@ def publishability(job: Job) -> str | None:
     return ",".join(missing) or None
 
 
-def _apply_fields(job: Job, n: NormalizedJob) -> None:
+def _apply_fields(job: Job, n: NormalizedJob, rel: Relevance) -> None:
     job.title = n.title
     job.description_text = n.description_text
     job.workplace_type = n.workplace_type
     job.apply_url = n.apply_url
     job.location_text = n.location_text
+    job.location_region_id = rel.region_id
     job.employment_type = n.employment_type
     job.salary_min, job.salary_max = n.salary_min, n.salary_max
     job.salary_currency, job.salary_period, job.salary_raw = (
@@ -79,6 +132,13 @@ def _apply_fields(job: Job, n: NormalizedJob) -> None:
         n.salary_period,
         n.salary_raw,
     )
+    if n.workplace_type == "remote":
+        elig = rel.eligibility or Eligibility()
+        job.eligibility_status = "known" if elig.known else "unknown"
+        job.remote_eligibility_text = "; ".join(dict.fromkeys(elig.evidence)) or None
+    else:
+        job.eligibility_status = "not_applicable"
+        job.remote_eligibility_text = None
     # Never replace a known original posting time with "unknown" from a later payload.
     if n.posted_basis != "unknown" or job.posted_basis in (None, "unknown"):
         job.posted_at = n.posted_at
@@ -91,33 +151,138 @@ def _apply_fields(job: Job, n: NormalizedJob) -> None:
     job.quarantine_reason = reason
 
 
+def _replace_eligibility(
+    session: Session, job: Job, rel: Relevance, source_url: str | None, now: datetime
+) -> None:
+    session.execute(delete(JobEligibilityRegion).where(JobEligibilityRegion.job_id == job.id))
+    elig = rel.eligibility
+    if job.workplace_type != "remote" or elig is None or not (elig.includes or elig.excludes):
+        return
+    ev = add_evidence(
+        session, "job", job.id, "eligibility",
+        method="source_location_labels", confidence="medium",
+        excerpt=" | ".join(elig.evidence), source_url=source_url, now=now,
+    )  # fmt: skip
+    for mode, regions in (("include", elig.includes), ("exclude", elig.excludes)):
+        for region_id in sorted(regions):
+            session.add(
+                JobEligibilityRegion(
+                    job_id=job.id, region_id=region_id, include_or_exclude=mode, evidence_id=ev.id
+                )
+            )
+
+
+def _derived(session: Session, job: Job, n: NormalizedJob, rel: Relevance, now: datetime) -> None:
+    """Everything recomputed when content changes: evidence, eligibility, address links."""
+    if n.workplace_evidence:
+        add_evidence(
+            session, "job", job.id, "workplace_type",
+            method="source_field", confidence="high", excerpt=n.workplace_evidence,
+            source_url=n.canonical_url, now=now,
+        )  # fmt: skip
+    _replace_eligibility(session, job, rel, n.canonical_url, now)
+    sync_job_addresses(session, job, n, n.canonical_url, now)
+    link_remote_job_to_company(session, job, now)
+    refresh_location_status(session, job)
+
+
+def _event(session: Session, job: Job, to: str, reason: str, run: SourceRun, now: datetime):
+    session.add(
+        JobEvent(
+            job_id=job.id,
+            from_status=job.status if job.id else None,
+            to_status=to,
+            reason=reason,
+            source_run_id=run.id,
+            occurred_at=now,
+        )
+    )
+
+
+def _find_merge_target(session: Session, source: Source, n: NormalizedJob) -> Job | None:
+    canonical = canonical_job_url(n.canonical_url)
+    if canonical:
+        rec = session.scalar(
+            select(JobSourceRecord)
+            .where(
+                JobSourceRecord.canonical_url == canonical, JobSourceRecord.source_id != source.id
+            )
+            .limit(1)
+        )
+        if rec is not None:
+            return session.get(Job, rec.job_id)
+    if n.requisition_id and source.company_id:
+        rec = session.scalar(
+            select(JobSourceRecord)
+            .join(Job, Job.id == JobSourceRecord.job_id)
+            .where(
+                JobSourceRecord.requisition_id == n.requisition_id,
+                JobSourceRecord.source_id != source.id,
+                Job.company_id == source.company_id,
+            )
+            .limit(1)
+        )
+        if rec is not None:
+            return session.get(Job, rec.job_id)
+    return None
+
+
 def upsert_job(
     session: Session,
     source: Source,
     run: SourceRun,
     n: NormalizedJob,
+    rel: Relevance,
     digest: str,
     now: datetime,
 ) -> str:
-    """Returns 'created' | 'updated' | 'unchanged'."""
+    """Returns 'created' | 'merged' | 'updated' | 'unchanged' | 'closed' | 'skipped_expired'."""
     rec = session.scalar(
         select(JobSourceRecord)
         .where(JobSourceRecord.source_id == source.id, JobSourceRecord.external_id == n.external_id)
         .with_for_update()
     )
+    expired = n.valid_through is not None and n.valid_through < now
     outcome = "unchanged"
     if rec is None:
-        job = Job(
-            company_id=source.company_id,
-            status="active",
-            first_seen_at=now,
-            last_seen_at=now,
-            last_verified_at=now,
-            location_status="unverified",
-        )
-        _apply_fields(job, n)
-        session.add(job)
-        session.flush()
+        if expired:
+            return "skipped_expired"
+        job = _find_merge_target(session, source, n)
+        if job is not None:
+            outcome = "merged"
+            if job.status == "active":
+                job.last_seen_at = now
+                job.last_verified_at = now
+            add_evidence(
+                session, "job", job.id, "merge",
+                method="canonical_url_or_requisition", confidence="high",
+                excerpt=f"source {source.provider}:{source.tenant_key} record {n.external_id}",
+                source_url=n.canonical_url, now=now,
+            )  # fmt: skip
+        else:
+            job = Job(
+                company_id=source.company_id,
+                status="active",
+                first_seen_at=now,
+                last_seen_at=now,
+                last_verified_at=now,
+                location_status="unverified",
+            )
+            _apply_fields(job, n, rel)
+            session.add(job)
+            session.flush()
+            session.add(
+                JobEvent(
+                    job_id=job.id,
+                    from_status=None,
+                    to_status="active",
+                    reason="first_seen_in_source_listing",
+                    source_run_id=run.id,
+                    occurred_at=now,
+                )
+            )
+            _derived(session, job, n, rel, now)
+            outcome = "created"
         rec = JobSourceRecord(
             job_id=job.id,
             source_id=source.id,
@@ -126,43 +291,36 @@ def upsert_job(
             consecutive_missing=0,
         )
         session.add(rec)
-        session.add(
-            JobEvent(
-                job_id=job.id,
-                from_status=None,
-                to_status="active",
-                reason="first_seen_in_source_listing",
-                source_run_id=run.id,
-                occurred_at=now,
-            )
-        )
-        outcome = "created"
     else:
         job = session.get(Job, rec.job_id, with_for_update=True)
         assert job is not None
         if rec.raw_hash != digest:
-            _apply_fields(job, n)
+            _apply_fields(job, n, rel)
+            _derived(session, job, n, rel, now)
             rec.raw_hash = digest
             outcome = "updated"
-        if job.status != "active":
-            session.add(
-                JobEvent(
-                    job_id=job.id,
-                    from_status=job.status,
-                    to_status="active",
-                    reason="listed_again_by_source",
-                    source_run_id=run.id,
-                    occurred_at=now,
-                )
-            )
-            job.status = "active"
-            job.closed_at = None
-            job.close_reason = None
-        # Being listed by the original source right now is positive open evidence.
-        job.last_seen_at = now
-        job.last_verified_at = now
+        if expired:
+            if job.status != "closed":
+                _event(session, job, "closed", "source_valid_through_passed", run, now)
+                job.status, job.closed_at = "closed", now
+                job.close_reason = f"validThrough {n.valid_through.isoformat()} passed"
+                add_evidence(
+                    session, "job", job.id, "status",
+                    method="source_valid_through", confidence="high",
+                    excerpt=job.close_reason, source_url=n.canonical_url, now=now,
+                )  # fmt: skip
+                outcome = "closed"
+        else:
+            if job.status != "active":
+                _event(session, job, "active", "listed_again_by_source", run, now)
+                job.status = "active"
+                job.closed_at = None
+                job.close_reason = None
+            # Being listed by the original source right now is positive open evidence.
+            job.last_seen_at = now
+            job.last_verified_at = now
 
-    rec.canonical_url = n.canonical_url
+    rec.canonical_url = canonical_job_url(n.canonical_url)
     rec.requisition_id = n.requisition_id
     rec.source_posted_at = n.posted_at
     rec.source_updated_at = n.source_updated_at
@@ -181,15 +339,32 @@ def sync_source(
     *,
     owner: str | None = None,
     task_id: str | None = None,
+    run_lifecycle: bool = True,
 ) -> SyncResult:
     owner = owner or f"sync-{uuid.uuid4()}"
     if not acquire_lock(session, source_id, owner):
         return SyncResult(source_id, status="skipped_locked")
     try:
-        return _sync_locked(session, source_id, client, task_id)
+        result = _sync_locked(session, source_id, client, task_id)
+        if run_lifecycle and result.is_complete and result.run_id is not None:
+            from app.services.lifecycle import process_missing
+
+            result.closed += process_missing(session, source_id, result.run_id, client)
+        return result
     finally:
         session.rollback()
         release_lock(session, source_id, owner)
+
+
+def _previous_complete_count(
+    session: Session, source_id: uuid.UUID, run_id: uuid.UUID
+) -> int | None:
+    return session.scalar(
+        select(SourceRun.records_seen)
+        .where(SourceRun.source_id == source_id, SourceRun.is_complete, SourceRun.id != run_id)
+        .order_by(SourceRun.started_at.desc())
+        .limit(1)
+    )
 
 
 def _sync_locked(
@@ -241,6 +416,17 @@ def _sync_locked(
         result.status, result.error_class = "failed", exc.error_class
         return result
 
+    if complete:
+        previous = _previous_complete_count(session, source.id, run.id)
+        suspicious = previous is not None and (
+            (not records and previous >= EMPTY_MIN_PREVIOUS)
+            or (previous >= SHRINK_MIN_PREVIOUS and len(records) < previous * SHRINK_RATIO)
+        )
+        if suspicious:
+            complete = False
+            run.error_class = "suspicious_listing"
+            bound.warning("suspicious_listing", previous=previous, now_seen=len(records))
+
     now = utcnow()
     seen_ids: set[str] = set()
     parse_failures = 0
@@ -252,7 +438,8 @@ def _sync_locked(
             parse_failures += 1
             continue
         seen_ids.add(n.external_id)
-        if not is_target_relevant(n.location_text, n.workplace_type):
+        rel = assess(n)
+        if not rel.relevant:
             already = session.scalar(
                 select(JobSourceRecord.id).where(
                     JobSourceRecord.source_id == source.id,
@@ -265,11 +452,17 @@ def _sync_locked(
                 )
                 continue
         result.records_relevant += 1
-        outcome = upsert_job(session, source, run, n, raw_hash(raw), now)
+        outcome = upsert_job(session, source, run, n, rel, raw_hash(raw), now)
         if outcome == "created":
             result.created += 1
         elif outcome == "updated":
             result.updated += 1
+        elif outcome == "merged":
+            result.merged += 1
+        elif outcome == "closed":
+            result.closed += 1
+        elif outcome == "skipped_expired":
+            result.skipped_reasons["expired"] = result.skipped_reasons.get("expired", 0) + 1
 
     if parse_failures:
         result.skipped_reasons["parse_failure"] = parse_failures
@@ -308,5 +501,6 @@ def _sync_locked(
         relevant=result.records_relevant,
         created=result.created,
         updated=result.updated,
+        merged=result.merged,
     )
     return result

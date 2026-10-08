@@ -52,6 +52,24 @@ class BoardInfo:
     evidence_url: str | None = None
 
 
+@dataclass(frozen=True)
+class StructuredAddress:
+    """An address the source itself attaches to the job. Only `street` makes it a candidate
+    exact work location; city-only addresses are never placed on the map."""
+
+    street: str | None
+    city: str | None
+    region: str | None
+    postal_code: str | None
+    country: str | None
+    label: str | None
+    method: str
+
+    def one_line(self) -> str:
+        parts = [self.street, self.city, self.region, self.postal_code, self.country]
+        return ", ".join(p for p in parts if p)
+
+
 @dataclass
 class NormalizedJob:
     external_id: str
@@ -79,6 +97,12 @@ class NormalizedJob:
     salary_period: str | None = None
     salary_raw: str | None = None
     office_names: list[str] = field(default_factory=list)
+    extra_location_labels: list[str] = field(default_factory=list)
+    structured_addresses: list[StructuredAddress] = field(default_factory=list)
+    # Explicit applicant-location statements (JSON-LD applicantLocationRequirements etc.).
+    eligibility_texts: list[str] = field(default_factory=list)
+    # Source-declared expiry (JSON-LD validThrough); past -> closure evidence.
+    valid_through: datetime | None = None
 
 
 @dataclass

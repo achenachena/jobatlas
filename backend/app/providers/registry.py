@@ -1,10 +1,12 @@
+from app.providers.ashby import AshbyProvider
 from app.providers.base import Provider, SourceCandidate
 from app.providers.greenhouse import GreenhouseProvider
-from app.providers.recognizers import AshbyRecognizer, LeverRecognizer
+from app.providers.jsonld import JsonLdProvider
+from app.providers.lever import LeverProvider
 
 PROVIDERS: dict[str, Provider] = {
-    p.name: p
-    for p in (GreenhouseProvider(), AshbyRecognizer(), LeverRecognizer())  # type: ignore[misc]
+    p.name: p  # type: ignore[misc]
+    for p in (GreenhouseProvider(), AshbyProvider(), LeverProvider(), JsonLdProvider())
 }
 
 

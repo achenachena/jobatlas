@@ -3,8 +3,9 @@
 Map-first job discovery for the GTA. Product spec: [docs/PRD-v0.2.txt](docs/PRD-v0.2.txt).
 Implementation plan: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
-**Status: stage 1 (data feasibility + skeleton).** Real employer discovery and Greenhouse
-ingestion work end to end; there is no search API or map UI yet. See
+**Status: stage 2 (backend data loop).** Discovery, Greenhouse/Ashby/Lever ingestion,
+controlled JSON-LD pages, eligibility, address evidence, lifecycle and the public read API
+work end to end; the map UI is stage 3. See
 [docs/VALIDATION.md](docs/VALIDATION.md) for what is verified and what is not, and
 [docs/SOURCES.md](docs/SOURCES.md) for data-source findings.
 
@@ -38,10 +39,25 @@ docker compose -f infra/compose.yaml exec worker jobatlas discover \
     --pattern greenhouse-job-boards --max-blocks 4 --verify 50 --sync-new
 docker compose -f infra/compose.yaml exec worker jobatlas stats
 docker compose -f infra/compose.yaml exec worker jobatlas sync-due   # sync whatever is due now
+docker compose -f infra/compose.yaml exec worker jobatlas sweep      # Active -> Pending if stale
+docker compose -f infra/compose.yaml exec worker jobatlas enrich-offices   # company HQ for remote jobs
+docker compose -f infra/compose.yaml exec worker jobatlas geocode    # needs GEOCODER_PROVIDER
+docker compose -f infra/compose.yaml exec worker jobatlas add-jsonld https://careers.example.com/
+```
+
+Public API (read-only, no account; OpenAPI at `/api/v1/openapi.json`):
+
+```bash
+curl 'http://localhost:8010/api/v1/search?q=backend%20engineer&time_window=3d&bbox=-79.6,43.58,-79.1,43.86'
+curl 'http://localhost:8010/api/v1/search/<search_id>/jobs?cursor=<next_cursor>'
+curl  http://localhost:8010/api/v1/jobs/<job_id>
+curl 'http://localhost:8010/api/v1/regions?q=missis'
+curl  http://localhost:8010/api/v1/coverage
 ```
 
 After that the scheduler keeps going on its own: due sources every 60 s tick (active sources
-every 30 min, sources without target-region jobs every 6 h) and discovery daily.
+every 30 min, sources without target-region jobs every 6 h), freshness sweep hourly, company
+office lookup and geocoding daily, discovery daily.
 
 Stop / clean up:
 
@@ -97,6 +113,6 @@ Scheduled backups and a production host are not set up yet (no hosting platform 
 
 ## Not configured yet
 
-- Map style/tiles provider (stage 3) and geocoding provider (stage 2): see `.env.example`.
-  Public Nominatim is not to be used for batch work.
+- Map style/tiles provider (stage 3) and a production geocoding provider: see `.env.example`.
+  Public Nominatim is only acceptable for low-volume development, never batch work.
 - Production hosting, backups schedule, and their costs.

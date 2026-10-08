@@ -49,6 +49,25 @@ class Settings(BaseSettings):
         default=50, alias="DISCOVERY_MAX_VERIFICATIONS_PER_RUN"
     )
 
+    geocoder_provider: str = Field(default="none", alias="GEOCODER_PROVIDER")
+    geocoder_base_url: str | None = Field(default=None, alias="GEOCODER_BASE_URL")
+    geocoder_retry_days: int = Field(default=7, alias="GEOCODER_RETRY_DAYS")
+    geocoder_batch_size: int = Field(default=50, alias="GEOCODER_BATCH_SIZE")
+
+    # Lifecycle (DEVELOPMENT.md §7.2)
+    freshness_hours: int = Field(default=48, alias="FRESHNESS_HOURS")
+    missing_min_interval_minutes: int = Field(default=30, alias="MISSING_MIN_INTERVAL_MINUTES")
+    missing_close_without_detail_hours: int = Field(
+        default=24, alias="MISSING_CLOSE_WITHOUT_DETAIL_HOURS"
+    )
+
+    # Search
+    search_snapshot_ttl_seconds: int = Field(default=300, alias="SEARCH_SNAPSHOT_TTL_SECONDS")
+    search_max_map_points: int = Field(default=5000, alias="SEARCH_MAX_MAP_POINTS")
+    api_rate_limit_per_minute: int = Field(default=120, alias="API_RATE_LIMIT_PER_MINUTE")
+
+    jsonld_max_job_pages: int = Field(default=30, alias="JSONLD_MAX_JOB_PAGES")
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

@@ -3,9 +3,10 @@ from datetime import UTC, datetime
 import httpx
 import pytest
 
+from app.providers.ashby import AshbyProvider as AshbyRecognizer
 from app.providers.base import SourceRef
 from app.providers.greenhouse import GreenhouseProvider
-from app.providers.recognizers import AshbyRecognizer, LeverRecognizer
+from app.providers.lever import LeverProvider as LeverRecognizer
 from app.providers.registry import recognize
 from app.providers.text import html_to_text, workplace_from_location_label
 from tests.conftest import load_fixture

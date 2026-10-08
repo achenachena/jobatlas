@@ -15,7 +15,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from sqlalchemy import select, update
+from sqlalchemy import select, true, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -192,12 +192,27 @@ def harvest_commoncrawl(
 
 
 def verify_candidates(
-    session: Session, client: SafeHttpClient, *, limit: int | None = None
+    session: Session,
+    client: SafeHttpClient,
+    *,
+    limit: int | None = None,
+    provider: str | None = None,
 ) -> VerifyStats:
     limit = limit if limit is not None else get_settings().discovery_max_verifications_per_run
     stats = VerifyStats()
     now = utcnow()
 
+    supported = [name for name, p in PROVIDERS.items() if p.supports_fetch]
+    # Candidates parked before their adapter existed get another chance.
+    session.execute(
+        update(DiscoveryCandidate)
+        .where(
+            DiscoveryCandidate.state == "deferred",
+            DiscoveryCandidate.rejection_reason == "adapter_not_implemented",
+            DiscoveryCandidate.provider.in_(supported),
+        )
+        .values(state="new", rejection_reason=None)
+    )
     unsupported = [name for name, p in PROVIDERS.items() if not p.supports_fetch]
     res = session.execute(
         update(DiscoveryCandidate)
@@ -211,6 +226,7 @@ def verify_candidates(
         session.scalars(
             select(DiscoveryCandidate)
             .where(DiscoveryCandidate.state == "new")
+            .where(DiscoveryCandidate.provider == provider if provider else true())
             .order_by(DiscoveryCandidate.first_seen_at, DiscoveryCandidate.canonical_url)
             .limit(limit)
             .with_for_update(skip_locked=True)

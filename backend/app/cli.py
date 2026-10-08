@@ -44,6 +44,7 @@ def discover(
     collections_back: int = typer.Option(1, help="how many newest collections to cover"),
     sync_new: bool = typer.Option(False, help="run the initial sync for new sources inline"),
     pattern: list[str] = typer.Option(None, help="restrict to host patterns (see commoncrawl.py)"),
+    verify_provider: str = typer.Option(None, help="only verify candidates of this provider"),
 ) -> None:
     """Find previously unknown employers via the Common Crawl URL index."""
     with sync_session() as session, SafeHttpClient() as client:
@@ -55,7 +56,7 @@ def discover(
             collections_back=collections_back,
             patterns=pattern or None,
         )
-        ver = pipeline.verify_candidates(session, client, limit=verify)
+        ver = pipeline.verify_candidates(session, client, limit=verify, provider=verify_provider)
         stats = {"harvest": harvest.as_dict(), "verify": ver.as_dict()}
         synced = []
         if sync_new:
@@ -108,29 +109,73 @@ def sync_due() -> None:
 
 @app.command()
 def seed(provider: str = typer.Option(...), tenant: str = typer.Option(...)) -> None:
-    """Register a source by hand. Marked discovered_via=seed; never counts as discovery."""
+    """Register an ATS board by hand. Marked discovered_via=seed; never counts as discovery."""
+    urls = {
+        "greenhouse": "https://job-boards.greenhouse.io/{t}",
+        "ashby": "https://jobs.ashbyhq.com/{t}",
+        "lever": "https://jobs.lever.co/{t}",
+    }
+    if provider not in urls:
+        raise typer.BadParameter("provider must be greenhouse, ashby or lever")
     p = get_provider(provider)
+    cand = p.recognize(urls[provider].format(t=tenant))
+    if cand is None:
+        raise typer.BadParameter("tenant not recognized")
     with sync_session() as session, SafeHttpClient() as client:
-        cand = (
-            p.recognize(f"https://job-boards.greenhouse.io/{tenant}")
-            if provider == "greenhouse"
-            else None
-        )
-        if cand is None:
-            raise typer.BadParameter("only greenhouse seeding is supported in stage 1")
         board = p.board_info(client, SourceRef(provider, cand.tenant_key))
         if not board.exists:
             raise typer.BadParameter(f"board {tenant} not found live")
         src, created = register_source(
-            session,
-            cand,
-            board,
-            discovered_via="seed",
-            discovery_url=None,
+            session, cand, board, discovered_via="seed", discovery_url=None,
             discovery_candidate_id=None,
-        )
+        )  # fmt: skip
         session.commit()
     _echo({"source_id": src.id, "created": created})
+
+
+@app.command("add-jsonld")
+def add_jsonld(url: str = typer.Argument(..., help="official employer careers page")) -> None:
+    """Register an official careers page parsed via schema.org JobPosting (robots-checked)."""
+    p = get_provider("jsonld")
+    cand = p.candidate_for(url)  # type: ignore[attr-defined]
+    with sync_session() as session, SafeHttpClient() as client:
+        board = p.board_info(client, SourceRef("jsonld", cand.tenant_key))
+        if not board.exists:
+            raise typer.BadParameter(f"page not reachable (status {board.http_status})")
+        src, created = register_source(
+            session, cand, board, discovered_via="manual", discovery_url=url,
+            discovery_candidate_id=None,
+        )  # fmt: skip
+        session.commit()
+    _echo({"source_id": src.id, "created": created, "company": board.company_name})
+
+
+@app.command()
+def sweep() -> None:
+    """Move stale Active jobs to Pending Verification (normally hourly)."""
+    from app.services.lifecycle import freshness_sweep
+
+    with sync_session() as session:
+        _echo({"pending": freshness_sweep(session)})
+
+
+@app.command()
+def geocode(limit: int = typer.Option(None)) -> None:
+    """Geocode pending addresses with the configured provider (GEOCODER_PROVIDER)."""
+    from app.services.geocode import build_geocoder
+    from app.services.locations import geocode_pending
+
+    with sync_session() as session, SafeHttpClient() as client:
+        _echo(geocode_pending(session, build_geocoder(client), limit=limit).__dict__)
+
+
+@app.command("enrich-offices")
+def enrich_offices(limit: int = typer.Option(20)) -> None:
+    """Find official HQ/office addresses on company websites (for remote jobs)."""
+    from app.services.company_sites import enrich_companies
+
+    with sync_session() as session, SafeHttpClient() as client:
+        _echo(enrich_companies(session, client, limit=limit).__dict__)
 
 
 @app.command()

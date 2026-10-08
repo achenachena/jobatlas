@@ -21,8 +21,15 @@ POLICY_BY_PROVIDER = {
         "Greenhouse Job Board API is documented for public read access to published jobs; "
         "boards-api robots.txt only disallows /embed/.",
     ),
-    "ashby": ("documented_public_api", "Ashby public job posting API (stage 2 adapter)."),
+    "ashby": (
+        "documented_public_api",
+        "Ashby public job posting API, documented for embedding/reading published jobs.",
+    ),
     "lever": ("documented_public_api", "Lever postings API; robots allows / with crawl-delay 1."),
+    "jsonld": (
+        "robots_allowed_official_page",
+        "Employer's own careers page; every fetch checked against robots.txt.",
+    ),
 }
 
 MAX_BACKOFF = timedelta(hours=24)

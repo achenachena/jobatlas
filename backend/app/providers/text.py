@@ -92,3 +92,16 @@ def workplace_from_location_label(label: str | None) -> tuple[str, str | None]:
         if any(not _REMOTE_RE.search(seg) and seg not in _QUALIFIER_SEGMENTS for seg in segments):
             return "unknown", None
     return kind, f"location label: {label!r}"
+
+
+_TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.S | re.I)
+
+
+def page_title(markup: str, strip_suffix: str | None = None) -> str | None:
+    m = _TITLE_RE.search(markup)
+    if not m:
+        return None
+    title = re.sub(r"\s+", " ", html.unescape(m.group(1))).strip()
+    if strip_suffix and title.endswith(strip_suffix):
+        title = title[: -len(strip_suffix)].strip()
+    return title[:200] or None

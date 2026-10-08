@@ -72,6 +72,7 @@ class Company(TimestampMixin, Base):
     canonical_domain: Mapped[str | None] = mapped_column(Text)
     website_url: Mapped[str | None] = mapped_column(Text)
     identity_status: Mapped[str] = mapped_column(String(16), nullable=False, default="unverified")
+    offices_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Source(TimestampMixin, Base):
@@ -156,6 +157,9 @@ class Job(TimestampMixin, Base):
         _check_in("posted_precision", POSTED_PRECISION, "ck_jobs_posted_precision"),
         _check_in("posted_basis", POSTED_BASIS, "ck_jobs_posted_basis"),
         _check_in("location_status", LOCATION_STATUSES, "ck_jobs_location_status"),
+        _check_in(
+            "eligibility_status", ("not_applicable", "unknown", "known"), "ck_jobs_eligibility"
+        ),
         Index("ix_jobs_status_posted", "status", "posted_at"),
         Index("ix_jobs_last_verified_at", "last_verified_at"),
         Index("ix_jobs_title_tsv", "title_tsv", postgresql_using="gin"),
@@ -199,8 +203,15 @@ class Job(TimestampMixin, Base):
     apply_url: Mapped[str | None] = mapped_column(Text)
 
     location_text: Mapped[str | None] = mapped_column(Text)
+    # Most specific region the location *label* names (city-level at best). Never a coordinate.
+    location_region_id: Mapped[str | None] = mapped_column(ForeignKey("regions.id"), index=True)
     location_status: Mapped[str] = mapped_column(String(24), nullable=False, default="unverified")
     remote_eligibility_text: Mapped[str | None] = mapped_column(Text)
+    # unknown = remote without a stated region; known = job_eligibility_regions rows exist;
+    # not_applicable = not a remote job.
+    eligibility_status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="not_applicable"
+    )
 
 
 class JobSourceRecord(TimestampMixin, Base):
@@ -237,6 +248,7 @@ class Location(TimestampMixin, Base):
     )
 
     normalized_address: Mapped[str] = mapped_column(Text, nullable=False)
+    display_address: Mapped[str | None] = mapped_column(Text)
     country: Mapped[str | None] = mapped_column(String(2))
     province: Mapped[str | None] = mapped_column(Text)
     city: Mapped[str | None] = mapped_column(Text)
@@ -281,6 +293,26 @@ class JobLocation(TimestampMixin, Base):
     role: Mapped[str] = mapped_column(String(24), nullable=False)
     verification_status: Mapped[str] = mapped_column(String(16), nullable=False)
     evidence_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("evidence.id"))
+
+
+class CompanyLocation(TimestampMixin, Base):
+    """Official company office / HQ, each backed by evidence. Reusable across that company's
+    jobs, but a job only uses it through its own explicit job_locations link."""
+
+    __tablename__ = "company_locations"
+    __table_args__ = (
+        _check_in("role", ("office", "headquarters"), "ck_company_locations_role"),
+        UniqueConstraint("company_id", "location_id", "role", name="uq_company_locations"),
+    )
+
+    company_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("companies.id"), nullable=False, index=True
+    )
+    location_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("locations.id"), nullable=False)
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    label: Mapped[str | None] = mapped_column(Text)
+    evidence_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("evidence.id"))
+    invalidated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Region(Base):

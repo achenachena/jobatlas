@@ -4,7 +4,8 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.routes import health
+from app.api import errors
+from app.api.routes import catalog, health, search
 from app.core.config import get_settings
 from app.core.logging import configure_logging, get_logger
 
@@ -45,7 +46,10 @@ def create_app() -> FastAPI:
         response.headers["X-Request-ID"] = request_id
         return response
 
+    errors.install(app)
     app.include_router(health.router, prefix="/api/v1")
+    app.include_router(search.router, prefix="/api/v1")
+    app.include_router(catalog.router, prefix="/api/v1")
     return app
 
 
