@@ -180,3 +180,13 @@ def test_source_lock_prevents_overlap(session, make_client, fake_web):
     r = sync_source(session, src.id, make_client())
     assert r.status == "skipped_locked"
     assert _count(session, SourceRun) == 0
+
+
+def test_oversized_response_fails_only_that_source(session, make_client, fake_web):
+    src = _source(session)
+    fake_web.add(HOST, LIST, httpx.Response(200, content=b"x" * 5000))
+    fake_web.add(HOST, "/v1/boards/stripe/jobs", httpx.Response(200, content=b"x" * 5000))
+    client = make_client()
+    client.max_bytes = 4000
+    r = sync_source(session, src.id, client)
+    assert r.status == "failed" and r.error_class == "too_large"

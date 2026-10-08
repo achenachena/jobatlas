@@ -61,7 +61,13 @@ def discover(
         synced = []
         if sync_new:
             for sid in ver.accepted_new_source:
-                r = sync_source(session, sid, client)
+                try:
+                    r = sync_source(session, sid, client)
+                except Exception as exc:  # noqa: BLE001 - one source must not stop the round
+                    session.rollback()
+                    synced.append({"source_id": sid, "status": f"error:{type(exc).__name__}",
+                                   "seen": 0, "relevant": 0, "created": 0})  # fmt: skip
+                    continue
                 synced.append(
                     {
                         "source_id": sid,
@@ -102,7 +108,14 @@ def sync_due() -> None:
     out = []
     with sync_session() as session, SafeHttpClient() as client:
         for sid in due_source_ids(session):
-            r = sync_source(session, sid, client)
+            try:
+                r = sync_source(session, sid, client)
+            except Exception as exc:  # noqa: BLE001 - one source must not stop the round
+                session.rollback()
+                out.append(
+                    {"source_id": sid, "status": f"error:{type(exc).__name__}", "created": 0}
+                )
+                continue
             out.append({"source_id": sid, "status": r.status, "created": r.created})
     _echo(out)
 
@@ -176,6 +189,22 @@ def enrich_offices(limit: int = typer.Option(20)) -> None:
 
     with sync_session() as session, SafeHttpClient() as client:
         _echo(enrich_companies(session, client, limit=limit).__dict__)
+
+
+@app.command()
+def reprocess() -> None:
+    """After a rule change: clear content hashes and make every source due, so the next sync
+    recomputes derived fields (regions, eligibility, address links) for every tracked job."""
+    from sqlalchemy import func as sa_func
+    from sqlalchemy import update
+
+    from app.models import JobSourceRecord
+
+    with sync_session() as session:
+        n = session.execute(update(JobSourceRecord).values(raw_hash="")).rowcount
+        session.execute(update(Source).values(next_run_at=sa_func.now()))
+        session.commit()
+    _echo({"records_marked": n})
 
 
 @app.command()

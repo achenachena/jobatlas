@@ -26,7 +26,7 @@ from typing import Any
 from urllib.parse import parse_qs, quote, urlsplit
 
 from app.core.timeutil import parse_iso_datetime
-from app.net.safe_http import SafeHttpClient
+from app.net.safe_http import ResponseTooLargeError, SafeHttpClient
 from app.providers.base import (
     BoardInfo,
     FetchPage,
@@ -102,7 +102,12 @@ class GreenhouseProvider:
         self, client: SafeHttpClient, source: SourceRef, cursor: str | None
     ) -> FetchPage:
         url = f"{API}/{quote(source.tenant_key)}/jobs?content=true"
-        resp = client.get(url)
+        try:
+            resp = client.get(url)
+        except ResponseTooLargeError:
+            # Very large boards: the listing without descriptions is still complete; we only
+            # lose description-based address extraction for this run.
+            resp = client.get(f"{API}/{quote(source.tenant_key)}/jobs")
         if resp.status_code != 200:
             raise ProviderError(
                 f"jobs list {resp.status_code}", error_class="http", http_status=resp.status_code

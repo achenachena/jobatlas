@@ -97,8 +97,9 @@ async def measure(url: str, redis_url: str, runs: int) -> dict:
         "all_gta": SearchParams(None, "gta", None),
         "kw_backend_3d": SearchParams("backend engineer", "gta", None, "3d"),
         "kw_nurse_downtown": SearchParams("nurse", "gta", BBox(-79.45, 43.62, -79.30, 43.70)),
-        "hybrid_7d_downtown": SearchParams(None, "gta", BBox(-79.45, 43.62, -79.30, 43.70), "7d",
-                                           "hybrid"),  # fmt: skip
+        "hybrid_7d_downtown": SearchParams(
+            None, "gta", BBox(-79.45, 43.62, -79.30, 43.70), "7d", "hybrid"
+        ),  # fmt: skip
         "today_remote": SearchParams(None, "gta", None, "today", "remote"),
     }
     redis = Redis.from_url(redis_url, decode_responses=True)

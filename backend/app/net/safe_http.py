@@ -43,10 +43,6 @@ class UnsafeURLError(ValueError):
     """The URL or one of its redirect targets points somewhere we must not connect to."""
 
 
-class ResponseTooLargeError(Exception):
-    pass
-
-
 class FetchError(Exception):
     """Transport-level failure after retries. Never evidence that a job closed."""
 
@@ -54,6 +50,11 @@ class FetchError(Exception):
         super().__init__(message)
         self.error_class = error_class
         self.status = status
+
+
+class ResponseTooLargeError(FetchError):
+    def __init__(self, message: str):
+        super().__init__(message, error_class="too_large")
 
 
 def default_resolver(host: str, port: int) -> list[str]:

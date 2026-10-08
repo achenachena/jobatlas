@@ -52,7 +52,12 @@ def test_match_location_text(label, region):
         (["Remote - North America"], {"north-america"}, set()),
         (["Remote in Canada, excluding Quebec"], {"ca"}, {"ca-qc"}),
         (["Remote Canada (not available in Ontario)"], {"ca"}, {"ca-on"}),
-        (["Toronto", "Canada"], {"toronto", "ca"}, set()),
+        (["Toronto", "Canada"], {"toronto", "ca"}, set()),  # separate labels
+        (["Canada-British Columbia-Remote"], {"ca-bc"}, set()),
+        (["Remote Global (US, EU)"], {"us"}, set()),
+        (["US/Global (Remote)"], {"us"}, set()),
+        (["Remote - Toronto, Canada"], {"toronto"}, set()),
+        (["Remote - Americas or EU"], {"north-america"}, set()),
     ],
 )
 def test_parse_eligibility(texts, includes, excludes):

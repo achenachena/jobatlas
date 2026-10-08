@@ -176,6 +176,22 @@ def _regions_in(fragment: str) -> set[str]:
     return found
 
 
+def _narrow(regions: set[str]) -> set[str]:
+    """Within ONE label, the most specific regions win:
+    - "Canada-British Columbia-Remote" means BC, not all of Canada (the country qualifies the
+      province), so an ancestor of another named region is dropped;
+    - "Remote Global (US, EU)" means the US/EU, so worldwide/North America are dropped when
+      specific countries are also named."""
+    countries = regions - {"worldwide", "north-america"}
+    out = set(regions)
+    if countries:
+        out -= {"worldwide", "north-america"}
+    for r in list(out):
+        if any(other != r and r in ancestors(other) for other in out):
+            out.discard(r)
+    return out
+
+
 def parse_eligibility(texts: list[str | None]) -> Eligibility:
     """Collect explicitly named applicant regions from a remote job's own labels."""
     result = Eligibility()
@@ -191,7 +207,7 @@ def parse_eligibility(texts: list[str | None]) -> Eligibility:
         remaining = raw
         for start, end in reversed(excluded_spans):
             remaining = remaining[:start] + " " + remaining[end:]
-        regions = _regions_in(remaining)
+        regions = _narrow(_regions_in(remaining))
         if regions or excluded_spans:
             result.includes |= regions
             result.evidence.append(raw)

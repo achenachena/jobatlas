@@ -142,3 +142,17 @@ def test_greenhouse_verify_job_closure_requires_healthy_board(make_client, fake_
     assert gh.verify_job(make_client(), ref, "1").state == "unknown"
     fake_web.add(host, "/v1/boards/acme/jobs/1", httpx.Response(404, text="<html>login</html>"))
     assert gh.verify_job(make_client(), ref, "1").state == "unknown"
+
+
+def test_greenhouse_falls_back_to_listing_without_content_when_too_large(make_client, fake_web):
+    host = "boards-api.greenhouse.io"
+    small = {
+        "jobs": [{"id": 1, "title": "X", "location": {"name": "Toronto"}}],
+        "meta": {"total": 1},
+    }
+    fake_web.add(host, "/v1/boards/big/jobs?content=true", httpx.Response(200, content=b"x" * 5000))
+    fake_web.json(host, "/v1/boards/big/jobs", small)
+    client = make_client()
+    client.max_bytes = 4000
+    page = gh.fetch_jobs(client, SourceRef("greenhouse", "big"), None)
+    assert page.is_complete and len(page.records) == 1
