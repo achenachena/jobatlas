@@ -23,11 +23,12 @@ interface Props {
   onShowCompany: (job: JobCard) => void;
 }
 
+/** The on-demand list: every job of the search, including those with no map pin. */
 export function ResultsPanel(p: Props) {
   if (p.isLoading && !p.data) {
     return (
       <div className={styles.panel} aria-busy="true">
-        <StatusState tone="loading" title={t.loading} />
+        <StatusState tone="loading" title={t.loading} compact />
         <SkeletonList />
       </div>
     );
@@ -61,19 +62,8 @@ export function ResultsPanel(p: Props) {
           </button>
         </p>
       )}
-      <div className={styles.summary}>
-        <h2 className={styles.heading}>
-          {t.results} <span className={styles.total}>{counts.total}</span>
-        </h2>
-        <ul className={styles.countChips}>
-          {GROUP_ORDER.map((g) => (
-            <li key={g} className={`${styles.chip} ${styles[`chip_${g}`]}`}>
-              {t.groups[g]} <strong>{counts[g]}</strong>
-            </li>
-          ))}
-        </ul>
-        {excluded?.count ? <p className={styles.notice}>{t.excludedTime(excluded.count)}</p> : null}
-      </div>
+      {excluded?.count ? <p className={styles.notice}>{t.excludedTime(excluded.count)}</p> : null}
+      {p.data.map_meta.mode === "clusters" && <p className={styles.notice}>{t.aggregatedNote}</p>}
       {counts.total === 0 ? (
         <StatusState tone="empty" title={t.emptyTitle} body={t.emptyBody} />
       ) : (

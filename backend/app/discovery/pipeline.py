@@ -15,7 +15,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from sqlalchemy import select, true, update
+from sqlalchemy import case, select, true, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -36,6 +36,11 @@ from app.services.sources import register_source
 
 log = get_logger(__name__)
 CHANNEL = "commoncrawl"
+TARGET_HINT_RE = (
+    r"toronto|ontario|canada|mississauga|brampton|markham|vaughan|oakville|burlington|"
+    r"richmond-hill|pickering|ajax|whitby|oshawa|newmarket|aurora|etobicoke|scarborough|"
+    r"north-york|-on-|_on_|gta"
+)
 MAX_VERIFY_ATTEMPTS = 3
 
 
@@ -244,7 +249,13 @@ def verify_candidates(
             .where(
                 DiscoveryCandidate.canonical_url.contains(url_contains) if url_contains else true()
             )
-            .order_by(DiscoveryCandidate.first_seen_at, DiscoveryCandidate.canonical_url)
+            # Candidates whose crawled URL already mentions the target area go first
+            # (Workday job URLs carry the location, e.g. /job/Toronto-Ontario/...).
+            .order_by(
+                case((DiscoveryCandidate.sample_url.op("~*")(TARGET_HINT_RE), 0), else_=1),
+                DiscoveryCandidate.first_seen_at,
+                DiscoveryCandidate.canonical_url,
+            )
             .limit(limit)
             .with_for_update(skip_locked=True)
         )
@@ -277,7 +288,7 @@ def verify_candidates(
             continue
         if not board.exists:
             cand.state = "rejected"
-            cand.rejection_reason = f"board_not_found_live:{board.http_status}"
+            cand.rejection_reason = board.reason or f"board_not_found_live:{board.http_status}"
             stats.rejected += 1
             session.commit()
             continue

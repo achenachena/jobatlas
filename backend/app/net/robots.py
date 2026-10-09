@@ -17,21 +17,33 @@ AGENT = "JobAtlasBot"
 TTL_SECONDS = 6 * 3600
 
 
+class RobotsUnavailable(FetchError):
+    """robots.txt could not be read right now (timeout, 429, 5xx). We do not fetch, but this
+    is temporary and must never be recorded as a permanent refusal."""
+
+    def __init__(self, origin: str):
+        super().__init__(f"robots.txt unavailable for {origin}", error_class="robots_unavailable")
+
+
 class RobotsCache:
     def __init__(self, client: SafeHttpClient):
         self.client = client
         self._cache: dict[str, tuple[float, RobotFileParser | None, bool]] = {}
 
     def _load(self, origin: str) -> tuple[RobotFileParser | None, bool]:
-        """Returns (parser, allow_all). parser None + allow_all False means deny all."""
+        """Returns (parser, allow_all), or raises RobotsUnavailable for transient failures."""
         try:
             resp = self.client.get(f"{origin}/robots.txt")
-        except (FetchError, UnsafeURLError):
-            return None, False
+        except UnsafeURLError:
+            return None, False  # never fetch from unsafe hosts
+        except FetchError as exc:
+            raise RobotsUnavailable(origin) from exc
         if resp.status_code in (404, 410):
             return None, True
+        if resp.status_code in (401, 403):
+            return None, False  # access to robots itself refused: treat as disallowed
         if resp.status_code != 200:
-            return None, False
+            raise RobotsUnavailable(origin)  # 429 / 5xx: try again later
         parser = RobotFileParser()
         parser.parse(resp.text.splitlines())
         return parser, False
@@ -42,7 +54,7 @@ class RobotsCache:
         now = time.monotonic()
         hit = self._cache.get(origin)
         if hit is None or now - hit[0] > TTL_SECONDS:
-            parser, allow_all = self._load(origin)
+            parser, allow_all = self._load(origin)  # may raise RobotsUnavailable (not cached)
             hit = (now, parser, allow_all)
             self._cache[origin] = hit
         _, parser, allow_all = hit

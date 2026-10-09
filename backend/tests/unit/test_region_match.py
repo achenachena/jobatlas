@@ -103,3 +103,15 @@ def test_covers(includes, excludes, target, ok):
 )
 def test_is_target_relevant(label, workplace, relevant):
     assert is_target_relevant(label, workplace) is relevant
+
+
+def test_remote_title_states_eligibility():
+    from app.providers.base import NormalizedJob
+    from app.services.ingest import assess
+
+    n = NormalizedJob(external_id="1", title="Senior Engineer - Remote, Canada", company_name=None,
+                      apply_url=None, canonical_url=None, description_text=None,
+                      location_text=None, workplace_type="remote")  # fmt: skip
+    assert assess(n).relevant
+    n.title = "Senior Engineer - Remote: Colombia - Costa Rica"
+    assert not assess(n).relevant

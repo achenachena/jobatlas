@@ -5,7 +5,7 @@ import { afterEach, vi } from "vitest";
 
 import { t } from "../../lib/strings";
 import { card, detail, searchResponse } from "../../test/fixtures";
-import { JobDetailPanel } from "./JobDetailPanel";
+import { JobDetailCard } from "./JobDetailCard";
 import { ResultsPanel } from "./ResultsPanel";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -61,7 +61,7 @@ test("untrusted posting times are explained", () => {
 function renderDetail(body: unknown) {
   vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(body), { status: 200 })));
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(<QueryClientProvider client={client}><JobDetailPanel jobId="job-1" onClose={() => {}} /></QueryClientProvider>);
+  render(<QueryClientProvider client={client}><JobDetailCard jobId="job-1" onClose={() => {}} /></QueryClientProvider>);
 }
 
 test("open job: Apply opens the employer page in a new tab with a safe rel", async () => {
@@ -92,9 +92,16 @@ test("remote job: company location note and eligibility reminder", async () => {
       evidence: { method: "company_verified_location", excerpt: null, source_url: null, observed_at: null } }],
     eligibility: { status: "known", text: "Remote - Canada", regions: [{ id: "ca", name: "Canada", include_or_exclude: "include" }], note: "x" },
   }));
-  const loc = await screen.findByText("500 Market St, SF");
-  expect(within(loc.closest("li")!).getByText(t.companyLocationNote)).toBeInTheDocument();
+  // Headline facts show the address; the evidence list repeats it with its role.
+  const locs = await screen.findAllByText("500 Market St, SF");
+  expect(within(locs.at(-1)!.closest("li")!).getByText(t.companyLocationNote)).toBeInTheDocument();
   expect(screen.getByText(/Check the original posting/)).toBeInTheDocument();
+});
+
+test("unconfirmed address: says there is no pin instead of inventing one", async () => {
+  renderDetail(detail({ location_status: "unverified", locations: [], location_label: "Toronto, ON" }));
+  expect(await screen.findByText(t.noPinNote)).toBeInTheDocument();
+  expect(screen.getByText("Toronto, ON")).toBeInTheDocument();
 });
 
 test("missing fields say so instead of inventing values", async () => {

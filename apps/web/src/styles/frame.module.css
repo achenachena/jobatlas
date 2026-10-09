@@ -1,0 +1,136 @@
+/* Shared game-HUD frame language (compose into component modules). Every rule is wrapped in
+   :where() (zero specificity), so a composing component's own rules always win, whatever
+   order the stylesheets load in.
+   Window: paper body, 2.5px ink outline, double edge inside, hard ink drop. `.bevel` cuts ONE
+   corner (key windows only: search dock, detail card, list sheet); browsers without
+   `corner-shape` keep the rounded corner. `.ribbon` is a striped title band. */
+
+:where(.panel) {
+  border: var(--line) solid var(--edge);
+  border-radius: var(--radius-lg);
+  background: var(--paper);
+  box-shadow: var(--double-edge), var(--shadow-float);
+  color: var(--ink-700);
+}
+
+:where(.bevel) {
+  border-top-right-radius: var(--bevel);
+}
+
+@supports (corner-shape: bevel) {
+  :where(.bevel) {
+    border-top-right-radius: calc(var(--bevel) + 6px);
+    corner-top-right-shape: bevel;
+  }
+}
+
+/* Striped title band; set --ribbon to recolour. Title text gets an ink outline. */
+:where(.ribbon) {
+  position: relative;
+  background: var(--stripes), var(--ribbon, var(--sky));
+  border-bottom: var(--line) solid var(--edge);
+  color: #fff;
+}
+
+:where(.inkText) {
+  color: #fff;
+  -webkit-text-stroke: 5px var(--ink-900);
+  paint-order: stroke fill;
+  letter-spacing: 0.01em;
+}
+
+/* Chunky pressable button: ink outline, hard ink drop, top highlight, presses down.
+   Layout (display/alignment) is left to the composing class, so composition order between
+   stylesheets can never change it. */
+:where(.control, .primary, .sunny, .ghost) {
+  min-width: 46px;
+  min-height: 46px;
+  border: var(--line) solid var(--edge);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+  box-shadow: inset 0 -3px 0 rgb(43 53 102 / 0.08), var(--shadow-cel);
+  color: var(--ink-900);
+  font-size: 1.3rem;
+  font-weight: var(--fw-heavy);
+  transition:
+    transform var(--motion-fast) var(--ease),
+    box-shadow var(--motion-fast) var(--ease),
+    background var(--motion-fast) var(--ease);
+}
+
+:where(.control, .sunny, .ghost):hover {
+  background: #fff;
+  transform: translateY(-1px);
+  box-shadow: inset 0 -3px 0 rgb(43 53 102 / 0.08), 0 4px 0 var(--ink-900);
+}
+
+:where(.control, .primary, .sunny, .ghost):active {
+  transform: translateY(3px);
+  box-shadow: 0 0 0 var(--ink-900);
+}
+
+:where(.primary) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-4);
+  background: var(--blue);
+  box-shadow: inset 0 3px 0 rgb(255 255 255 / 0.25), inset 0 -4px 0 var(--blue-strong), var(--shadow-cel);
+  color: var(--ink-inverse);
+  font-family: var(--font-display);
+  font-size: var(--fs-md);
+  text-decoration: none;
+}
+
+:where(.primary):hover {
+  background: #2a80f0;
+  box-shadow: inset 0 3px 0 rgb(255 255 255 / 0.25), inset 0 -4px 0 var(--blue-strong), 0 4px 0 var(--ink-900);
+}
+
+:where(.primary):active {
+  box-shadow: inset 0 -2px 0 var(--blue-strong);
+}
+
+:where(.sunny) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-4);
+  background: var(--sun);
+  box-shadow: inset 0 3px 0 rgb(255 255 255 / 0.45), inset 0 -4px 0 var(--sun-deep), var(--shadow-cel);
+  font-size: var(--fs-md);
+}
+
+:where(.sunny):hover {
+  background: #ffdb5c;
+}
+
+:where(.ghost) {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-3);
+  font-size: var(--fs-sm);
+}
+
+/* Section label inside windows. */
+:where(.kicker) {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+  color: var(--ink-900);
+  font-family: var(--font-display);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-heavy);
+}
+
+:where(.kicker)::before {
+  content: "";
+  width: 0.7rem;
+  height: 0.7rem;
+  background: var(--sun);
+  clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%);
+}

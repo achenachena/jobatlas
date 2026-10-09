@@ -57,6 +57,8 @@ class BoardInfo:
     company_name: str | None = None
     http_status: int | None = None
     evidence_url: str | None = None
+    # Why a board is not usable, recorded on the candidate ("robots_disallowed", "empty", ...).
+    reason: str | None = None
 
 
 @dataclass(frozen=True)

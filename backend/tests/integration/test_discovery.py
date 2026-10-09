@@ -128,3 +128,20 @@ def test_collinfo_outage_falls_back_to_known_collections(
     stats = pipeline.harvest_commoncrawl(session, make_client(max_retries=0), max_blocks=5)
     assert stats.collections == ["CC-MAIN-TEST"] and stats.candidates_new == 5
     assert "collinfo unavailable" in stats.errors[0]
+
+
+def test_robots_outage_is_retried_not_rejected(session, make_client, fake_web):
+    url = "https://acme.wd3.myworkdayjobs.com/Careers/"
+    _cand(session, "workday", url, url)
+    fake_web.add("acme.wd3.myworkdayjobs.com", "/robots.txt", httpx.Response(503))
+    stats = pipeline.verify_candidates(session, make_client(max_retries=0))
+    cand = session.scalar(select(DiscoveryCandidate))
+    session.refresh(cand)
+    assert stats.retry_later == 1 and cand.state == "new"
+
+    # A real disallow is recorded as such.
+    fake_web.add("acme.wd3.myworkdayjobs.com", "/robots.txt",
+                 httpx.Response(200, text="User-agent: *\nDisallow: /Careers/\n"))  # fmt: skip
+    pipeline.verify_candidates(session, make_client(max_retries=0))
+    session.refresh(cand)
+    assert cand.state == "rejected" and cand.rejection_reason == "robots_disallowed"

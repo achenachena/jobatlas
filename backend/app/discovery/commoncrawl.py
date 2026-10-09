@@ -38,6 +38,8 @@ ATS_SURT_PREFIXES = {
     # wd3 hosts most Canadian employers observed so far (TD, CIBC, BMO, Sun Life, Manulife).
     "workday-wd3": "com,myworkdayjobs,wd3,",
     "workday-site": "com,myworkdaysite,",
+    "bamboohr": "com,bamboohr,",
+    "workable": "com,workable,apply)/",
 }
 
 

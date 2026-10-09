@@ -1,6 +1,9 @@
-@import "@fontsource/m-plus-rounded-1c/latin-400.css";
+@import "@fontsource/m-plus-rounded-1c/latin-500.css";
 @import "@fontsource/m-plus-rounded-1c/latin-700.css";
 @import "@fontsource/m-plus-rounded-1c/latin-800.css";
+
+/* Element defaults use :where() (zero specificity) so every component class overrides them,
+   including the zero-specificity shared frame rules in frame.module.css. */
 
 *,
 *::before,
@@ -16,25 +19,34 @@ body,
 }
 
 body {
-  background: var(--color-bg);
-  color: var(--color-ink);
-  font-family: var(--font-family);
-  font-size: var(--font-size-md);
+  background: var(--paper-3);
+  color: var(--ink-700);
+  font-family: var(--font-body);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-regular);
   line-height: var(--line-height);
+  font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
 }
 
-button,
-input,
-select {
+:where(h1, h2, h3) {
+  font-family: var(--font-display);
+  color: var(--ink-900);
+  letter-spacing: 0.005em;
+}
+
+:where(button, input, select) {
   font: inherit;
   color: inherit;
 }
 
+:where(button) {
+  cursor: pointer;
+}
+
 :focus-visible {
   outline: none;
-  box-shadow: var(--shadow-focus);
-  border-radius: var(--radius-sm);
+  box-shadow: var(--focus-ring);
 }
 
 .visually-hidden {

@@ -150,11 +150,13 @@ class SuccessFactorsProvider:
         try:
             jobs = self._sitemap(client, source.tenant_key)
         except ProviderError as exc:
+            if exc.error_class == "robots":
+                return BoardInfo(exists=False, reason="robots_disallowed")
             if exc.http_status in (404, 410):
-                return BoardInfo(exists=False, http_status=exc.http_status)
+                return BoardInfo(exists=False, http_status=exc.http_status, reason="site_not_found")
             raise
         if not jobs:
-            return BoardInfo(exists=False, http_status=200)
+            return BoardInfo(exists=False, http_status=200, reason="sitemap_empty")
         org = None
         for url, _ in jobs[:5]:  # the sitemap may start with ended postings (no microdata)
             resp = self._get(client, url)

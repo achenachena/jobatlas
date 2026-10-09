@@ -172,3 +172,22 @@ def test_california_abbreviation_is_not_canada():
         office_region(f.address) is None or office_region(f.address).region_id != "ca-on"
         for f in found
     )
+
+
+def test_canada_facet_detection_real_shapes():
+    from app.providers.workday import CANADA_ID, canada_facet
+
+    bmo = [{"facetParameter": "Country", "values": [
+        {"descriptor": "Canada", "id": CANADA_ID, "count": 508},
+        {"descriptor": "United States of America", "id": "x", "count": 437}]}]  # fmt: skip
+    td = [{"facetParameter": "locationMainGroup", "values": [
+        {"facetParameter": "locationCountry", "values": [
+            {"descriptor": "Canada", "id": CANADA_ID, "count": 917}]}]}]  # fmt: skip
+    us_only = [
+        {"facetParameter": "Country", "values": [{"descriptor": "United States", "id": "x"}]}
+    ]
+    none = [{"facetParameter": "jobFamily", "values": [{"descriptor": "Sales", "id": "y"}]}]
+    assert canada_facet(bmo) == ("Country", True)
+    assert canada_facet(td) == ("locationCountry", True)
+    assert canada_facet(us_only) == (None, True)  # no Canadian jobs: skip the tenant cheaply
+    assert canada_facet(none) == (None, False)  # no country facet: read the full listing

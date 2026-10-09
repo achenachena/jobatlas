@@ -36,6 +36,16 @@ POLICY_BY_PROVIDER = {
         "Employer's own Workday career site; only sites whose robots.txt allows the site path. "
         "Uses the JSON endpoint the public site itself calls (undocumented).",
     ),
+    "bamboohr": (
+        "robots_allowed_official_page",
+        "Employer's own BambooHR careers page JSON (/careers/list, /careers/{id}/detail); "
+        "tenant robots.txt only disallows /jobs/embed*.",
+    ),
+    "workable": (
+        "robots_allowed_official_page",
+        "Workable public job widget feed for the employer's account; apply.workable.com "
+        "robots.txt allows all (content signal search=yes).",
+    ),
     "jsonld": (
         "robots_allowed_official_page",
         "Employer's own careers page; every fetch checked against robots.txt.",

@@ -228,10 +228,12 @@ def test_jsonld_respects_robots(make_client, fake_web):
     assert exc.value.error_class == "robots"
 
 
-def test_jsonld_robots_unreachable_means_no_fetch(make_client, fake_web):
+def test_jsonld_robots_unreachable_means_no_fetch_but_is_temporary(make_client, fake_web):
+    from app.net.robots import RobotsUnavailable
+
     host = "careers.example.ca"
     _robots(fake_web, host, "", status=503)
-    with pytest.raises(ProviderError):
+    with pytest.raises(RobotsUnavailable):
         jsonld.fetch_jobs(make_client(max_retries=0), SourceRef("jsonld", f"https://{host}/"), None)
 
 

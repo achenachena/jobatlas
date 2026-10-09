@@ -100,7 +100,8 @@ def assess(n: NormalizedJob) -> Relevance:
     region_id = gta or (matches[0].region_id if matches else None)
     eligibility = None
     if n.workplace_type == "remote":
-        eligibility = parse_eligibility([*labels, *n.eligibility_texts])
+        # The title often carries the employer's own statement ("Remote - Canada").
+        eligibility = parse_eligibility([*labels, *n.eligibility_texts, n.title])
     relevant = gta is not None or (
         eligibility is not None and covers(eligibility.includes, eligibility.excludes, "gta")
     )
@@ -367,6 +368,29 @@ def sync_source(
         release_lock(session, source_id, owner)
 
 
+def _touch_listed(
+    session: Session, source: Source, run: SourceRun, external_id: str, now: datetime
+) -> None:
+    rec = session.scalar(
+        select(JobSourceRecord).where(
+            JobSourceRecord.source_id == source.id, JobSourceRecord.external_id == external_id
+        )
+    )
+    if rec is None:
+        return
+    job = session.get(Job, rec.job_id)
+    if job is None or job.status == "closed":
+        return  # a closed job only reopens on a fresh read of its own page
+    if job.status != "active":
+        _event(session, job, "active", "listed_again_by_source", run, now)
+        job.status = "active"
+    job.last_seen_at = now
+    job.last_verified_at = now
+    rec.last_seen_run_id = run.id
+    rec.consecutive_missing = 0
+    rec.first_missing_at = None
+
+
 def _adopt_company_name(session: Session, source: Source, n: NormalizedJob) -> None:
     """A company registered under its board slug/URL takes the employer name the postings
     themselves declare (hiringOrganization), once."""
@@ -397,7 +421,10 @@ def _sync_locked(
     provider = get_provider(source.provider)
     recent: frozenset[str] = frozenset()
     if getattr(provider, "incremental", False):
-        cutoff = utcnow() - timedelta(hours=get_settings().detail_recheck_hours)
+        hours = (
+            getattr(provider, "detail_recheck_hours", None) or get_settings().detail_recheck_hours
+        )
+        cutoff = utcnow() - timedelta(hours=hours)
         recent = frozenset(
             session.scalars(
                 select(JobSourceRecord.external_id).where(
@@ -465,6 +492,13 @@ def _sync_locked(
     parse_failures = 0
     for raw in records:
         result.records_seen += 1
+        if raw.get("_listing_only"):
+            # Listed but not re-read this run (incremental). Only a COMPLETE listing is open
+            # evidence; it never creates a job and never changes content.
+            seen_ids.add(raw["external_id"])
+            if raw.get("_complete"):
+                _touch_listed(session, source, run, raw["external_id"], now)
+            continue
         try:
             n = provider.normalize(raw)
         except (KeyError, TypeError, ValueError):
@@ -505,6 +539,7 @@ def _sync_locked(
         result.still_listed = seen_ids | set(listed_only)
 
     if complete:
+        seen_ids |= set(listed_only)  # every job the complete listing shows is present
         missing = update(JobSourceRecord).where(JobSourceRecord.source_id == source.id)
         if seen_ids:
             missing = missing.where(JobSourceRecord.external_id.not_in(seen_ids))
@@ -521,11 +556,20 @@ def _sync_locked(
     run.is_complete = complete
     run.status = "succeeded" if complete else "partial"
     run.finished_at = utcnow()
-    source.relevant_job_count = result.records_relevant
+    # Count every active job this source tracks, not just records refetched this run
+    # (incremental career sites refetch only part of their listing per run).
+    source.relevant_job_count = (
+        session.scalar(
+            select(func.count(func.distinct(JobSourceRecord.job_id)))
+            .join(Job, Job.id == JobSourceRecord.job_id)
+            .where(JobSourceRecord.source_id == source.id, Job.status == "active")
+        )
+        or 0
+    )
     source.failure_count = 0
     source.last_run_at = now
     source.last_success_at = now
-    source.status = "active" if result.records_relevant else "idle"
+    source.status = "active" if source.relevant_job_count else "idle"
     source.next_run_at = next_run_after_success(source, now)
     session.commit()
     result.status = run.status

@@ -2,49 +2,71 @@
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  padding: 0.1rem 0.55rem 0.1rem 0.4rem;
-  border: var(--border-width) solid currentColor;
-  border-radius: var(--radius-pill);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-bold);
-  line-height: 1.5;
+  color: var(--ink-900);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-heavy);
   white-space: nowrap;
-  background: var(--color-surface);
 }
 
-.glyph {
-  display: inline-block;
-  width: 0.7rem;
-  height: 0.7rem;
-  flex: none;
+/* Mini badge: same structure as the map marker (solid / split / hollow / dashed), ink outline. */
+.mark {
+  display: inline-grid;
+  place-items: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border: 2px solid var(--ink-900);
+  border-radius: 8px;
+  box-shadow: 0 2px 0 var(--ink-900);
+  font-size: 0.95rem;
 }
 
-.on_site { color: var(--color-onsite); }
-.on_site .glyph { border-radius: 50%; background: currentColor; }
-
-.hybrid { color: var(--color-hybrid); }
-.hybrid .glyph {
-  border-radius: 50%;
-  background: currentColor;
-  box-shadow: 0 0 0 1.5px var(--color-surface), 0 0 0 3px currentColor;
-  width: 0.5rem;
-  height: 0.5rem;
-  margin: 0 0.1rem;
+.mark > svg {
+  grid-area: 1 / 1;
 }
 
-.remote { color: var(--color-remote); }
-.remote .glyph {
-  width: 0.55rem;
-  height: 0.55rem;
-  margin: 0 0.1rem;
-  border: 2px solid currentColor;
-  transform: rotate(45deg);
+.on_site .mark {
+  background: linear-gradient(135deg, var(--onsite) 60%, var(--onsite-shade) 60%);
+  color: #fff;
 }
 
-.unknown { color: var(--color-unknown); border-style: dashed; }
-.unknown .glyph { width: 0.4rem; height: 0.4rem; border-radius: 50%; background: currentColor; }
+.hybrid .mark {
+  background: linear-gradient(90deg, var(--hybrid) 50%, #dcf7ec 50%);
+  color: #fff;
+}
 
-.loc { padding-left: 0.55rem; border-width: 1px; font-weight: var(--font-weight-regular); }
-.loc_exact_work_location { color: var(--color-status-ok); background: #e7f8f0; }
-.loc_company_location { color: var(--color-remote); background: var(--color-mint-soft); }
-.loc_unverified { color: var(--color-status-warn); background: var(--color-status-warn-soft); border-style: dashed; }
+.hybrid .mark > svg:first-child {
+  clip-path: inset(0 50% 0 0);
+}
+
+.splitGlyph {
+  clip-path: inset(0 0 0 50%);
+  color: var(--hybrid-shade);
+}
+
+.remote .mark {
+  background: #fff;
+  box-shadow: inset 0 0 0 2.5px var(--remote), 0 2px 0 var(--ink-900);
+  color: var(--remote);
+}
+
+.unknown .mark {
+  background: var(--paper);
+  box-shadow: inset 0 0 0 2px var(--paper), inset 0 0 0 3.5px rgb(43 53 102 / 0.35), 0 2px 0 var(--ink-900);
+  color: var(--ink-900);
+}
+
+.loc {
+  color: var(--ink-500);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+}
+
+.loc_exact_work_location::before {
+  content: "✓ ";
+  color: var(--ok);
+  font-weight: var(--fw-heavy);
+}
+
+.loc_unverified {
+  color: var(--warn);
+}

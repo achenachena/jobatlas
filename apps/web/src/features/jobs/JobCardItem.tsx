@@ -1,7 +1,8 @@
+import { Icon } from "../../components/Icon";
 import type { JobCard } from "../../lib/api";
 import { postedText, salaryText } from "../../lib/format";
 import { t } from "../../lib/strings";
-import { LocationBadge, WorkplaceBadge } from "./Badges";
+import { LocationNote, WorkplaceBadge } from "./Badges";
 import styles from "./JobCardItem.module.css";
 
 interface Props {
@@ -21,19 +22,28 @@ export function JobCardItem({ job, selected, onSelect, onShowCompany }: Props) {
         className={styles.main}
         onClick={() => onSelect(job)}
         aria-pressed={selected}
+        data-job-id={job.id}
       >
         <span className={styles.title}>{job.title ?? t.notProvided}</span>
         <span className={styles.company}>{job.company ?? t.notProvided}</span>
-        <span className={styles.badges}>
+        <span className={styles.line}>
           <WorkplaceBadge value={job.workplace_type} />
-          <LocationBadge value={job.location_status} />
+          <span className={styles.dot} aria-hidden="true">·</span>
+          <span className={styles.posted}>{postedText(job)}</span>
+          {salary && (
+            <>
+              <span className={styles.dot} aria-hidden="true">·</span>
+              <span>{salary}</span>
+            </>
+          )}
         </span>
-        <span className={styles.meta}>
-          {marker?.address ?? job.location_label ?? t.notProvided}
-        </span>
-        <span className={styles.meta}>
-          {postedText(job)}
-          {salary ? ` · ${salary}` : ""}
+        <span className={styles.address}>
+          <Icon name="pin" className={styles.pin} />
+          <span>
+            {marker?.address ?? job.location_label ?? t.notProvided}
+            {"  "}
+            <LocationNote value={job.location_status} />
+          </span>
         </span>
         {job.location_status === "company_location" && (
           <span className={styles.note}>{t.companyLocationNote}</span>
@@ -41,6 +51,7 @@ export function JobCardItem({ job, selected, onSelect, onShowCompany }: Props) {
       </button>
       {onShowCompany && marker && (
         <button type="button" className={styles.secondary} onClick={() => onShowCompany(job)}>
+          <Icon name="locate" />
           {t.moveToCompany}
         </button>
       )}
