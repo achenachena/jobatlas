@@ -52,3 +52,25 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npx vite build
+      # E2E uses fixture API routes (deterministic). Tiles are not in git, so the map shows its
+      # designed "couldn't load" state in CI; the tests cover the UI flows, not tile rendering.
+      - run: npx playwright install --with-deps chromium
+      - run: npm run e2e
+
+  api-types:
+    # The committed API types must match the backend's OpenAPI document.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          version: "0.12.23"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24.15.0"
+      - run: uv sync --frozen --python 3.12
+        working-directory: backend
+      - run: uv run python -c "import json; from app.api.main import app; print(json.dumps(app.openapi()))" > /tmp/openapi.json
+        working-directory: backend
+      - run: npm ci && API_OPENAPI_URL=/tmp/openapi.json npm run generate && git diff --exit-code schema.d.ts
+        working-directory: packages/api-client

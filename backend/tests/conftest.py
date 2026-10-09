@@ -7,7 +7,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from app.net.safe_http import SafeHttpClient
+from app.net.safe_http import SafeHttpClient, _HostThrottle
 
 FIXTURES = Path(__file__).parent / "fixtures"
 PUBLIC_IP = "93.184.216.34"
@@ -66,7 +66,7 @@ def make_client(fake_web: FakeWeb):
             sleep=lambda s: None,
             **kwargs,
         )
-        client.throttle.min_interval = 0
+        client.throttle = _HostThrottle(0)  # tests never wait or touch Redis
         clients.append(client)
         return client
 

@@ -1,0 +1,50 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.1rem 0.55rem 0.1rem 0.4rem;
+  border: var(--border-width) solid currentColor;
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+  line-height: 1.5;
+  white-space: nowrap;
+  background: var(--color-surface);
+}
+
+.glyph {
+  display: inline-block;
+  width: 0.7rem;
+  height: 0.7rem;
+  flex: none;
+}
+
+.on_site { color: var(--color-onsite); }
+.on_site .glyph { border-radius: 50%; background: currentColor; }
+
+.hybrid { color: var(--color-hybrid); }
+.hybrid .glyph {
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 1.5px var(--color-surface), 0 0 0 3px currentColor;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin: 0 0.1rem;
+}
+
+.remote { color: var(--color-remote); }
+.remote .glyph {
+  width: 0.55rem;
+  height: 0.55rem;
+  margin: 0 0.1rem;
+  border: 2px solid currentColor;
+  transform: rotate(45deg);
+}
+
+.unknown { color: var(--color-unknown); border-style: dashed; }
+.unknown .glyph { width: 0.4rem; height: 0.4rem; border-radius: 50%; background: currentColor; }
+
+.loc { padding-left: 0.55rem; border-width: 1px; font-weight: var(--font-weight-regular); }
+.loc_exact_work_location { color: var(--color-status-ok); background: #e7f8f0; }
+.loc_company_location { color: var(--color-remote); background: var(--color-mint-soft); }
+.loc_unverified { color: var(--color-status-warn); background: var(--color-status-warn-soft); border-style: dashed; }

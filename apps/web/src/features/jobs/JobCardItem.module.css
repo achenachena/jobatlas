@@ -1,0 +1,74 @@
+.card {
+  list-style: none;
+  border: var(--border-width) solid var(--color-line);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+  transition: border-color var(--motion-fast) var(--ease), transform var(--motion-fast) var(--ease),
+    box-shadow var(--motion-fast) var(--ease);
+  overflow: hidden;
+}
+
+.card:hover {
+  border-color: var(--color-line-strong);
+  transform: translateY(-1px);
+}
+
+.selected {
+  border-color: var(--color-sakura);
+  box-shadow: var(--shadow-card), var(--glow-selected);
+}
+
+.main {
+  display: grid;
+  gap: 0.3rem;
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.title {
+  color: var(--color-ink-strong);
+  font-weight: var(--font-weight-heavy);
+  font-size: var(--font-size-md);
+}
+
+.company {
+  color: var(--color-ink);
+  font-weight: var(--font-weight-bold);
+  font-size: var(--font-size-sm);
+}
+
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin: 0.15rem 0;
+}
+
+.meta {
+  color: var(--color-ink-muted);
+  font-size: var(--font-size-sm);
+}
+
+.note {
+  color: var(--color-remote);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+}
+
+.secondary {
+  width: 100%;
+  padding: var(--space-2) var(--space-4);
+  border: 0;
+  border-top: 1px dashed var(--color-line);
+  background: var(--color-mint-soft);
+  color: var(--color-remote);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+  text-align: left;
+  cursor: pointer;
+}

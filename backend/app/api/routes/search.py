@@ -6,12 +6,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_redis, rate_limit
 from app.db.session import get_async_session
+from app.schemas.api import SearchPage, SearchResponse
 from app.services import search as svc
 
 router = APIRouter(tags=["search"], dependencies=[Depends(rate_limit)])
 
 
-@router.get("/search")
+@router.get("/search", response_model=SearchResponse)
 async def search(
     q: str | None = Query(default=None, max_length=svc.MAX_Q),
     region_id: str = Query(default="gta", max_length=64),
@@ -35,7 +36,7 @@ async def search(
     return await svc.run_search(session, redis, params)
 
 
-@router.get("/search/{search_id}/jobs")
+@router.get("/search/{search_id}/jobs", response_model=SearchPage)
 async def search_page(
     search_id: str,
     cursor: str = Query(..., max_length=500),

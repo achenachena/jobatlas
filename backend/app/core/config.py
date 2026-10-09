@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     http_max_total_seconds: float = Field(default=60.0, alias="HTTP_MAX_TOTAL_SECONDS")
     http_max_response_bytes: int = Field(default=20_000_000, alias="HTTP_MAX_RESPONSE_BYTES")
     http_max_redirects: int = Field(default=5, alias="HTTP_MAX_REDIRECTS")
+    # Share the per-host/per-IP rate limit across processes through Redis.
+    http_shared_throttle: bool = Field(default=True, alias="HTTP_SHARED_THROTTLE")
     http_per_host_min_interval_seconds: float = Field(
         default=1.0, alias="HTTP_PER_HOST_MIN_INTERVAL_SECONDS"
     )

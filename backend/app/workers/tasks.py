@@ -107,3 +107,13 @@ def resolve_sites_task() -> dict:
         return {"skipped": "GEOCODER_POI_URL not configured"}
     with sync_session() as session:
         return resolve_sites(session, resolver).__dict__
+
+
+@celery_app.task(name="jobatlas.verify_candidates", bind=True)
+def verify_candidates_task(self) -> dict:
+    """Work through queued discovery candidates in small batches (new sources are due
+    immediately, so the regular scheduler picks up their initial sync)."""
+    structlog.contextvars.bind_contextvars(task_id=self.request.id)
+    with sync_session() as session, SafeHttpClient() as client:
+        stats = pipeline.verify_candidates(session, client)
+    return stats.as_dict()

@@ -190,3 +190,20 @@ def test_oversized_response_fails_only_that_source(session, make_client, fake_we
     client.max_bytes = 4000
     r = sync_source(session, src.id, client)
     assert r.status == "failed" and r.error_class == "too_large"
+
+
+def test_shared_throttle_spaces_requests_across_clients():
+    """Two independent throttles (as in two worker processes) share one Redis slot."""
+    import os
+    import time
+
+    from app.net.safe_http import _RedisThrottle
+
+    url = os.environ.get("JOBATLAS_TEST_REDIS_URL", "redis://localhost:63799/15")
+    a, b = _RedisThrottle(0.3, url), _RedisThrottle(0.3, url)
+    host = f"test-host-{time.time()}"
+    t0 = time.monotonic()
+    a.wait(host)
+    b.wait(host)
+    a.wait(host)
+    assert time.monotonic() - t0 >= 0.55  # three requests need two full intervals

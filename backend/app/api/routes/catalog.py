@@ -11,6 +11,7 @@ from app.api.deps import rate_limit
 from app.core.config import get_settings
 from app.core.timeutil import utcnow
 from app.db.session import get_async_session
+from app.schemas.api import Coverage, JobDetail, RegionList
 
 router = APIRouter(dependencies=[Depends(rate_limit)])
 
@@ -44,7 +45,7 @@ def _iso(v):
     return v.isoformat() if v is not None else None
 
 
-@router.get("/jobs/{job_id}", tags=["jobs"])
+@router.get("/jobs/{job_id}", tags=["jobs"], response_model=JobDetail)
 async def job_detail(job_id: uuid.UUID, session: AsyncSession = Depends(get_async_session)) -> dict:
     j = (await session.execute(text(JOB_SQL), {"id": job_id})).first()
     if j is None:
@@ -127,7 +128,7 @@ async def job_detail(job_id: uuid.UUID, session: AsyncSession = Depends(get_asyn
     }
 
 
-@router.get("/regions", tags=["regions"])
+@router.get("/regions", tags=["regions"], response_model=RegionList)
 async def regions(
     q: str | None = Query(default=None, max_length=80),
     session: AsyncSession = Depends(get_async_session),
@@ -160,7 +161,7 @@ async def regions(
     }
 
 
-@router.get("/coverage", tags=["coverage"])
+@router.get("/coverage", tags=["coverage"], response_model=Coverage)
 async def coverage(session: AsyncSession = Depends(get_async_session)) -> dict:
     fresh_cutoff = utcnow() - timedelta(hours=get_settings().freshness_hours)
     src = await session.execute(

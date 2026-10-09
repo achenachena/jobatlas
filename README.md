@@ -3,9 +3,9 @@
 Map-first job discovery for the GTA. Product spec: [docs/PRD-v0.2.txt](docs/PRD-v0.2.txt).
 Implementation plan: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
-**Status: stage 2 (backend data loop).** Discovery, Greenhouse/Ashby/Lever ingestion,
-controlled JSON-LD pages, eligibility, address evidence, lifecycle and the public read API
-work end to end; the map UI is stage 3. See
+**Status: stage 3 (map and UI).** Discovery, ingestion from Greenhouse/Ashby/Lever and
+employer Workday/SuccessFactors career sites, address evidence, lifecycle, the public read API
+and the map-first web app work end to end. See
 [docs/VALIDATION.md](docs/VALIDATION.md) for what is verified and what is not, and
 [docs/SOURCES.md](docs/SOURCES.md) for data-source findings.
 
@@ -13,10 +13,34 @@ work end to end; the map UI is stage 3. See
 
 ```
 backend/        FastAPI API, Celery worker + beat scheduler, CLI, Alembic migrations, tests
-apps/web/       React + TypeScript + Vite (stage 1 shell only)
+apps/web/       React + TypeScript + Vite + MapLibre map app (unit tests: Vitest, E2E: Playwright)
+packages/api-client/  TypeScript types generated from the API's OpenAPI document
 infra/          Docker Compose; PostGIS image built on the official multi-arch postgres image
 docs/           PRD, development plan, source notes, validation record
 ```
+
+## Map tiles (one-time setup)
+
+The map uses **self-hosted** vector tiles: a GTA extract of the Protomaps OpenStreetMap build
+(one PMTiles file) plus Noto Sans glyphs (OFL). No third-party tile or font server is used.
+Data © OpenStreetMap contributors (ODbL); attribution is shown on the map.
+
+```bash
+# pmtiles CLI: https://github.com/protomaps/go-pmtiles/releases
+pmtiles extract https://build.protomaps.com/20261008.pmtiles infra/tiles-data/gta.pmtiles \
+    --bbox=-80.6,43.0,-78.3,44.8 --maxzoom=15            # ~236 MB, ~10 s
+for font in "Noto Sans Regular" "Noto Sans Medium" "Noto Sans Italic"; do
+  mkdir -p "infra/tiles-data/fonts/$font"
+  for r in 0-255 256-511 512-767 768-1023 8192-8447 8448-8703; do
+    curl -fsS -o "infra/tiles-data/fonts/$font/$r.pbf" \
+      "https://raw.githubusercontent.com/protomaps/basemaps-assets/main/fonts/${font// /%20}/$r.pbf"
+  done
+done
+ln -sfn ../../../infra/tiles-data apps/web/public/tiles   # for `npm run dev` outside Docker
+```
+
+Without these files the app still works; the map shows its "couldn't load" state and every
+job remains available in the list. A production tile host is not chosen yet.
 
 ## Run with Docker Compose
 
@@ -95,7 +119,11 @@ JOBATLAS_TEST_DATABASE_URL=postgresql+psycopg://jobatlas:jobatlas@localhost:5432
   uv run pytest -q          # unit + integration on real PostGIS; integration skips without the URL
 
 cd apps/web
-npm run typecheck && npm test
+npm run typecheck && npm test        # unit/component tests
+npm run e2e                          # Playwright, deterministic fixture API
+npm run e2e:live                     # Playwright smoke test against the running API
+
+cd packages/api-client && npm run generate   # refresh API types after backend changes
 ```
 
 Integration tests create the `jobatlas_test` database if missing and never use SQLite.
@@ -113,6 +141,6 @@ Scheduled backups and a production host are not set up yet (no hosting platform 
 
 ## Not configured yet
 
-- Map style/tiles provider (stage 3) and a production geocoding provider: see `.env.example`.
-  Public Nominatim is only acceptable for low-volume development, never batch work.
+- Production hosting for the tile file (any static host with HTTP Range support works) and
+  for the self-hosted Nominatim instances.
 - Production hosting, backups schedule, and their costs.

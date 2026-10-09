@@ -158,6 +158,41 @@ class _HostThrottle:
             time.sleep(at - now)
 
 
+class _RedisThrottle(_HostThrottle):
+    """Shared politeness across processes (Celery workers + CLI): a key can be taken at most
+    once per min_interval by anyone, via SET NX PX. Falls back to the in-process limiter if
+    Redis is unreachable, so a Redis outage never stops collection."""
+
+    MAX_WAIT_SECONDS = 120.0
+
+    def __init__(self, min_interval: float, redis_url: str):
+        super().__init__(min_interval)
+        import redis
+
+        self._redis = redis.Redis.from_url(redis_url, socket_timeout=2, socket_connect_timeout=2)
+        self._ttl_ms = max(int(min_interval * 1000), 1)
+
+    def wait(self, host: str) -> None:
+        if self.min_interval <= 0:
+            return
+        import redis
+
+        deadline = time.monotonic() + self.MAX_WAIT_SECONDS
+        key = f"throttle:{host}"
+        while True:
+            try:
+                if self._redis.set(key, b"1", nx=True, px=self._ttl_ms):
+                    return
+                remaining = self._redis.pttl(key)
+            except redis.RedisError:
+                super().wait(host)
+                return
+            if time.monotonic() > deadline:
+                return  # never block a worker indefinitely; per-request deadlines still apply
+            delay = remaining / 1000 if remaining and remaining > 0 else self.min_interval / 10
+            time.sleep(min(max(delay, 0.01), self.min_interval) + random.uniform(0, 0.05))  # noqa: S311
+
+
 class SafeHttpClient:
     def __init__(
         self,
@@ -178,7 +213,11 @@ class SafeHttpClient:
         self.backoff_base = backoff_base
         self.max_backoff = max_backoff
         self.sleep = sleep
-        self.throttle = _HostThrottle(s.http_per_host_min_interval_seconds)
+        self.throttle: _HostThrottle = (
+            _RedisThrottle(s.http_per_host_min_interval_seconds, s.redis_url)
+            if s.http_shared_throttle
+            else _HostThrottle(s.http_per_host_min_interval_seconds)
+        )
         self._client = httpx.Client(
             transport=transport,
             timeout=httpx.Timeout(s.http_timeout_seconds),

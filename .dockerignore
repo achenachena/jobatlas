@@ -1,0 +1,9 @@
+**/node_modules
+**/.venv
+**/dist
+**/test-results
+**/playwright-report
+apps/web/public/tiles
+infra/tiles-data
+infra/osm-data
+.git
