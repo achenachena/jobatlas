@@ -18,15 +18,20 @@ Providers:
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass
 from typing import Literal, Protocol
 from urllib.parse import urlencode
 
+import httpx
+
 from app.core.config import get_settings
 from app.net.safe_http import FetchError, SafeHttpClient, UnsafeURLError
+from app.services.addresses import UNIT_RE
 
 Status = Literal["ok", "ambiguous", "low_precision", "not_found", "error", "not_configured"]
 PRECISE = {"rooftop", "street"}
+POSTAL_RE = re.compile(r"\b([ABCEGHJ-NPRSTVXY]\d[ABCEGHJ-NPRSTV-Z])\s?\d[ABCEGHJ-NPRSTV-Z]\d\b")
 
 
 @dataclass(frozen=True)
@@ -77,19 +82,20 @@ def _distance_m(a: tuple[float, float], b: tuple[float, float]) -> float:
 
 
 class NominatimGeocoder:
-    name = "nominatim"
-
-    def __init__(self, client: SafeHttpClient, base_url: str):
+    def __init__(self, client: SafeHttpClient, base_url: str, name: str = "nominatim"):
         self.client = client
         self.base_url = base_url.rstrip("/")
+        self.name = name
 
     def geocode(self, address: str, country_code: str | None = "ca") -> GeocodeResult:
-        params = {"q": address, "format": "jsonv2", "addressdetails": 1, "limit": 3}
+        # Unit/suite/floor confuse the geocoder and do not change the building.
+        query = re.sub(r"\s+", " ", UNIT_RE.sub(" ", address)).strip(" ,")
+        params = {"q": query, "format": "jsonv2", "addressdetails": 1, "limit": 5}
         if country_code:
             params["countrycodes"] = country_code
         try:
             resp = self.client.get(f"{self.base_url}/search?{urlencode(params)}")
-        except (FetchError, UnsafeURLError) as exc:
+        except (FetchError, UnsafeURLError, httpx.HTTPError) as exc:
             return GeocodeResult("error", self.name, detail=str(exc)[:200])
         if resp.status_code != 200:
             return GeocodeResult("error", self.name, detail=f"http {resp.status_code}")
@@ -100,6 +106,17 @@ class NominatimGeocoder:
         if not results:
             return GeocodeResult("not_found", self.name)
         precise = [r for r in results if (r.get("address") or {}).get("house_number")]
+        fsa = POSTAL_RE.search(address.upper())
+        if fsa and precise:
+            # The source's own postal code disambiguates same-named streets (Toronto has
+            # several John Streets): keep candidates in the same forward sortation area.
+            area = fsa.group(1)
+            same = [
+                r for r in precise
+                if ((r.get("address") or {}).get("postcode") or "").upper().startswith(area)
+            ]  # fmt: skip
+            if same:
+                precise = same
         if not precise:
             return GeocodeResult(
                 "low_precision", self.name, detail=f"best={results[0].get('addresstype')}"
@@ -124,5 +141,15 @@ def build_geocoder(client: SafeHttpClient) -> Geocoder:
     if s.geocoder_provider == "nominatim":
         if not s.geocoder_base_url:
             raise ValueError("GEOCODER_BASE_URL is required for nominatim")
+        if s.geocoder_internal:
+            # Self-hosted instance on a private network address. Its URL comes from operator
+            # configuration, not from scraped data, so the SSRF guard (which rightly refuses
+            # private addresses for untrusted URLs) is not applied to it.
+            internal = httpx.Client(
+                timeout=httpx.Timeout(s.http_timeout_seconds),
+                headers={"User-Agent": s.http_user_agent},
+                trust_env=False,
+            )
+            return NominatimGeocoder(internal, s.geocoder_base_url, name="nominatim-local")  # type: ignore[arg-type]
         return NominatimGeocoder(client, s.geocoder_base_url)
     return NullGeocoder()

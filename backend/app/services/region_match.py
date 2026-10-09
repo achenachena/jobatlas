@@ -237,3 +237,18 @@ def is_target_relevant(
         elig = eligibility if eligibility is not None else parse_eligibility([label])
         return covers(elig.includes, elig.excludes, "gta")
     return False
+
+
+def slug_may_be_relevant(slug: str) -> bool:
+    """Cheap prefilter on a job URL's location slug ("Toronto-Ontario", "Mississauga-ON-L5B",
+    "Remote-Canada", "8-Locations"). Only decides whether to fetch the detail page; the real
+    relevance decision is made on the fetched record."""
+    text = slug.replace("-", " ").replace("_", " ")
+    if re.search(r"(?i)\b(canada|ontario|remote|locations?|multiple|various)\b", text):
+        return True
+    m = (
+        match_location_text(text + ", ON")
+        if re.search(r"\bON\b", text)
+        else match_location_text(text)
+    )
+    return m is not None and (is_within(m.region_id, "gta") or is_within(m.region_id, "ca"))

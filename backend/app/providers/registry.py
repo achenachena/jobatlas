@@ -3,10 +3,19 @@ from app.providers.base import Provider, SourceCandidate
 from app.providers.greenhouse import GreenhouseProvider
 from app.providers.jsonld import JsonLdProvider
 from app.providers.lever import LeverProvider
+from app.providers.successfactors import SuccessFactorsProvider
+from app.providers.workday import WorkdayProvider
 
 PROVIDERS: dict[str, Provider] = {
     p.name: p  # type: ignore[misc]
-    for p in (GreenhouseProvider(), AshbyProvider(), LeverProvider(), JsonLdProvider())
+    for p in (
+        GreenhouseProvider(),
+        AshbyProvider(),
+        LeverProvider(),
+        WorkdayProvider(),
+        SuccessFactorsProvider(),
+        JsonLdProvider(),
+    )
 }
 
 

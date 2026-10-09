@@ -21,7 +21,9 @@ UNIT_RE = re.compile(r"\b(suite|ste\.?|unit|floor|fl\.?|#)\s*[\w-]+,?", re.I)
 STREET_TYPES = (
     r"Street|St\.?|Avenue|Ave\.?|Road|Rd\.?|Boulevard|Blvd\.?|Drive|Dr\.?|Way|Lane|Ln\.?|"
     r"Court|Ct\.?|Crescent|Cres\.?|Parkway|Pkwy\.?|Place|Pl\.?|Square|Sq\.?|Quay|Terrace|"
-    r"Highway|Hwy\.?|Circle"
+    r"Highway|Hwy\.?|Circle|Pike|Turnpike|Line|Sideroad|Side Road|Gate|Trail|Trl\.?|Mews|"
+    r"Grove|Heights|Hts\.?|Path|Row|Close|Gardens|Gdns\.?|Plaza|Mall|Promenade|Esplanade|"
+    r"Concession|Conc\.?"
 )
 STREET_RE = (
     rf"\d{{1,6}}[A-Za-z]?\s+(?:[A-Z][\w'.-]*\s+){{1,4}}(?:{STREET_TYPES})"
@@ -44,10 +46,22 @@ FULL_ADDRESS_RE = re.compile(
 )
 
 
+# Field-style statements: "Work Location: Metro Hall, 55 John St., Toronto, ON".
+FIELD_RE = re.compile(
+    r"\b(?:work(?:\s+site)?|job|primary|office|site|position)?\s*locations?\s*:\s*", re.I
+)
+FIELD_END_RE = re.compile(
+    r"\n|\s(?:Job Type|Salary|Shift|Hours|Department|Division|Reports? To|Employment|"
+    r"Posting|Job ID|Closing|Number of Positions|Affiliation)\b",
+    re.I,
+)
+
+
 @dataclass(frozen=True)
 class ExtractedAddress:
     display: str
     excerpt: str
+    has_city: bool = True
 
 
 def normalize_address(text: str) -> str:
@@ -58,11 +72,42 @@ def normalize_address(text: str) -> str:
     return " ".join(words)
 
 
+def _has_city(display: str) -> bool:
+    from app.services.region_match import match_location_text
+
+    street = re.match(STREET_RE, display)
+    rest = display[street.end() :] if street else display
+    return (
+        bool(re.search(CA_POSTAL_RE, display))
+        or match_location_text(rest) is not None
+        or bool(
+            re.search(r",\s*[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s*(?:,|\s+ON\b|\s+Ontario\b|$)", rest)
+        )
+    )
+
+
+def _field_addresses(text: str, seen: set[str]) -> list[ExtractedAddress]:
+    found = []
+    for field in FIELD_RE.finditer(text):
+        rest = text[field.end() : field.end() + 220]
+        end = FIELD_END_RE.search(rest)
+        segment = rest[: end.start()] if end else rest
+        for m in FULL_ADDRESS_RE.finditer(segment):
+            display = re.sub(r"\s+", " ", m.group(0)).strip(" ,.")
+            key = normalize_address(display)
+            if key in seen:
+                continue
+            seen.add(key)
+            excerpt = re.sub(r"\s+", " ", text[field.start() : field.end() + len(segment)])
+            found.append(ExtractedAddress(display, excerpt.strip()[:400], _has_city(display)))
+    return found
+
+
 def extract_explicit_addresses(text: str | None) -> list[ExtractedAddress]:
     if not text:
         return []
-    found: list[ExtractedAddress] = []
     seen: set[str] = set()
+    found: list[ExtractedAddress] = _field_addresses(text, seen)
     for anchor in ANCHOR_RE.finditer(text):
         window = text[anchor.end() : anchor.end() + 160]
         m = FULL_ADDRESS_RE.match(window.lstrip(" \t:-"))
@@ -75,5 +120,5 @@ def extract_explicit_addresses(text: str | None) -> list[ExtractedAddress]:
         seen.add(key)
         start = max(0, anchor.start() - 60)
         excerpt = re.sub(r"\s+", " ", text[start : anchor.end() + len(m.group(0)) + 5]).strip()
-        found.append(ExtractedAddress(display=display, excerpt=excerpt[:400]))
+        found.append(ExtractedAddress(display, excerpt[:400], _has_city(display)))
     return found

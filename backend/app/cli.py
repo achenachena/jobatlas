@@ -45,6 +45,7 @@ def discover(
     sync_new: bool = typer.Option(False, help="run the initial sync for new sources inline"),
     pattern: list[str] = typer.Option(None, help="restrict to host patterns (see commoncrawl.py)"),
     verify_provider: str = typer.Option(None, help="only verify candidates of this provider"),
+    verify_match: str = typer.Option(None, help="only verify candidate URLs containing this"),
 ) -> None:
     """Find previously unknown employers via the Common Crawl URL index."""
     with sync_session() as session, SafeHttpClient() as client:
@@ -56,7 +57,9 @@ def discover(
             collections_back=collections_back,
             patterns=pattern or None,
         )
-        ver = pipeline.verify_candidates(session, client, limit=verify, provider=verify_provider)
+        ver = pipeline.verify_candidates(
+            session, client, limit=verify, provider=verify_provider, url_contains=verify_match
+        )
         stats = {"harvest": harvest.as_dict(), "verify": ver.as_dict()}
         synced = []
         if sync_new:
@@ -161,6 +164,31 @@ def add_jsonld(url: str = typer.Argument(..., help="official employer careers pa
         )  # fmt: skip
         session.commit()
     _echo({"source_id": src.id, "created": created, "company": board.company_name})
+
+
+@app.command("add-careersite")
+def add_careersite(
+    url: str = typer.Argument(..., help="any job or site URL of the employer"),
+) -> None:
+    """Register an employer's own Workday or SuccessFactors career site (robots-checked).
+    Marked discovered_via=manual; never counts as automatic discovery."""
+    from app.providers.registry import recognize
+
+    cand = recognize(url)
+    if cand is None or cand.provider not in ("workday", "successfactors"):
+        raise typer.BadParameter("not a recognized Workday or SuccessFactors career site URL")
+    p = get_provider(cand.provider)
+    with sync_session() as session, SafeHttpClient() as client:
+        board = p.board_info(client, SourceRef(cand.provider, cand.tenant_key))
+        if not board.exists:
+            raise typer.BadParameter(f"site not usable (status {board.http_status}; robots?)")
+        src, created = register_source(
+            session, cand, board, discovered_via="manual", discovery_url=url,
+            discovery_candidate_id=None,
+        )  # fmt: skip
+        session.commit()
+    _echo({"source_id": src.id, "provider": cand.provider, "site": cand.tenant_key,
+           "company": board.company_name, "created": created})  # fmt: skip
 
 
 @app.command()

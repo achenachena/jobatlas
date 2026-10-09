@@ -32,6 +32,9 @@ class SourceCandidate:
 class SourceRef:
     provider: str
     tenant_key: str
+    # For per-page providers: jobs whose detail page was verified recently, so a run can
+    # skip them and still re-verify every job at least once per DETAIL_RECHECK window.
+    recently_verified: frozenset[str] = frozenset()
 
 
 @dataclass
@@ -42,6 +45,10 @@ class FetchPage:
     is_complete: bool
     pages_expected: int | None = None
     http_status: int | None = None
+    # Jobs the source still lists (e.g. in its sitemap) whose detail was not refetched this
+    # run because it was verified recently. Not positive evidence by itself; it only keeps
+    # them out of the "unlisted" re-check.
+    listed_only: list[str] = field(default_factory=list)
 
 
 @dataclass

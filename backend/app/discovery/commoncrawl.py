@@ -34,6 +34,10 @@ ATS_SURT_PREFIXES = {
     "greenhouse-boards": "io,greenhouse,boards)/",
     "ashby": "com,ashbyhq,jobs)/",
     "lever": "co,lever,jobs)/",
+    "workday": "com,myworkdayjobs,",
+    # wd3 hosts most Canadian employers observed so far (TD, CIBC, BMO, Sun Life, Manulife).
+    "workday-wd3": "com,myworkdayjobs,wd3,",
+    "workday-site": "com,myworkdaysite,",
 }
 
 

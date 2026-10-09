@@ -49,6 +49,7 @@ from app.providers.base import (
     VerifyResult,
 )
 from app.providers.text import html_to_text
+from app.services.addresses import FULL_ADDRESS_RE
 
 UNITS = {"YEAR": "year", "MONTH": "month", "WEEK": "week", "DAY": "day", "HOUR": "hour"}
 JOB_LINK_RE = re.compile(r"/(jobs?|careers?|positions?|openings?|vacanc(y|ies)|postings?)/", re.I)
@@ -121,6 +122,7 @@ def _canonical(url: str) -> str:
 class JsonLdProvider:
     name = "jsonld"
     supports_fetch = True
+    verify_by_url = True  # external ids are job URLs already
 
     def recognize(self, url: str) -> SourceCandidate | None:
         # Never auto-recognized from discovery URLs; registered explicitly (see module doc).
@@ -130,11 +132,13 @@ class JsonLdProvider:
         c = _canonical(page_url)
         return SourceCandidate(self.name, c, c)
 
-    def _get(self, client: SafeHttpClient, url: str):
+    def _get(
+        self, client: SafeHttpClient, url: str, accept: str = "text/html,application/xhtml+xml"
+    ):
         if not RobotsCache(client).allowed(url):
             raise ProviderError(f"robots.txt disallows {url}", error_class="robots")
         try:
-            return client.get(url, headers={"Accept": "text/html,application/xhtml+xml"})
+            return client.get(url, headers={"Accept": accept})
         except UnsafeURLError as exc:
             raise ProviderError(str(exc), error_class="unsafe_url") from exc
 
@@ -309,6 +313,14 @@ def _addresses(job_location: Any) -> Iterator[StructuredAddress | None]:
         if not isinstance(addr, dict):
             continue
         street, city = _text(addr.get("streetAddress")), _text(addr.get("addressLocality"))
+        if not street and city:
+            # Some platforms (Workday) put the whole site into addressLocality:
+            # "TD Centre - TD Tower - 66 Wellington Street West, Toronto, Ontario".
+            m = FULL_ADDRESS_RE.search(city)
+            if m:
+                street = m.group("street").strip(" ,")
+                tail = city[m.end("street") :].strip(" ,")
+                city = tail.split(",")[0].strip() or None
         if not street and not city:
             continue
         yield StructuredAddress(

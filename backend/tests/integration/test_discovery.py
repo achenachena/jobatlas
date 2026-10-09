@@ -110,3 +110,21 @@ def test_harvest_resumes_from_watermark(session, make_client, fake_web, monkeypa
 
     s3 = pipeline.harvest_commoncrawl(session, make_client(), max_blocks=10)
     assert s3.blocks_read == 0
+
+
+def test_collinfo_outage_falls_back_to_known_collections(
+    session, make_client, fake_web, monkeypatch
+):
+    monkeypatch.setattr(commoncrawl, "CHUNK", 1024)
+    monkeypatch.setattr(commoncrawl, "ATS_SURT_PREFIXES", {"ashby": "com,ashbyhq,jobs)/"})
+    monkeypatch.setattr(pipeline, "ATS_SURT_PREFIXES", {"ashby": "com,ashbyhq,jobs)/"})
+    cluster, cdx = build_index(50)
+    fake_web.add(HOST, f"{BASE}/cluster.idx", range_handler(cluster))
+    fake_web.add(HOST, f"{BASE}/cdx-00000.gz", range_handler(cdx))
+    session.add(DiscoveryWatermark(channel="commoncrawl", collection="CC-MAIN-TEST",
+                                   pattern="ashby", next_block=0))  # fmt: skip
+    session.commit()
+    fake_web.add("index.commoncrawl.org", "/collinfo.json", httpx.Response(503))
+    stats = pipeline.harvest_commoncrawl(session, make_client(max_retries=0), max_blocks=5)
+    assert stats.collections == ["CC-MAIN-TEST"] and stats.candidates_new == 5
+    assert "collinfo unavailable" in stats.errors[0]

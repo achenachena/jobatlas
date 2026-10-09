@@ -169,3 +169,20 @@ def test_timeouts_raise_fetch_error_after_retries(make_client, fake_web):
     with pytest.raises(FetchError) as exc:
         make_client(max_retries=1).get("https://slow.example/")
     assert exc.value.error_class == "timeout"
+
+
+def test_total_deadline_stops_trickling_servers(make_client, fake_web):
+    import time as _t
+
+    class Trickle(httpx.SyncByteStream):
+        def __iter__(self):
+            for _ in range(50):
+                _t.sleep(0.02)
+                yield b"x"
+
+    fake_web.add("slowdrip.example", "/", lambda req: httpx.Response(200, stream=Trickle()))
+    client = make_client(max_retries=0)
+    client.max_total_seconds = 0.1
+    with pytest.raises(FetchError) as exc:
+        client.get("https://slowdrip.example/")
+    assert exc.value.error_class == "timeout"

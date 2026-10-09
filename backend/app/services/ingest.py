@@ -16,14 +16,16 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.core.timeutil import utcnow
 from app.models import (
+    Company,
     Job,
     JobEligibilityRegion,
     JobEvent,
@@ -36,7 +38,7 @@ from app.providers.base import NormalizedJob, ProviderError, SourceRef, raw_hash
 from app.providers.registry import get_provider
 from app.services.locations import (
     add_evidence,
-    link_remote_job_to_company,
+    link_job_to_company_locations,
     refresh_location_status,
     sync_job_addresses,
 )
@@ -77,6 +79,8 @@ class SyncResult:
     is_complete: bool = False
     error_class: str | None = None
     skipped_reasons: dict[str, int] = field(default_factory=dict)
+    # For never-complete providers: ids the source still lists this run.
+    still_listed: set[str] | None = None
 
 
 @dataclass
@@ -182,7 +186,7 @@ def _derived(session: Session, job: Job, n: NormalizedJob, rel: Relevance, now: 
         )  # fmt: skip
     _replace_eligibility(session, job, rel, n.canonical_url, now)
     sync_job_addresses(session, job, n, n.canonical_url, now)
-    link_remote_job_to_company(session, job, now)
+    link_job_to_company_locations(session, job, now)
     refresh_location_status(session, job)
 
 
@@ -346,14 +350,29 @@ def sync_source(
         return SyncResult(source_id, status="skipped_locked")
     try:
         result = _sync_locked(session, source_id, client, task_id)
-        if run_lifecycle and result.is_complete and result.run_id is not None:
-            from app.services.lifecycle import process_missing
+        if run_lifecycle and result.run_id is not None and result.status != "failed":
+            from app.services.lifecycle import process_missing, process_unlisted
 
-            result.closed += process_missing(session, source_id, result.run_id, client)
+            if result.is_complete:
+                result.closed += process_missing(session, source_id, result.run_id, client)
+            elif result.still_listed is not None:
+                result.closed += process_unlisted(
+                    session, source_id, result.run_id, client, result.still_listed
+                )
         return result
     finally:
         session.rollback()
         release_lock(session, source_id, owner)
+
+
+def _adopt_company_name(session: Session, source: Source, n: NormalizedJob) -> None:
+    """A company registered under its board slug/URL takes the employer name the postings
+    themselves declare (hiringOrganization), once."""
+    if not n.company_name or source.company_id is None:
+        return
+    company = session.get(Company, source.company_id)
+    if company is not None and company.name in (source.tenant_key, source.base_url):
+        company.name = n.company_name[:200]
 
 
 def _previous_complete_count(
@@ -374,7 +393,17 @@ def _sync_locked(
     if source is None:
         return SyncResult(source_id, status="missing_source")
     provider = get_provider(source.provider)
-    ref = SourceRef(source.provider, source.tenant_key)
+    recent: frozenset[str] = frozenset()
+    if getattr(provider, "incremental", False):
+        cutoff = utcnow() - timedelta(hours=get_settings().detail_recheck_hours)
+        recent = frozenset(
+            session.scalars(
+                select(JobSourceRecord.external_id).where(
+                    JobSourceRecord.source_id == source.id, JobSourceRecord.last_seen_at >= cutoff
+                )
+            )
+        )
+    ref = SourceRef(source.provider, source.tenant_key, recent)
     started = utcnow()
     run = SourceRun(source_id=source.id, started_at=started, status="running", task_id=task_id)
     session.add(run)
@@ -383,6 +412,7 @@ def _sync_locked(
     bound = log.bind(source_run_id=str(run.id), provider=source.provider, tenant=source.tenant_key)
 
     records: list[dict] = []
+    listed_only: list[str] = []
     complete = True
     cursor: str | None = None
     try:
@@ -392,6 +422,7 @@ def _sync_locked(
             run.http_status = page.http_status
             run.pages_expected = page.pages_expected
             records.extend(page.records)
+            listed_only.extend(page.listed_only)
             complete = complete and page.is_complete
             cursor = page.next_cursor
             if cursor is None:
@@ -452,6 +483,7 @@ def _sync_locked(
                 )
                 continue
         result.records_relevant += 1
+        _adopt_company_name(session, source, n)
         outcome = upsert_job(session, source, run, n, rel, raw_hash(raw), now)
         if outcome == "created":
             result.created += 1
@@ -467,6 +499,8 @@ def _sync_locked(
     if parse_failures:
         result.skipped_reasons["parse_failure"] = parse_failures
         complete = False
+    if not complete:
+        result.still_listed = seen_ids | set(listed_only)
 
     if complete:
         missing = update(JobSourceRecord).where(JobSourceRecord.source_id == source.id)

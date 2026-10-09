@@ -24,6 +24,7 @@ class Settings(BaseSettings):
         alias="HTTP_USER_AGENT",
     )
     http_timeout_seconds: float = Field(default=20.0, alias="HTTP_TIMEOUT_SECONDS")
+    http_max_total_seconds: float = Field(default=60.0, alias="HTTP_MAX_TOTAL_SECONDS")
     http_max_response_bytes: int = Field(default=20_000_000, alias="HTTP_MAX_RESPONSE_BYTES")
     http_max_redirects: int = Field(default=5, alias="HTTP_MAX_REDIRECTS")
     http_per_host_min_interval_seconds: float = Field(
@@ -51,6 +52,7 @@ class Settings(BaseSettings):
 
     geocoder_provider: str = Field(default="none", alias="GEOCODER_PROVIDER")
     geocoder_base_url: str | None = Field(default=None, alias="GEOCODER_BASE_URL")
+    geocoder_internal: bool = Field(default=False, alias="GEOCODER_INTERNAL")
     geocoder_retry_days: int = Field(default=7, alias="GEOCODER_RETRY_DAYS")
     geocoder_batch_size: int = Field(default=50, alias="GEOCODER_BATCH_SIZE")
 
@@ -65,6 +67,9 @@ class Settings(BaseSettings):
     search_snapshot_ttl_seconds: int = Field(default=300, alias="SEARCH_SNAPSHOT_TTL_SECONDS")
     search_max_map_points: int = Field(default=5000, alias="SEARCH_MAX_MAP_POINTS")
     api_rate_limit_per_minute: int = Field(default=120, alias="API_RATE_LIMIT_PER_MINUTE")
+
+    careersite_max_detail_pages: int = Field(default=150, alias="CAREERSITE_MAX_DETAIL_PAGES")
+    detail_recheck_hours: int = Field(default=24, alias="DETAIL_RECHECK_HOURS")
 
     jsonld_max_job_pages: int = Field(default=30, alias="JSONLD_MAX_JOB_PAGES")
 

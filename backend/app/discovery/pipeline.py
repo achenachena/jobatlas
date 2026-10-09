@@ -138,9 +138,22 @@ def harvest_commoncrawl(
         max_blocks if max_blocks is not None else get_settings().discovery_max_blocks_per_run
     )
     stats = DiscoveryStats()
-    collections = list_collections(client)[:collections_back]
-    stats.collections = collections
     budget = max_blocks
+    if budget <= 0:
+        return stats
+    try:
+        collections = list_collections(client)[:collections_back]
+    except (FetchError, CommonCrawlError, ValueError) as exc:
+        # The index server is often overloaded. Fall back to collections we already know;
+        # verification of queued candidates never depends on this.
+        known = session.scalars(
+            select(DiscoveryWatermark.collection)
+            .distinct()
+            .order_by(DiscoveryWatermark.collection.desc())
+        ).all()
+        stats.errors.append(f"collinfo unavailable ({exc}); using known collections")
+        collections = list(known)[:collections_back]
+    stats.collections = collections
     for collection in collections:
         index = ZipNumIndex(client, collection)
         for pattern in patterns or list(ATS_SURT_PREFIXES):
@@ -197,6 +210,7 @@ def verify_candidates(
     *,
     limit: int | None = None,
     provider: str | None = None,
+    url_contains: str | None = None,
 ) -> VerifyStats:
     limit = limit if limit is not None else get_settings().discovery_max_verifications_per_run
     stats = VerifyStats()
@@ -227,6 +241,9 @@ def verify_candidates(
             select(DiscoveryCandidate)
             .where(DiscoveryCandidate.state == "new")
             .where(DiscoveryCandidate.provider == provider if provider else true())
+            .where(
+                DiscoveryCandidate.canonical_url.contains(url_contains) if url_contains else true()
+            )
             .order_by(DiscoveryCandidate.first_seen_at, DiscoveryCandidate.canonical_url)
             .limit(limit)
             .with_for_update(skip_locked=True)

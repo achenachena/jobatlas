@@ -29,7 +29,8 @@ from app.core.timeutil import utcnow
 from app.models import CompanyLocation, Evidence, Job, JobLocation, Location
 from app.providers.base import NormalizedJob, StructuredAddress
 from app.services.addresses import extract_explicit_addresses, normalize_address
-from app.services.geocode import PRECISE, Geocoder
+from app.services.geocode import POSTAL_RE, PRECISE, Geocoder
+from app.services.region_match import MUNICIPALITIES
 
 # Evidence methods that come from the job's own data; these links are rebuilt on every
 # content change. Company-derived links (headquarters) are managed separately.
@@ -38,6 +39,8 @@ JOB_METHODS = {
     "jsonld_postal_address",
     "jsonld_address_text",
     "description_explicit_address",
+    "workday_jsonld_address",
+    "successfactors_microdata",
 }
 COMPANY_LINK_METHOD = "company_verified_location"
 
@@ -86,7 +89,23 @@ def get_or_create_location(
         )
         .on_conflict_do_nothing(constraint="uq_locations_normalized_address")
     )
-    return session.scalar(select(Location).where(Location.normalized_address == key))  # type: ignore[return-value]
+    loc = session.scalar(select(Location).where(Location.normalized_address == key))
+    if loc is not None and addr is not None and loc.point is None:
+        # Fill hints learned later (postal code / city) so a failed geocode can be retried.
+        changed = False
+        if addr.postal_code and not loc.postal_code:
+            loc.postal_code, changed = addr.postal_code, True
+        if addr.city and not loc.city:
+            loc.city, changed = addr.city, True
+        if changed:
+            loc.geocoded_at, loc.geocode_error = None, None
+    return loc  # type: ignore[return-value]
+
+
+def _municipality_name(region_id: str | None) -> str | None:
+    if region_id in MUNICIPALITIES:
+        return region_id.replace("-", " ").title()
+    return None
 
 
 def _country_code(country: str | None) -> str | None:
@@ -118,8 +137,20 @@ def sync_job_addresses(
         wanted.append(
             _Wanted(a.one_line(), a, a.method, f"{a.label or ''} {a.one_line()}".strip(), "high")
         )
+    city_hint = _municipality_name(job.location_region_id)
+    # The job's own structured postal code (e.g. SuccessFactors microdata) disambiguates
+    # same-named streets when the address text omits it.
+    postal_hint = next((a.postal_code for a in n.structured_addresses if a.postal_code), None)
     for e in extract_explicit_addresses(n.description_text):
-        wanted.append(_Wanted(e.display, None, "description_explicit_address", e.excerpt, "medium"))
+        display = e.display
+        if not e.has_city:
+            if city_hint is None:
+                continue  # a bare street name is too ambiguous to geocode
+            # The city comes from the job's own location label; the excerpt keeps the source.
+            display = f"{display}, {city_hint}, ON"
+        hint = StructuredAddress(None, city_hint, "ON" if city_hint else None, postal_hint,
+                                 None, None, "hint")  # fmt: skip
+        wanted.append(_Wanted(display, hint, "description_explicit_address", e.excerpt, "medium"))
 
     existing = session.execute(
         select(JobLocation, Evidence, Location)
@@ -161,10 +192,19 @@ def sync_job_addresses(
     session.flush()
 
 
-def link_remote_job_to_company(session: Session, job: Job, now: datetime) -> None:
-    """Rule 4: a remote job uses its own associated office if it has one, otherwise the
-    company's verified headquarters. Always shown as Company Location."""
-    if job.workplace_type != "remote" or job.company_id is None:
+COMPANY_METHODS = {COMPANY_LINK_METHOD, "company_single_city_office"}
+
+
+def link_job_to_company_locations(session: Session, job: Job, now: datetime) -> None:
+    """Company-derived location links (user decision 2026-10-08):
+
+    1. The job's own location/office label names a GTA municipality and the company publishes
+       exactly ONE distinct address there -> that address (work_site; company_office for
+       remote jobs). Several addresses in that city -> no link.
+    2. Otherwise, a remote job uses the company's single verified headquarters (rule 4).
+    A job with its own explicit address never takes a company-derived one.
+    """
+    if job.company_id is None:
         return
     own = session.scalar(
         select(JobLocation.id)
@@ -176,48 +216,71 @@ def link_remote_job_to_company(session: Session, job: Job, now: datetime) -> Non
         )
         .limit(1)
     )
-    company_locs = session.scalars(
-        select(CompanyLocation).where(
-            CompanyLocation.company_id == job.company_id,
-            CompanyLocation.invalidated_at.is_(None),
-        )
-    ).all()
-    hq = [c for c in company_locs if c.role == "headquarters"]
-    current = session.scalars(
-        select(JobLocation)
+    remote = job.workplace_type == "remote"
+    target: tuple[CompanyLocation, str, str] | None = None
+    if not own:
+        company_locs = session.scalars(
+            select(CompanyLocation).where(
+                CompanyLocation.company_id == job.company_id,
+                CompanyLocation.invalidated_at.is_(None),
+            )
+        ).all()
+        if job.location_region_id in MUNICIPALITIES:
+            in_city = {c.location_id: c for c in company_locs if c.label == job.location_region_id}
+            if len(in_city) == 1:
+                target = (
+                    next(iter(in_city.values())),
+                    "company_office" if remote else "work_site",
+                    "company_single_city_office",
+                )
+        if target is None and remote:
+            hq = {c.location_id: c for c in company_locs if c.role == "headquarters"}
+            if len(hq) == 1:
+                target = (next(iter(hq.values())), "headquarters", COMPANY_LINK_METHOD)
+
+    current = session.execute(
+        select(JobLocation, Evidence)
         .join(Evidence, Evidence.id == JobLocation.evidence_id)
-        .where(JobLocation.job_id == job.id, Evidence.method == COMPANY_LINK_METHOD)
+        .where(JobLocation.job_id == job.id, Evidence.method.in_(COMPANY_METHODS))
     ).all()
-    target = hq[0] if (not own and len(hq) == 1) else None
-    for jl in current:
-        if target is None or jl.location_id != target.location_id:
+    for jl, _ in current:
+        if target is None or jl.location_id != target[0].location_id or jl.role != target[1]:
             jl.verification_status = "invalidated"
-    if target is None or any(
-        jl.location_id == target.location_id and jl.verification_status == "verified"
-        for jl in current
+    if target is None:
+        session.flush()
+        return
+    cl, role, method = target
+    if any(
+        jl.location_id == cl.location_id
+        and jl.role == role
+        and jl.verification_status == "verified"
+        for jl, _ in current
     ):
         session.flush()
         return
+    source = session.get(Evidence, cl.evidence_id) if cl.evidence_id else None
+    if method == "company_single_city_office":
+        excerpt = (
+            f"job location '{job.location_text}' -> company's only published address in "
+            f"{job.location_region_id}: {source.excerpt if source else ''}"
+        )
+    else:
+        detail = source.excerpt if source else ""
+        excerpt = f"remote job -> company's single verified headquarters: {detail}"
     ev = add_evidence(
         session, "job", job.id, "location",
-        method=COMPANY_LINK_METHOD, confidence="high",
-        excerpt=f"remote job; company headquarters (company_location {target.id})",
-        source_url=None, now=now,
+        method=method, confidence="high", excerpt=excerpt,
+        source_url=source.source_url if source else None, now=now,
     )  # fmt: skip
     session.execute(
         insert(JobLocation)
-        .values(
-            job_id=job.id,
-            location_id=target.location_id,
-            role="headquarters",
-            verification_status="verified",
-            evidence_id=ev.id,
-        )
+        .values(job_id=job.id, location_id=cl.location_id, role=role,
+                verification_status="verified", evidence_id=ev.id)
         .on_conflict_do_update(
             constraint="uq_job_locations",
             set_={"verification_status": "verified", "evidence_id": ev.id},
         )
-    )
+    )  # fmt: skip
     session.flush()
 
 
@@ -270,6 +333,8 @@ def geocode_pending(
     for loc in pending:
         stats.attempted += 1
         query = loc.display_address or loc.normalized_address
+        if loc.postal_code and not POSTAL_RE.search(query.upper()):  # never add a second one
+            query = f"{query}, {loc.postal_code}"
         result = geocoder.geocode(query, (loc.country or "ca").lower())
         loc.geocoder = result.provider
         loc.geocoded_at = now

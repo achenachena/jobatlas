@@ -26,6 +26,16 @@ POLICY_BY_PROVIDER = {
         "Ashby public job posting API, documented for embedding/reading published jobs.",
     ),
     "lever": ("documented_public_api", "Lever postings API; robots allows / with crawl-delay 1."),
+    "successfactors": (
+        "robots_allowed_official_page",
+        "Employer's own SuccessFactors career site (public job pages + sitemap); every fetch "
+        "checked against that host's robots.txt.",
+    ),
+    "workday": (
+        "robots_allowed_official_page",
+        "Employer's own Workday career site; only sites whose robots.txt allows the site path. "
+        "Uses the JSON endpoint the public site itself calls (undocumented).",
+    ),
     "jsonld": (
         "robots_allowed_official_page",
         "Employer's own careers page; every fetch checked against robots.txt.",

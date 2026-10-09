@@ -110,7 +110,7 @@ def process_missing(
         if _listed_elsewhere(session, rec):
             continue
         try:
-            verdict = provider.verify_job(client, ref, rec.external_id)
+            verdict = provider.verify_job(client, ref, _verify_key(provider, rec))
         except (ProviderError, FetchError, UnsafeURLError) as exc:
             log.warning("verify_failed", job_id=str(job.id), error=str(exc)[:200])
             continue
@@ -138,6 +138,66 @@ def process_missing(
                 source_url=rec.canonical_url, source_run_id=run_id,
             )  # fmt: skip
             closed += 1
+        session.commit()
+    return closed
+
+
+def _verify_key(provider, rec: JobSourceRecord) -> str:
+    """Per-page providers verify by job URL; API providers by their own id."""
+    if getattr(provider, "verify_by_url", False) and rec.canonical_url:
+        return rec.canonical_url
+    return rec.external_id
+
+
+def process_unlisted(
+    session: Session,
+    source_id: uuid.UUID,
+    run_id: uuid.UUID,
+    client: SafeHttpClient,
+    still_listed: set[str],
+    *,
+    limit: int = 50,
+) -> int:
+    """For providers whose listing is never complete (career sites, JSON-LD pages): a tracked
+    job that no longer appears is re-checked on its own page. Only explicit closure evidence
+    closes it; anything inconclusive leaves it to age into Pending via the freshness sweep."""
+    source = session.get(Source, source_id)
+    if source is None:
+        return 0
+    provider = get_provider(source.provider)
+    ref = SourceRef(source.provider, source.tenant_key)
+    now = utcnow()
+    rows = session.execute(
+        select(JobSourceRecord, Job)
+        .join(Job, Job.id == JobSourceRecord.job_id)
+        .where(JobSourceRecord.source_id == source_id, Job.status != "closed")
+        .where(JobSourceRecord.last_seen_run_id != run_id)
+        .limit(limit * 4)
+    ).all()
+    closed = checked = 0
+    for rec, job in rows:
+        if rec.external_id in still_listed or checked >= limit:
+            continue
+        checked += 1
+        try:
+            verdict = provider.verify_job(client, ref, _verify_key(provider, rec))
+        except (ProviderError, FetchError, UnsafeURLError):
+            continue
+        if verdict.state == "closed":
+            transition(
+                session, job, "closed", f"{source.provider}: {verdict.reason}",
+                now=now, method=f"{source.provider}_detail_check",
+                source_url=rec.canonical_url, source_run_id=run_id,
+            )  # fmt: skip
+            closed += 1
+        elif verdict.state == "active":
+            job.last_verified_at = now
+            rec.last_seen_at = now
+            if job.status == "pending_verification":
+                transition(
+                    session, job, "active", f"{source.provider}: {verdict.reason}",
+                    now=now, method=f"{source.provider}_detail_check", source_run_id=run_id,
+                )  # fmt: skip
         session.commit()
     return closed
 

@@ -15,6 +15,7 @@ Every request:
 from __future__ import annotations
 
 import ipaddress
+import json
 import random
 import re
 import socket
@@ -172,6 +173,7 @@ class SafeHttpClient:
         self.resolver = resolver
         self.max_bytes = s.http_max_response_bytes
         self.max_redirects = s.http_max_redirects
+        self.max_total_seconds = s.http_max_total_seconds
         self.max_retries = max_retries
         self.backoff_base = backoff_base
         self.max_backoff = max_backoff
@@ -196,10 +198,23 @@ class SafeHttpClient:
 
     def get(self, url: str, *, headers: dict[str, str] | None = None) -> SafeResponse:
         """GET with retries on transient failures. Non-retryable statuses are returned."""
+        return self._request("GET", url, headers or {}, None)
+
+    def post_json(
+        self, url: str, payload: dict, *, headers: dict[str, str] | None = None
+    ) -> SafeResponse:
+        """POST a JSON body (read-only search endpoints of public career sites)."""
+        body = json.dumps(payload, separators=(",", ":")).encode()
+        hdrs = {"Content-Type": "application/json", "Accept": "application/json", **(headers or {})}
+        return self._request("POST", url, hdrs, body)
+
+    def _request(
+        self, method: str, url: str, headers: dict[str, str], body: bytes | None
+    ) -> SafeResponse:
         attempt = 0
         while True:
             try:
-                resp = self._get_following_redirects(url, headers or {})
+                resp = self._follow_redirects(method, url, headers, body)
             except httpx.TimeoutException as exc:
                 if attempt >= self.max_retries:
                     raise FetchError(f"timeout: {url}", error_class="timeout") from exc
@@ -225,19 +240,25 @@ class SafeHttpClient:
         delay = min(self.backoff_base * (2**attempt), self.max_backoff)
         return delay + random.uniform(0, delay / 2)  # noqa: S311 - jitter, not crypto
 
-    def _get_following_redirects(self, url: str, headers: dict[str, str]) -> SafeResponse:
+    def _follow_redirects(
+        self, method: str, url: str, headers: dict[str, str], body: bytes | None
+    ) -> SafeResponse:
         redirects: list[str] = []
         current = url
         for _ in range(self.max_redirects + 1):
-            status, resp_headers, body = self._single(current, headers)
+            status, resp_headers, content = self._single(method, current, headers, body)
             if status in (301, 302, 303, 307, 308) and "location" in resp_headers:
                 redirects.append(current)
                 current = urljoin(current, resp_headers["location"])
+                if status in (301, 302, 303):  # these downgrade to GET without a body
+                    method, body = "GET", None
                 continue
-            return SafeResponse(current, status, resp_headers, body, redirects)
+            return SafeResponse(current, status, resp_headers, content, redirects)
         raise FetchError(f"too many redirects from {url}", error_class="redirects")
 
-    def _single(self, url: str, headers: dict[str, str]) -> tuple[int, httpx.Headers, bytes]:
+    def _single(
+        self, method: str, url: str, headers: dict[str, str], body: bytes | None
+    ) -> tuple[int, httpx.Headers, bytes]:
         scheme, host, port = validate_url(url)
         ip = resolve_public(host, port, self.resolver)
         parts = urlsplit(url)
@@ -245,10 +266,14 @@ class SafeHttpClient:
         netloc = ip_host if port == DEFAULT_PORTS[scheme] else f"{ip_host}:{port}"
         pinned = urlunsplit((scheme, netloc, parts.path or "/", parts.query, ""))
         req_headers = {**headers, "Host": parts.netloc.rsplit("@", 1)[-1]}
+        # Many tenants share one platform's servers (all *.wd3.myworkdayjobs.com resolve to the
+        # same IPs), so politeness is enforced per resolved IP as well as per hostname.
         self.throttle.wait(host)
+        self.throttle.wait(f"ip:{ip}")
         request = self._client.build_request(
-            "GET", pinned, headers=req_headers, extensions={"sni_hostname": host}
+            method, pinned, headers=req_headers, content=body, extensions={"sni_hostname": host}
         )
+        started = time.monotonic()
         response = self._client.send(request, stream=True)
         try:
             declared = response.headers.get("content-length")
@@ -257,6 +282,9 @@ class SafeHttpClient:
             chunks: list[bytes] = []
             total = 0
             for chunk in response.iter_bytes():
+                if time.monotonic() - started > self.max_total_seconds:
+                    # A server trickling bytes can defeat per-read timeouts; cap wall time.
+                    raise httpx.ReadTimeout(f"{url}: exceeded {self.max_total_seconds}s total")
                 total += len(chunk)
                 if total > self.max_bytes:
                     raise ResponseTooLargeError(f"{url}: exceeds {self.max_bytes} bytes")

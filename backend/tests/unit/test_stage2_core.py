@@ -73,7 +73,7 @@ def test_canonical_job_url_strips_only_tracking():
 def _nominatim(make_client, fake_web, results):
     fake_web.add(
         "nominatim.example",
-        "/search?q=1+Yonge+St%2C+Toronto&format=jsonv2&addressdetails=1&limit=3&countrycodes=ca",
+        "/search?q=1+Yonge+St%2C+Toronto&format=jsonv2&addressdetails=1&limit=5&countrycodes=ca",
         httpx.Response(200, json=results),
     )
     return NominatimGeocoder(make_client(), "https://nominatim.example").geocode(

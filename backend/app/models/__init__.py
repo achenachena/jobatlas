@@ -40,7 +40,7 @@ POSTED_PRECISION = ("datetime", "date", "none")
 POSTED_BASIS = ("original", "republished_only", "unknown")
 LOCATION_STATUSES = ("exact_work_location", "company_location", "unverified")
 SOURCE_STATUSES = ("active", "idle", "failing", "disabled")
-PROVIDERS = ("greenhouse", "ashby", "lever", "jsonld")
+PROVIDERS = ("greenhouse", "ashby", "lever", "jsonld", "successfactors", "workday")
 CANDIDATE_STATES = ("new", "accepted", "rejected", "deferred")
 RUN_STATUSES = ("running", "succeeded", "partial", "failed")
 

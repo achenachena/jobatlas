@@ -204,3 +204,30 @@ def test_region_switch_changes_eligibility_scope(client, session):
     assert str(toronto_job.id) not in str(miss["groups"])
     gta = client.get("/api/v1/search", params={"region_id": "gta"}).json()
     assert str(toronto_job.id) in _ids(gta, "location_unverified")
+
+
+def test_date_only_postings_in_rolling_windows(client, session):
+    c = f.company(session)
+    today = utcnow().date()
+    recent = f.job(session, c, title="Program Coordinator", region="toronto")
+    old = f.job(session, c, title="Program Coordinator II", region="toronto")
+    edge = f.job(session, c, title="Program Coordinator III", region="toronto")
+    for j, days in ((recent, 1), (old, 5), (edge, 3)):
+        j.posted_basis, j.posted_precision, j.posted_date = (
+            "original",
+            "date",
+            today - timedelta(days=days),
+        )
+    session.commit()
+    body = client.get(
+        "/api/v1/search", params={"q": "program coordinator", "time_window": "3d"}
+    ).json()
+    got = set(_ids(body, "location_unverified"))
+    assert str(recent.id) in got
+    assert str(old.id) not in got and str(edge.id) not in got  # edge day may be older: excluded
+    warn = {w["code"]: w for w in body["warnings"]}
+    assert warn["UNTRUSTED_POSTING_TIME_EXCLUDED"]["count"] == 2
+    # Date-only with unknown zone never counts as "Today".
+    today_body = client.get("/api/v1/search", params={"q": "program coordinator",
+                                                      "time_window": "today"}).json()  # fmt: skip
+    assert today_body["counts"]["total"] == 0

@@ -25,7 +25,8 @@ import re
 import secrets
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
+from datetime import time as dtime
 from typing import Any, Literal
 
 from redis.asyncio import Redis
@@ -244,6 +245,18 @@ def build_map(
 # ---------------------------------------------------------------- SQL
 
 
+def date_floor(window_start: datetime | None) -> date | None:
+    """Earliest calendar date (zone unknown, UTC-12..UTC+14) that certainly began after
+    window_start: date d starts no earlier than (d-1)T10:00Z, so require that >= start."""
+    if window_start is None:
+        return None
+    shifted = window_start.astimezone(UTC) + timedelta(hours=14)
+    d = shifted.date()
+    if shifted.time() != dtime(0, 0):
+        d += timedelta(days=1)
+    return d
+
+
 def _time_bounds(window: str, as_of: datetime) -> tuple[datetime | None, Any]:
     if window == "all":
         return None, None
@@ -265,6 +278,9 @@ SELECT j.id::text AS id, j.workplace_type, j.location_region_id, j.eligibility_s
          WHEN CAST(:today_date AS date) IS NOT NULL AND j.posted_basis = 'original'
               AND j.posted_precision = 'date' AND j.posted_tz_basis = 'America/Toronto'
               AND j.posted_date = CAST(:today_date AS date) THEN true
+         WHEN CAST(:date_floor AS date) IS NOT NULL AND j.posted_basis = 'original'
+              AND j.posted_precision = 'date'
+              AND j.posted_date >= CAST(:date_floor AS date) THEN true
          ELSE false
        END AS in_window,
        (j.posted_basis = 'original' AND j.posted_precision = 'datetime') AS trusted_time
@@ -342,6 +358,8 @@ async def run_search(session: AsyncSession, redis: Redis, p: SearchParams) -> di
             {
                 "window_start": window_start,
                 "today_date": today_date,
+                # Rolling windows only; "today" with date-only data needs a known Toronto zone.
+                "date_floor": date_floor(window_start) if p.time_window != "today" else None,
                 "as_of": as_of,
                 "fresh_cutoff": as_of - timedelta(hours=s.freshness_hours),
                 "workplace": p.workplace,
@@ -394,8 +412,8 @@ async def run_search(session: AsyncSession, redis: Redis, p: SearchParams) -> di
         warnings.append(
             {
                 "code": "UNTRUSTED_POSTING_TIME_EXCLUDED",
-                "message": f"{excluded_untrusted} matching jobs have no trusted original posting "
-                "time and are excluded from this time filter",
+                "message": f"{excluded_untrusted} matching jobs have no original posting time "
+                "precise enough for this filter and are excluded",
                 "count": excluded_untrusted,
             }
         )
