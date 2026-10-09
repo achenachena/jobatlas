@@ -52,6 +52,8 @@ class Settings(BaseSettings):
 
     geocoder_provider: str = Field(default="none", alias="GEOCODER_PROVIDER")
     geocoder_base_url: str | None = Field(default=None, alias="GEOCODER_BASE_URL")
+    # Self-hosted Nominatim with the FULL import style (named places), for site resolution.
+    geocoder_poi_url: str | None = Field(default=None, alias="GEOCODER_POI_URL")
     geocoder_internal: bool = Field(default=False, alias="GEOCODER_INTERNAL")
     geocoder_retry_days: int = Field(default=7, alias="GEOCODER_RETRY_DAYS")
     geocoder_batch_size: int = Field(default=50, alias="GEOCODER_BATCH_SIZE")

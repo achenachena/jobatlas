@@ -32,6 +32,8 @@ from app.services.region_match import (
         ("Richmond Hill, GA", None),
         ("Dublin", None),
         ("Remote", None),
+        ("Hamilton, ON - Burlington St (LSC)", "ca-on"),  # street name is not a city
+        ("Alumicor - Toronto - Humberline Dr", "toronto"),
         (None, None),
     ],
 )

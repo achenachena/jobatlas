@@ -114,9 +114,25 @@ def is_within(region_id: str | None, target: str) -> bool:
     return region_id is not None and target in ancestors(region_id)
 
 
+_STREET_NAME_RE: re.Pattern | None = None
+
+
+def _strip_street_names(label: str) -> str:
+    """'Hamilton, ON - Burlington St' names Hamilton; the street must not count as a city."""
+    global _STREET_NAME_RE
+    if _STREET_NAME_RE is None:
+        from app.services.addresses import STREET_TYPES
+
+        _STREET_NAME_RE = re.compile(
+            rf"\b(?:[A-Z][\w'.]*\s+){{1,3}}(?:{STREET_TYPES})\b(?:\s+(?:West|East|North|South|W|E|N|S)\b)?"
+        )
+    return _STREET_NAME_RE.sub(" ", label)
+
+
 def match_location_text(label: str | None) -> RegionMatch | None:
     if not label:
         return None
+    label = _strip_street_names(label)
     text = label.lower()
     for alias in GTA_ALIASES:  # before municipalities: "Greater Toronto Area" is not Toronto
         if _has(text, alias):

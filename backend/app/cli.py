@@ -210,6 +210,19 @@ def geocode(limit: int = typer.Option(None)) -> None:
         _echo(geocode_pending(session, build_geocoder(client), limit=limit).__dict__)
 
 
+@app.command("resolve-sites")
+def resolve_sites_cmd(limit: int = typer.Option(300)) -> None:
+    """Resolve employer-named sites (street/place) to buildings via self-hosted OSM."""
+    from app.services.locations import resolve_sites
+    from app.services.site_resolver import build_site_resolver
+
+    resolver = build_site_resolver()
+    if resolver is None:
+        raise typer.BadParameter("GEOCODER_POI_URL is not configured")
+    with sync_session() as session:
+        _echo(resolve_sites(session, resolver, limit=limit).__dict__)
+
+
 @app.command("enrich-offices")
 def enrich_offices(limit: int = typer.Option(20)) -> None:
     """Find official HQ/office addresses on company websites (for remote jobs)."""

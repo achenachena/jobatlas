@@ -107,6 +107,30 @@ services:
       - nominatim-data:/var/lib/postgresql/16/main
     restart: unless-stopped
 
+  # Same, with the full import style: also indexes named places (offices, malls,
+  # buildings) so employer site names like "Sherway Gardens" can be resolved. Larger and
+  # slower to import than the address-only instance above.
+  geocoder-full:
+    image: mediagis/nominatim:5.3.2-2026-06-23T09-03
+    profiles: ["geocoder-full"]
+    environment:
+      # Pre-downloaded extract (Geofabrik throttles repeated downloads per IP). Fetch with:
+      # curl -o infra/osm-data/ontario-latest.osm.pbf \
+      #   http://download.openstreetmap.fr/extracts/north-america/canada/ontario-latest.osm.pbf
+      PBF_PATH: /osm-data/ontario-latest.osm.pbf
+      IMPORT_STYLE: full
+      REPLICATION_URL: ""
+      THREADS: "6"
+      NOMINATIM_PASSWORD: nominatim-local
+    shm_size: 1g
+    ports:
+      - "${JOBATLAS_GEOCODER_FULL_PORT:-8089}:8080"
+    volumes:
+      - nominatim-full-data:/var/lib/postgresql/16/main
+      - ./osm-data:/osm-data:ro
+    restart: unless-stopped
+
 volumes:
   pgdata:
   nominatim-data:
+  nominatim-full-data:

@@ -408,3 +408,18 @@ class TaskRun(TimestampMixin, Base):
     error: Mapped[str | None] = mapped_column(Text)
     next_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     payload: Mapped[dict | None] = mapped_column(JSONB)
+
+
+class SiteResolution(TimestampMixin, Base):
+    """Cache of employer site-label lookups ("Autodesk | toronto | University Ave"), including
+    failures, so a label is resolved against OSM at most once per retry window."""
+
+    __tablename__ = "site_resolutions"
+    __table_args__ = (UniqueConstraint("key", name="uq_site_resolutions_key"),)
+
+    key: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)  # resolved | unresolved
+    location_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("locations.id"))
+    osm_ref: Mapped[str | None] = mapped_column(Text)
+    detail: Mapped[str | None] = mapped_column(Text)
+    resolved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

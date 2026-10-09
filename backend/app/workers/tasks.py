@@ -95,3 +95,15 @@ def enrich_company_offices_task() -> dict:
     with sync_session() as session, SafeHttpClient() as client:
         stats = enrich_companies(session, client)
     return stats.__dict__
+
+
+@celery_app.task(name="jobatlas.resolve_sites")
+def resolve_sites_task() -> dict:
+    from app.services.locations import resolve_sites
+    from app.services.site_resolver import build_site_resolver
+
+    resolver = build_site_resolver()
+    if resolver is None:
+        return {"skipped": "GEOCODER_POI_URL not configured"}
+    with sync_session() as session:
+        return resolve_sites(session, resolver).__dict__

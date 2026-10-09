@@ -26,7 +26,7 @@ STREET_TYPES = (
     r"Concession|Conc\.?"
 )
 STREET_RE = (
-    rf"\d{{1,6}}[A-Za-z]?\s+(?:[A-Z][\w'.-]*\s+){{1,4}}(?:{STREET_TYPES})"
+    rf"\d{{1,6}}[A-Za-z]?\s+(?:[A-Z][\w'.-]*\s+){{1,4}}(?:{STREET_TYPES})(?![A-Za-z])"
     r"(?:\s+(?:West|East|North|South|W|E|N|S)\b\.?)?"
 )
 CA_POSTAL_RE = r"[ABCEGHJ-NPRSTVXY]\d[ABCEGHJ-NPRSTV-Z]\s?\d[ABCEGHJ-NPRSTV-Z]\d"

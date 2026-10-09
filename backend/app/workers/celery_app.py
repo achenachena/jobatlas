@@ -26,6 +26,7 @@ celery_app.conf.update(
         },
         "freshness-sweep": {"task": "jobatlas.freshness_sweep", "schedule": 3600.0},
         "geocode-pending": {"task": "jobatlas.geocode_pending", "schedule": 86400.0},
+        "resolve-sites": {"task": "jobatlas.resolve_sites", "schedule": 86400.0},
         "enrich-company-offices": {"task": "jobatlas.enrich_company_offices", "schedule": 86400.0},
         "discover-commoncrawl": {
             "task": "jobatlas.discover_commoncrawl",

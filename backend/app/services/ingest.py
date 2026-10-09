@@ -38,6 +38,7 @@ from app.providers.base import NormalizedJob, ProviderError, SourceRef, raw_hash
 from app.providers.registry import get_provider
 from app.services.locations import (
     add_evidence,
+    invalidate_stale_site_links,
     link_job_to_company_locations,
     refresh_location_status,
     sync_job_addresses,
@@ -186,6 +187,7 @@ def _derived(session: Session, job: Job, n: NormalizedJob, rel: Relevance, now: 
         )  # fmt: skip
     _replace_eligibility(session, job, rel, n.canonical_url, now)
     sync_job_addresses(session, job, n, n.canonical_url, now)
+    invalidate_stale_site_links(session, job)
     link_job_to_company_locations(session, job, now)
     refresh_location_status(session, job)
 

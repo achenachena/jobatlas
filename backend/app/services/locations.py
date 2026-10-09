@@ -193,6 +193,9 @@ def sync_job_addresses(
 
 
 COMPANY_METHODS = {COMPANY_LINK_METHOD, "company_single_city_office"}
+# Employer-named sites resolved via OSM (services/site_resolver.py). Job-derived, so they
+# outrank company-derived links.
+SITE_METHODS = {"employer_on_street_osm", "named_place_osm"}
 
 
 def link_job_to_company_locations(session: Session, job: Job, now: datetime) -> None:
@@ -212,7 +215,7 @@ def link_job_to_company_locations(session: Session, job: Job, now: datetime) -> 
         .where(
             JobLocation.job_id == job.id,
             JobLocation.verification_status == "verified",
-            Evidence.method.in_(JOB_METHODS),
+            Evidence.method.in_(JOB_METHODS | SITE_METHODS),
         )
         .limit(1)
     )
@@ -356,5 +359,130 @@ def geocode_pending(
         ).unique()
         for job in jobs:
             refresh_location_status(session, job)
+        session.commit()
+    return stats
+
+
+def invalidate_stale_site_links(session: Session, job: Job) -> None:
+    """A resolved site link stays valid only while the job still names the same site."""
+    rows = session.execute(
+        select(JobLocation, Evidence)
+        .join(Evidence, Evidence.id == JobLocation.evidence_id)
+        .where(
+            JobLocation.job_id == job.id,
+            JobLocation.verification_status == "verified",
+            Evidence.method.in_(SITE_METHODS),
+        )
+    ).all()
+    for jl, ev in rows:
+        if not job.location_text or f"'{job.location_text}'" not in (ev.excerpt or ""):
+            jl.verification_status = "invalidated"
+    session.flush()
+
+
+@dataclass
+class SiteStats:
+    candidates: int = 0
+    cache_hits: int = 0
+    queried: int = 0
+    resolved: int = 0
+    linked: int = 0
+    errors: int = 0
+
+
+def resolve_sites(session: Session, resolver, *, limit: int = 300) -> SiteStats:
+    """Link unverified on-site/hybrid/unknown jobs whose label names a street or place."""
+    from app.models import Company, SiteResolution, Source
+    from app.services.site_resolver import brand_tokens, parse_site_label
+
+    stats = SiteStats()
+    now = utcnow()
+    retry_before = now - timedelta(days=get_settings().geocoder_retry_days)
+    jobs = session.scalars(
+        select(Job)
+        .where(Job.status == "active", Job.workplace_type != "remote")
+        .where(Job.location_status == "unverified", Job.location_text.is_not(None))
+        .limit(limit * 3)
+    ).all()
+    for job in jobs:
+        if stats.candidates >= limit:
+            break
+        own = session.scalar(
+            select(JobLocation.id)
+            .join(Evidence, Evidence.id == JobLocation.evidence_id)
+            .where(
+                JobLocation.job_id == job.id,
+                JobLocation.verification_status == "verified",
+                Evidence.method.in_(JOB_METHODS),
+            )  # fmt: skip
+            .limit(1)
+        )
+        if own:
+            continue
+        desc = parse_site_label(job.location_text)
+        if not desc.resolvable or job.company_id is None:
+            continue
+        stats.candidates += 1
+        company = session.get(Company, job.company_id)
+        source = session.scalar(select(Source).where(Source.company_id == job.company_id).limit(1))
+        brands = brand_tokens(company.name if company else None,
+                              source.tenant_key if source else None, desc.label_brands)  # fmt: skip
+        key = desc.key(str(job.company_id))
+        cached = session.scalar(select(SiteResolution).where(SiteResolution.key == key))
+        if cached is not None and (
+            cached.status == "resolved" or cached.resolved_at > retry_before
+        ):
+            stats.cache_hits += 1
+        else:
+            stats.queried += 1
+            try:
+                hit = resolver.resolve(desc, brands)
+            except Exception:  # noqa: BLE001 - geocoder hiccup: try again next run
+                stats.errors += 1
+                continue
+            if cached is None:
+                cached = SiteResolution(key=key, status="unresolved", resolved_at=now)
+                session.add(cached)
+            cached.resolved_at = now
+            if hit is None:
+                cached.status, cached.location_id, cached.detail = "unresolved", None, None
+            else:
+                loc = session.scalar(
+                    select(Location).where(Location.normalized_address == f"osm:{hit.osm_ref}")
+                )
+                if loc is None:
+                    loc = Location(
+                        normalized_address=f"osm:{hit.osm_ref}", display_address=hit.display,
+                        point=WKTElement(f"POINT({hit.lon} {hit.lat})", srid=4326),
+                        precision="rooftop", geocoder="osm-site", geocoded_at=now,
+                    )  # fmt: skip
+                    session.add(loc)
+                    session.flush()
+                cached.status, cached.location_id = "resolved", loc.id
+                cached.osm_ref, cached.detail = hit.osm_ref, f"{hit.method}: {hit.name}"
+                stats.resolved += 1
+            session.flush()
+        if cached.status != "resolved" or cached.location_id is None:
+            session.commit()
+            continue
+        method = (cached.detail or "named_place_osm").split(":", 1)[0]
+        osm_type, osm_id = (cached.osm_ref or "/").split("/", 1)
+        ev = add_evidence(
+            session, "job", job.id, "location",
+            method=method, confidence="medium",
+            excerpt=f"employer site label '{job.location_text}' -> OSM {cached.osm_ref} "
+            f"({cached.detail}); data © OpenStreetMap contributors (ODbL)",
+            source_url=f"https://www.openstreetmap.org/{osm_type}/{osm_id}", now=now,
+        )  # fmt: skip
+        session.execute(
+            insert(JobLocation)
+            .values(job_id=job.id, location_id=cached.location_id, role="work_site",
+                    verification_status="verified", evidence_id=ev.id)
+            .on_conflict_do_update(constraint="uq_job_locations",
+                                   set_={"verification_status": "verified", "evidence_id": ev.id})
+        )  # fmt: skip
+        link_job_to_company_locations(session, job, now)  # drops any weaker company link
+        if refresh_location_status(session, job) == "exact_work_location":
+            stats.linked += 1
         session.commit()
     return stats
