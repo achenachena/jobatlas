@@ -84,7 +84,8 @@ def _nominatim(make_client, fake_web, results):
 def test_nominatim_precise(make_client, fake_web):
     r = _nominatim(make_client, fake_web, [
         {"lon": "-79.37", "lat": "43.64", "addresstype": "building",
-         "address": {"house_number": "1"}, "display_name": "1 Yonge"}])  # fmt: skip
+         "address": {"house_number": "1", "road": "Yonge Street", "city": "Toronto"},
+         "display_name": "1 Yonge"}])  # fmt: skip
     assert r.status == "ok" and r.precision == "rooftop"
 
 
@@ -96,8 +97,10 @@ def test_nominatim_city_level_is_not_usable(make_client, fake_web):
 
 def test_nominatim_distant_candidates_are_ambiguous(make_client, fake_web):
     r = _nominatim(make_client, fake_web, [
-        {"lon": "-79.37", "lat": "43.64", "address": {"house_number": "1"}},
-        {"lon": "-79.50", "lat": "43.80", "address": {"house_number": "1"}}])  # fmt: skip
+        {"lon": "-79.37", "lat": "43.64",
+         "address": {"house_number": "1", "road": "Yonge Street", "city": "Toronto"}},
+        {"lon": "-79.50", "lat": "43.80",
+         "address": {"house_number": "1", "road": "Yonge Street", "city": "Toronto"}}])  # fmt: skip
     assert r.status == "ambiguous"
 
 

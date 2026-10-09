@@ -66,7 +66,21 @@ services:
 
   worker:
     <<: *backend
-    command: ["celery", "-A", "app.workers.celery_app", "worker", "--loglevel=INFO", "--concurrency=4"]
+    # Default queue: API boards, discovery, geocoding. Threads: syncs mostly wait on the
+    # network. Memory is bounded so a laptop stays usable.
+    command: ["celery", "-A", "app.workers.celery_app", "worker", "--loglevel=INFO", "--pool=threads", "--concurrency=4", "-Q", "celery", "-n", "default@%h"]
+    mem_limit: 1g
+    stop_grace_period: 60s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  # Page-by-page career sites (Workday, SuccessFactors, Oracle, ...) share a few IPs and are
+  # throttled per IP, so they run apart and never hold up the API boards.
+  worker-careersite:
+    <<: *backend
+    command: ["celery", "-A", "app.workers.celery_app", "worker", "--loglevel=INFO", "--pool=threads", "--concurrency=3", "-Q", "careersite", "-n", "careersite@%h"]
+    mem_limit: 768m
     stop_grace_period: 60s
     depends_on:
       migrate:

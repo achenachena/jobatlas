@@ -33,3 +33,12 @@ test("jobCoordinates finds a job's point or reports none", () => {
   expect(jobCoordinates(fs, "a")).toEqual([-79.38, 43.65]);
   expect(jobCoordinates(fs, "zzz")).toBeNull();
 });
+
+test("the inferred flag survives for a single job but never marks a stack", () => {
+  const inferred = (id: string, lon: number) => ({ ...pt(id, lon, 43.65), properties: { job_id: id, workplace_type: "on_site", inferred: true } });
+  const fc = groupByLocation([inferred("a", -79.3), inferred("b", -79.4), pt("c", -79.4, 43.65)]);
+  const single = fc.features.find((f) => f.properties.job_id === "a")!;
+  const stack = fc.features.find((f) => f.properties.count === 2)!;
+  expect(single.properties.inferred).toBe(true);
+  expect(stack.properties.inferred).toBe(false);
+});

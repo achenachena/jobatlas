@@ -282,7 +282,7 @@ export interface components {
              * Location Status
              * @enum {string}
              */
-            location_status: "exact_work_location" | "company_location" | "unverified";
+            location_status: "exact_work_location" | "inferred_office" | "company_location" | "unverified";
             /** Location Label */
             location_label: string | null;
             /** Markers */
@@ -305,6 +305,11 @@ export interface components {
             posted_basis: "original" | "republished_only" | "unknown";
             /** First Seen At */
             first_seen_at: string;
+            /**
+             * Listed After
+             * @description The posting was absent from the source's complete listing fetched at this time, so it first appeared after it. Not a posting time.
+             */
+            listed_after: string | null;
             /** Last Verified At */
             last_verified_at: string;
             /** Employment Type */
@@ -362,6 +367,11 @@ export interface components {
             posted_basis: "original" | "republished_only" | "unknown";
             /** First Seen At */
             first_seen_at: string | null;
+            /**
+             * Listed After
+             * @description The posting was absent from the source's complete listing fetched at this time, so it first appeared after it. Not a posting time.
+             */
+            listed_after: string | null;
             /** Last Verified At */
             last_verified_at: string | null;
             /** Closed At */
@@ -372,7 +382,7 @@ export interface components {
              * Location Status
              * @enum {string}
              */
-            location_status: "exact_work_location" | "company_location" | "unverified";
+            location_status: "exact_work_location" | "inferred_office" | "company_location" | "unverified";
             /** Location Label */
             location_label: string | null;
             /** Locations */

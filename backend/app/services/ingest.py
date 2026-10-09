@@ -14,6 +14,7 @@ Invariants (DEVELOPMENT.md §3, §6.3, §7):
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -234,6 +235,11 @@ def _find_merge_target(session: Session, source: Source, n: NormalizedJob) -> Jo
     return None
 
 
+def listing_key(external_id: str) -> str:
+    """Compact id stored in Source.listing_ids."""
+    return hashlib.sha256(external_id.encode()).hexdigest()[:16]
+
+
 def upsert_job(
     session: Session,
     source: Source,
@@ -242,8 +248,11 @@ def upsert_job(
     rel: Relevance,
     digest: str,
     now: datetime,
+    listed_after: datetime | None = None,
 ) -> str:
-    """Returns 'created' | 'merged' | 'updated' | 'unchanged' | 'closed' | 'skipped_expired'."""
+    """Returns 'created' | 'merged' | 'updated' | 'unchanged' | 'closed' | 'skipped_expired'.
+    `listed_after`: the posting was absent from the source's previous complete listing,
+    fetched at that time; recorded on a newly created job only."""
     rec = session.scalar(
         select(JobSourceRecord)
         .where(JobSourceRecord.source_id == source.id, JobSourceRecord.external_id == n.external_id)
@@ -274,6 +283,7 @@ def upsert_job(
                 last_seen_at=now,
                 last_verified_at=now,
                 location_status="unverified",
+                listed_after=listed_after,
             )
             _apply_fields(job, n, rel)
             session.add(job)
@@ -301,7 +311,9 @@ def upsert_job(
     else:
         job = session.get(Job, rec.job_id, with_for_update=True)
         assert job is not None
-        if rec.raw_hash != digest:
+        # A listing row never overwrites a job built from its detail page (it would drop
+        # the description and address evidence); it only confirms the job is still listed.
+        if rec.raw_hash != digest and not (n.from_listing and rec.detail_fetched_at):
             _apply_fields(job, n, rel)
             _derived(session, job, n, rel, now)
             rec.raw_hash = digest
@@ -334,6 +346,8 @@ def upsert_job(
     rec.source_republished_at = n.source_republished_at
     rec.last_seen_run_id = run.id
     rec.last_seen_at = now
+    if not n.from_listing:
+        rec.detail_fetched_at = now
     rec.consecutive_missing = 0
     rec.first_missing_at = None
     return outcome
@@ -428,7 +442,8 @@ def _sync_locked(
         recent = frozenset(
             session.scalars(
                 select(JobSourceRecord.external_id).where(
-                    JobSourceRecord.source_id == source.id, JobSourceRecord.last_seen_at >= cutoff
+                    JobSourceRecord.source_id == source.id,
+                    JobSourceRecord.detail_fetched_at >= cutoff,
                 )
             )
         )
@@ -490,6 +505,9 @@ def _sync_locked(
     now = utcnow()
     seen_ids: set[str] = set()
     parse_failures = 0
+    # Every posting (relevant or not) of the previous complete listing: a posting outside it
+    # first appeared after that listing was fetched.
+    previous_listing = set(source.listing_ids) if source.listing_ids_at else None
     for raw in records:
         result.records_seen += 1
         if raw.get("_listing_only"):
@@ -520,7 +538,12 @@ def _sync_locked(
                 continue
         result.records_relevant += 1
         _adopt_company_name(session, source, n)
-        outcome = upsert_job(session, source, run, n, rel, raw_hash(raw), now)
+        new_since = (
+            source.listing_ids_at
+            if previous_listing is not None and listing_key(n.external_id) not in previous_listing
+            else None
+        )
+        outcome = upsert_job(session, source, run, n, rel, raw_hash(raw), now, new_since)
         if outcome == "created":
             result.created += 1
         elif outcome == "updated":
@@ -549,6 +572,8 @@ def _sync_locked(
                 first_missing_at=func.coalesce(JobSourceRecord.first_missing_at, now),
             )
         )
+        source.listing_ids = sorted(listing_key(i) for i in seen_ids)
+        source.listing_ids_at = run.started_at
 
     run.records_seen = result.records_seen
     run.records_relevant = result.records_relevant

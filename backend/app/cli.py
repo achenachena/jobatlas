@@ -201,13 +201,22 @@ def sweep() -> None:
 
 
 @app.command()
-def geocode(limit: int = typer.Option(None)) -> None:
+def geocode(
+    limit: int = typer.Option(None),
+    recheck: bool = typer.Option(
+        False, help="Re-validate existing geocoded points; remove those that no longer agree."
+    ),
+) -> None:
     """Geocode pending addresses with the configured provider (GEOCODER_PROVIDER)."""
     from app.services.geocode import build_geocoder
-    from app.services.locations import geocode_pending
+    from app.services.locations import geocode_pending, recheck_geocoded
 
     with sync_session() as session, SafeHttpClient() as client:
-        _echo(geocode_pending(session, build_geocoder(client), limit=limit).__dict__)
+        geocoder = build_geocoder(client)
+        if recheck:
+            _echo(recheck_geocoded(session, geocoder, limit=limit).__dict__)
+        else:
+            _echo(geocode_pending(session, geocoder, limit=limit).__dict__)
 
 
 @app.command("resolve-sites")

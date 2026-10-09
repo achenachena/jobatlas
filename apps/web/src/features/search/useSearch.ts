@@ -1,5 +1,5 @@
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   ApiError,
@@ -34,42 +34,78 @@ export function useJobSearch(params: SearchParams) {
   return { ...query, stale };
 }
 
-/** Extra pages per group, read from the server-side snapshot of the same search. */
+interface ExtraPages {
+  /** The search these pages belong to; pages of any other search are never shown. */
+  searchId: string;
+  items: Record<GroupName, JobCard[]>;
+  cursors: Record<GroupName, string | null>;
+}
+
+/** Extra pages per group, read from the server-side snapshot of the same search.
+ *
+ * Pages are tied to the `search_id` that produced them. When the search changes, in-flight
+ * page requests are aborted, and a response that still arrives late is dropped unless its
+ * search is still the current one — so pages of an old query never mix into a new one. */
 export function useGroupPages(search: SearchResponse | undefined) {
   const queryClient = useQueryClient();
-  const [extra, setExtra] = useState<Record<GroupName, JobCard[]>>({
-    in_view: [],
-    remote_elsewhere: [],
-    location_unverified: [],
-  });
-  const [cursors, setCursors] = useState<Record<GroupName, string | null>>({
-    in_view: null,
-    remote_elsewhere: null,
-    location_unverified: null,
-  });
+  const [extra, setExtra] = useState<ExtraPages | null>(null);
   const [loading, setLoading] = useState<GroupName | null>(null);
+  const currentId = useRef<string | null>(null);
+  const inflight = useRef<AbortController | null>(null);
+  const searchId = search?.search_id ?? null;
+  currentId.current = searchId;
 
   useEffect(() => {
-    setExtra({ in_view: [], remote_elsewhere: [], location_unverified: [] });
-    setCursors({
-      in_view: search?.groups.in_view.next_cursor ?? null,
-      remote_elsewhere: search?.groups.remote_elsewhere.next_cursor ?? null,
-      location_unverified: search?.groups.location_unverified.next_cursor ?? null,
-    });
-  }, [search?.search_id]); // eslint-disable-line react-hooks/exhaustive-deps
+    // New search: drop the previous search's page requests.
+    return () => {
+      inflight.current?.abort();
+      inflight.current = null;
+      setLoading(null);
+    };
+  }, [searchId]);
+
+  const own = extra && extra.searchId === searchId ? extra : null;
+  const cursorOf = (g: GroupName): string | null =>
+    own ? own.cursors[g] : (search?.groups[g].next_cursor ?? null);
 
   const loadMore = useCallback(
     async (group: GroupName) => {
-      const cursor = cursors[group];
-      if (!search || !cursor) return;
+      if (!search) return;
+      const id = search.search_id;
+      const base = extra && extra.searchId === id ? extra : null;
+      const cursor = base ? base.cursors[group] : search.groups[group].next_cursor;
+      if (!cursor) return;
+      inflight.current?.abort();
+      const ctrl = new AbortController();
+      inflight.current = ctrl;
       setLoading(group);
       try {
         const page = await apiGet<SearchPage>(
-          `/search/${search.search_id}/jobs?cursor=${encodeURIComponent(cursor)}&limit=30`,
+          `/search/${id}/jobs?cursor=${encodeURIComponent(cursor)}&limit=30`,
+          ctrl.signal,
         );
-        setExtra((e) => ({ ...e, [group]: [...e[group], ...page.items] }));
-        setCursors((c) => ({ ...c, [group]: page.next_cursor }));
+        if (ctrl.signal.aborted || currentId.current !== id) return; // stale response
+        setExtra((e) => {
+          const prev: ExtraPages =
+            e && e.searchId === id
+              ? e
+              : {
+                  searchId: id,
+                  items: { in_view: [], remote_elsewhere: [], location_unverified: [] },
+                  cursors: {
+                    in_view: search.groups.in_view.next_cursor,
+                    remote_elsewhere: search.groups.remote_elsewhere.next_cursor,
+                    location_unverified: search.groups.location_unverified.next_cursor,
+                  },
+                };
+          return {
+            searchId: id,
+            items: { ...prev.items, [group]: [...prev.items[group], ...page.items] },
+            cursors: { ...prev.cursors, [group]: page.next_cursor },
+          };
+        });
       } catch (err) {
+        if ((err as Error).name === "AbortError" || currentId.current !== id) return;
         if (err instanceof ApiError && err.code === "SEARCH_EXPIRED") {
           // A result closed or the snapshot timed out: run the whole search again.
           await queryClient.invalidateQueries({ queryKey: ["search"] });
@@ -77,16 +113,19 @@ export function useGroupPages(search: SearchResponse | undefined) {
           throw err;
         }
       } finally {
-        setLoading(null);
+        if (inflight.current === ctrl) {
+          inflight.current = null;
+          setLoading(null);
+        }
       }
     },
-    [cursors, search, queryClient],
+    [extra, search, queryClient],
   );
 
   const items = (group: GroupName): JobCard[] =>
-    search ? [...search.groups[group].items, ...extra[group]] : [];
+    search ? [...search.groups[group].items, ...(own?.items[group] ?? [])] : [];
 
-  return { items, loadMore, hasMore: (g: GroupName) => cursors[g] !== null, loading };
+  return { items, loadMore, hasMore: (g: GroupName) => cursorOf(g) !== null, loading };
 }
 
 export function useRegions(q: string) {

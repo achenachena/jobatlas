@@ -9,6 +9,7 @@ Two separate questions, two separate records:
 
 A job is placed on the map only when both hold:
     on_site / hybrid / unknown -> verified work_site with a precise point -> exact_work_location
+                                  (only the company's single city office -> inferred_office)
     remote                     -> verified company_office/headquarters, precise -> company_location
 Everything else is `unverified` and gets no map point (rules 1–4).
 """
@@ -20,7 +21,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from geoalchemy2.elements import WKTElement
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -29,7 +30,7 @@ from app.core.timeutil import utcnow
 from app.models import CompanyLocation, Evidence, Job, JobLocation, Location
 from app.providers.base import NormalizedJob, StructuredAddress
 from app.services.addresses import extract_explicit_addresses, normalize_address
-from app.services.geocode import POSTAL_RE, PRECISE, Geocoder
+from app.services.geocode import POSTAL_RE, PRECISE, Geocoder, distance_m
 from app.services.region_match import MUNICIPALITIES
 
 # Evidence methods that come from the job's own data; these links are rebuilt on every
@@ -40,6 +41,7 @@ JOB_METHODS = {
     "jsonld_address_text",
     "description_explicit_address",
     "workday_jsonld_address",
+    "oracle_work_location",
     "successfactors_microdata",
 }
 COMPANY_LINK_METHOD = "company_verified_location"
@@ -287,22 +289,33 @@ def link_job_to_company_locations(session: Session, job: Job, now: datetime) -> 
     session.flush()
 
 
+INFERRED_METHODS = {"company_single_city_office"}
+
+
 def refresh_location_status(session: Session, job: Job) -> str:
+    """exact_work_location needs a work site backed by the job itself (its own address or a
+    resolved named site). A work site whose only backing is "the company publishes one address
+    in this city" is shown as inferred_office: on the map, but never labelled verified."""
     rows = session.execute(
-        select(JobLocation.role)
+        select(JobLocation.role, Evidence.method)
         .join(Location, Location.id == JobLocation.location_id)
+        .outerjoin(Evidence, Evidence.id == JobLocation.evidence_id)
         .where(
             JobLocation.job_id == job.id,
             JobLocation.verification_status == "verified",
             Location.point.is_not(None),
             Location.precision.in_(PRECISE),
         )
-    ).scalars()
-    roles = set(rows)
+    ).all()
+    roles = {role for role, _ in rows}
     if job.workplace_type == "remote":
         status = "company_location" if roles & {"company_office", "headquarters"} else "unverified"
+    elif any(role == "work_site" and method not in INFERRED_METHODS for role, method in rows):
+        status = "exact_work_location"
+    elif "work_site" in roles:
+        status = "inferred_office"
     else:
-        status = "exact_work_location" if "work_site" in roles else "unverified"
+        status = "unverified"
     job.location_status = status
     return status
 
@@ -356,6 +369,70 @@ def geocode_pending(
             select(Job)
             .join(JobLocation, JobLocation.job_id == Job.id)
             .where(JobLocation.location_id.in_(touched))
+        ).unique()
+        for job in jobs:
+            refresh_location_status(session, job)
+        session.commit()
+    return stats
+
+
+@dataclass
+class RecheckStats:
+    checked: int = 0
+    kept: int = 0
+    cleared: int = 0
+    errors: int = 0
+
+
+def recheck_geocoded(
+    session: Session, geocoder: Geocoder, *, limit: int | None = None
+) -> RecheckStats:
+    """Re-validate points that came from the geocoder against the address-agreement rules
+    (geocode.check_agreement). A point the geocoder no longer confirms — mismatch, ambiguity,
+    or a move of more than 50 m — is removed and its jobs fall back to "address not yet
+    confirmed". Temporary geocoder errors keep the point. OSM site resolutions are not
+    geocoder output and are left alone."""
+    stats = RecheckStats()
+    if geocoder.name == "none":
+        return stats
+    now = utcnow()
+    rows = session.execute(
+        select(Location, func.ST_X(Location.point), func.ST_Y(Location.point))
+        .where(Location.point.is_not(None))
+        .where(or_(Location.geocoder.is_(None), Location.geocoder != "osm-site"))
+        .order_by(Location.geocoded_at.nulls_first())
+        .limit(limit)
+    ).all()
+    cleared: list[uuid.UUID] = []
+    for loc, lon, lat in rows:
+        stats.checked += 1
+        query = loc.display_address or loc.normalized_address
+        if loc.postal_code and not POSTAL_RE.search(query.upper()):
+            query = f"{query}, {loc.postal_code}"
+        result = geocoder.geocode(query, (loc.country or "ca").lower())
+        if result.status in ("error", "not_configured"):
+            stats.errors += 1
+            continue
+        moved = (
+            result.lon is not None
+            and result.lat is not None
+            and distance_m((lon, lat), (result.lon, result.lat)) > 50
+        )
+        loc.geocoded_at = now
+        if result.status == "ok" and result.precision in PRECISE and not moved:
+            stats.kept += 1
+        else:
+            loc.point = None
+            loc.precision = "unknown"
+            loc.geocode_error = f"recheck {result.status}: {result.detail or ''}"[:500]
+            cleared.append(loc.id)
+            stats.cleared += 1
+        session.commit()
+    if cleared:
+        jobs = session.scalars(
+            select(Job)
+            .join(JobLocation, JobLocation.job_id == Job.id)
+            .where(JobLocation.location_id.in_(cleared))
         ).unique()
         for job in jobs:
             refresh_location_status(session, job)

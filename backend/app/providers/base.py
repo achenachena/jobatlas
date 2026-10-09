@@ -112,6 +112,9 @@ class NormalizedJob:
     eligibility_texts: list[str] = field(default_factory=list)
     # Source-declared expiry (JSON-LD validThrough); past -> closure evidence.
     valid_through: datetime | None = None
+    # Built from a listing row only (detail page not read yet): content may be thinner and
+    # a later detail read will update it.
+    from_listing: bool = False
 
 
 @dataclass

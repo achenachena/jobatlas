@@ -67,6 +67,15 @@
   font-weight: var(--fw-heavy);
 }
 
+.loc_inferred_office {
+  color: var(--warn);
+}
+
+.loc_inferred_office::before {
+  content: "≈ ";
+  font-weight: var(--fw-heavy);
+}
+
 .loc_unverified {
   color: var(--warn);
 }

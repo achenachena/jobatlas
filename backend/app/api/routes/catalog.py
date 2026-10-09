@@ -97,6 +97,7 @@ async def job_detail(job_id: uuid.UUID, session: AsyncSession = Depends(get_asyn
         "posted_precision": j.posted_precision,
         "posted_basis": j.posted_basis,
         "first_seen_at": _iso(j.first_seen_at),
+        "listed_after": _iso(j.listed_after),
         "last_verified_at": _iso(j.last_verified_at),
         "closed_at": _iso(j.closed_at),
         "close_reason": j.close_reason,

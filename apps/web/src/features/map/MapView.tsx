@@ -32,6 +32,8 @@ export interface MapSelection {
   lat: number;
   workplace: string;
   count: number;
+  /** Company's single city office rather than a job-stated address. */
+  inferred?: boolean;
 }
 
 interface Props {
@@ -211,7 +213,8 @@ export function MapView({
         source: "jobs",
         filter: ["all", ["!", ["has", "point_count"]], ["==", ["get", "count"], 1]],
         layout: {
-          "icon-image": ["concat", "marker-", ["get", "workplace_type"]],
+          "icon-image": ["concat", "marker-", ["get", "workplace_type"],
+            ["case", ["==", ["get", "inferred"], true], "-inferred", ""]],
           "icon-anchor": "bottom",
           "icon-offset": MARKER_ICON_OFFSET,
           "icon-allow-overlap": true,
@@ -248,7 +251,8 @@ export function MapView({
               "case",
               [">", ["get", "count"], 1],
               `stack-${state}`,
-              ["concat", "marker-", ["get", "workplace_type"], `-${state}`],
+              ["concat", "marker-", ["get", "workplace_type"],
+                ["case", ["==", ["get", "inferred"], true], "-inferred", ""], `-${state}`],
             ],
             "icon-anchor": "bottom",
           "icon-offset": MARKER_ICON_OFFSET,
@@ -342,7 +346,11 @@ export function MapView({
             features: [{
               type: "Feature",
               geometry: { type: "Point", coordinates: [selection.lon, selection.lat] },
-              properties: { workplace_type: selection.workplace, count: selection.count },
+              properties: {
+                workplace_type: selection.workplace,
+                count: selection.count,
+                inferred: selection.inferred === true,
+              },
             }],
           }
         : emptyFc(),

@@ -204,6 +204,8 @@ def build_map(
                         "location_id": p["location_id"],
                         "location_role": p["role"],
                         "workplace_type": workplace_by_id[c.id],
+                        # company's single city office, not a job-stated address
+                        "inferred": bool(p.get("inferred", False)),
                     },
                 }
             )
@@ -281,6 +283,10 @@ SELECT j.id::text AS id, j.workplace_type, j.location_region_id, j.eligibility_s
          WHEN CAST(:date_floor AS date) IS NOT NULL AND j.posted_basis = 'original'
               AND j.posted_precision = 'date'
               AND j.posted_date >= CAST(:date_floor AS date) THEN true
+         -- No original posting time, but the posting was absent from a complete listing
+         -- fetched at listed_after: it first appeared inside the window.
+         WHEN j.posted_basis <> 'original' AND j.listed_after IS NOT NULL
+              AND j.listed_after >= CAST(:window_start AS timestamptz) THEN true
          ELSE false
        END AS in_window,
        (j.posted_basis = 'original' AND j.posted_precision = 'datetime') AS trusted_time
@@ -295,8 +301,10 @@ WHERE j.status = 'active' AND j.is_publishable
 
 POINTS_SQL = """
 SELECT jl.job_id::text AS job_id, l.id::text AS location_id, jl.role,
-       ST_X(l.point) AS lon, ST_Y(l.point) AS lat
+       ST_X(l.point) AS lon, ST_Y(l.point) AS lat,
+       coalesce(e.method = 'company_single_city_office', false) AS inferred
 FROM job_locations jl JOIN locations l ON l.id = jl.location_id
+LEFT JOIN evidence e ON e.id = jl.evidence_id
 WHERE jl.job_id = ANY(CAST(:ids AS uuid[])) AND jl.verification_status = 'verified'
   AND l.point IS NOT NULL AND l.precision IN ('rooftop', 'street')
 """
@@ -481,7 +489,7 @@ def decode_cursor(cursor: str) -> tuple[str, str, int]:
 PROJECT_SQL = """
 SELECT j.id::text AS id, j.title, c.name AS company, j.workplace_type, j.status,
        j.is_publishable, j.last_verified_at, j.posted_at, j.posted_date, j.posted_precision,
-       j.posted_basis, j.first_seen_at, j.location_text, j.location_status,
+       j.posted_basis, j.first_seen_at, j.listed_after, j.location_text, j.location_status,
        j.remote_eligibility_text, j.employment_type, j.apply_url,
        j.salary_min, j.salary_max, j.salary_currency, j.salary_period, j.salary_raw
 FROM jobs j LEFT JOIN companies c ON c.id = j.company_id
@@ -544,6 +552,7 @@ async def project(
                 "posted_precision": r.posted_precision,
                 "posted_basis": r.posted_basis,
                 "first_seen_at": r.first_seen_at.isoformat(),
+                "listed_after": r.listed_after.isoformat() if r.listed_after else None,
                 "last_verified_at": r.last_verified_at.isoformat(),
                 "employment_type": r.employment_type,
                 "salary": _salary(r),

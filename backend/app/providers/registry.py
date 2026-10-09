@@ -4,6 +4,7 @@ from app.providers.base import Provider, SourceCandidate
 from app.providers.greenhouse import GreenhouseProvider
 from app.providers.jsonld import JsonLdProvider
 from app.providers.lever import LeverProvider
+from app.providers.oracle import OracleProvider
 from app.providers.successfactors import SuccessFactorsProvider
 from app.providers.workable import WorkableProvider
 from app.providers.workday import WorkdayProvider
@@ -15,6 +16,7 @@ PROVIDERS: dict[str, Provider] = {
         AshbyProvider(),
         LeverProvider(),
         WorkdayProvider(),
+        OracleProvider(),
         BambooHRProvider(),
         WorkableProvider(),
         SuccessFactorsProvider(),

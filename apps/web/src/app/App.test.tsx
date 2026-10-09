@@ -85,6 +85,7 @@ test("keyword is debounced and filters reach the request", async () => {
   renderApp();
   act(() => reportViewport!([-79.5, 43.6, -79.3, 43.7], 12));
   await listButton(1);
+  expect(searches()[0]).toContain("time_window=7d"); // default: past 7 days
   await user.type(screen.getByLabelText(t.searchLabel), "nurse");
   await user.click(screen.getByRole("button", { name: /^Filters/ }));
   await user.click(screen.getByLabelText(t.timeWindows["3d"]));
@@ -100,7 +101,7 @@ test("keyword is debounced and filters reach the request", async () => {
   // Active filters show as removable chips next to the dock.
   await user.click(screen.getByRole("button", { name: t.done }));
   await user.click(screen.getByRole("button", { name: t.removeFilter(t.timeWindows["3d"]) }));
-  await waitFor(() => expect(searches().at(-1)).toContain("time_window=all"));
+  await waitFor(() => expect(searches().at(-1)).toContain("time_window=7d"));
 });
 
 test("a job opened from the list shows its card; it closes when new filters drop it", async () => {

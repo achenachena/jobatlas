@@ -108,3 +108,14 @@ test("missing fields say so instead of inventing values", async () => {
   renderDetail(detail({ salary: null, employment_type: null }));
   expect((await screen.findAllByText(t.notProvided)).length).toBeGreaterThanOrEqual(2);
 });
+
+test("inferred office: says so, never 'Verified work address'", async () => {
+  renderDetail(detail({
+    location_status: "inferred_office",
+    locations: [{ role: "work_site", address: "171 John St, Toronto", coordinates: [-79.39, 43.65], precision: "rooftop",
+      evidence: { method: "company_single_city_office", excerpt: null, source_url: null, observed_at: null } }],
+  }));
+  expect(await screen.findByText(t.inferredNote)).toBeInTheDocument();
+  expect(screen.getByText(t.inferredOffice)).toBeInTheDocument();
+  expect(screen.queryByText(t.locationStatus.exact_work_location)).toBeNull();
+});

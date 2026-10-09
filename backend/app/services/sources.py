@@ -46,6 +46,11 @@ POLICY_BY_PROVIDER = {
         "Workable public job widget feed for the employer's account; apply.workable.com "
         "robots.txt allows all (content signal search=yes).",
     ),
+    "oracle": (
+        "robots_allowed_official_page",
+        "Employer's own Oracle Recruiting Cloud career site; uses the REST resources the public "
+        "site itself calls without login (undocumented); pod robots.txt is absent (404).",
+    ),
     "jsonld": (
         "robots_allowed_official_page",
         "Employer's own careers page; every fetch checked against robots.txt.",
@@ -151,14 +156,22 @@ def next_run_after_failure(source: Source, now: datetime) -> datetime:
     return now + min(base * (2 ** max(source.failure_count - 1, 0)), MAX_BACKOFF)
 
 
-def due_source_ids(session: Session, limit: int = 200) -> list[uuid.UUID]:
+def due_source_ids(
+    session: Session,
+    limit: int = 200,
+    *,
+    providers: set[str] | None = None,
+    exclude_providers: set[str] | None = None,
+) -> list[uuid.UUID]:
     now = utcnow()
-    rows = session.scalars(
+    query = (
         select(Source.id)
         .where(Source.status != "disabled")
         .where(Source.next_run_at <= now)
         .where(or_(Source.locked_until.is_(None), Source.locked_until < now))
-        .order_by(Source.next_run_at)
-        .limit(limit)
     )
-    return list(rows)
+    if providers is not None:
+        query = query.where(Source.provider.in_(providers))
+    if exclude_providers:
+        query = query.where(Source.provider.not_in(exclude_providers))
+    return list(session.scalars(query.order_by(Source.next_run_at).limit(limit)))

@@ -207,3 +207,33 @@ def test_shared_throttle_spaces_requests_across_clients():
     b.wait(host)
     a.wait(host)
     assert time.monotonic() - t0 >= 0.55  # three requests need two full intervals
+
+
+def test_new_posting_gets_first_appearance_bound(session, make_client, fake_web):
+    data = load_fixture("greenhouse_stripe_jobs.json")
+    first = copy.deepcopy(data)
+    first["jobs"] = [j for j in first["jobs"] if j["id"] != 8238743]
+    first["meta"]["total"] = len(first["jobs"])
+    fake_web.json(HOST, LIST, first)
+    src = _source(session)
+    sync_source(session, src.id, make_client())
+    run1 = session.scalar(select(SourceRun).order_by(SourceRun.started_at))
+    # No previous complete listing: nothing can be called new.
+    assert all(j.listed_after is None for j in session.scalars(select(Job)))
+
+    second = copy.deepcopy(data)
+    for j in second["jobs"]:
+        if j["id"] == 7980578:  # listed before but out of region; now edited to Toronto
+            j["location"]["name"] = "Toronto, Canada"
+    fake_web.json(HOST, LIST, second)
+    sync_source(session, src.id, make_client())
+    session.expire_all()
+
+    def job_for(ext):
+        return session.scalar(
+            select(Job).join(JobSourceRecord).where(JobSourceRecord.external_id == ext)
+        )
+
+    assert job_for("8238743").listed_after == run1.started_at
+    assert job_for("7980578").listed_after is None  # was in the previous listing
+    assert job_for("8194287").listed_after is None

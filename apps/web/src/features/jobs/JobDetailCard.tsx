@@ -106,6 +106,7 @@ function Detail({ job }: { job: JobDetail }) {
       </ul>
 
       {job.location_status === "company_location" && <p className={styles.note}>{t.companyLocationNote}</p>}
+      {job.location_status === "inferred_office" && <p className={styles.note}>{t.inferredNote}</p>}
       {job.location_status === "unverified" && <p className={styles.note}>{t.noPinNote}</p>}
       {job.workplace_type === "remote" && (
         <p className={styles.noteQuiet}>
@@ -151,7 +152,11 @@ function Detail({ job }: { job: JobDetail }) {
           <ul className={styles.locations}>
             {job.locations.map((l, i) => (
               <li key={i}>
-                <strong>{ROLE_LABEL[l.role]}</strong>
+                <strong>
+                  {l.evidence.method === "company_single_city_office" && l.role === "work_site"
+                    ? t.inferredOffice
+                    : ROLE_LABEL[l.role]}
+                </strong>
                 <span>{l.address ?? t.notProvided}</span>
                 {l.role !== "work_site" && <span className={styles.noteSmall}>{t.companyLocationNote}</span>}
                 {l.evidence.source_url && (

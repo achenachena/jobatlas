@@ -149,11 +149,12 @@ class _HostThrottle:
         self._next: dict[str, float] = {}
         self._lock = threading.Lock()
 
-    def wait(self, host: str) -> None:
+    def wait(self, host: str, interval: float | None = None) -> None:
+        gap = self.min_interval if interval is None else interval
         with self._lock:
             now = time.monotonic()
             at = max(now, self._next.get(host, now))
-            self._next[host] = at + self.min_interval
+            self._next[host] = at + gap
         if at > now:
             time.sleep(at - now)
 
@@ -172,25 +173,27 @@ class _RedisThrottle(_HostThrottle):
         self._redis = redis.Redis.from_url(redis_url, socket_timeout=2, socket_connect_timeout=2)
         self._ttl_ms = max(int(min_interval * 1000), 1)
 
-    def wait(self, host: str) -> None:
-        if self.min_interval <= 0:
+    def wait(self, host: str, interval: float | None = None) -> None:
+        gap = self.min_interval if interval is None else interval
+        if gap <= 0:
             return
         import redis
 
         deadline = time.monotonic() + self.MAX_WAIT_SECONDS
         key = f"throttle:{host}"
+        ttl_ms = max(int(gap * 1000), 1)
         while True:
             try:
-                if self._redis.set(key, b"1", nx=True, px=self._ttl_ms):
+                if self._redis.set(key, b"1", nx=True, px=ttl_ms):
                     return
                 remaining = self._redis.pttl(key)
             except redis.RedisError:
-                super().wait(host)
+                super().wait(host, gap)
                 return
             if time.monotonic() > deadline:
                 return  # never block a worker indefinitely; per-request deadlines still apply
-            delay = remaining / 1000 if remaining and remaining > 0 else self.min_interval / 10
-            time.sleep(min(max(delay, 0.01), self.min_interval) + random.uniform(0, 0.05))  # noqa: S311
+            delay = remaining / 1000 if remaining and remaining > 0 else gap / 10
+            time.sleep(min(max(delay, 0.01), gap) + random.uniform(0, 0.05))  # noqa: S311
 
 
 class SafeHttpClient:
@@ -209,6 +212,9 @@ class SafeHttpClient:
         self.max_bytes = s.http_max_response_bytes
         self.max_redirects = s.http_max_redirects
         self.max_total_seconds = s.http_max_total_seconds
+        # Public job-board APIs built for programmatic reads may be read a little faster;
+        # employers' own career sites keep the default (1 request/second).
+        self.host_intervals = s.host_interval_map
         self.max_retries = max_retries
         self.backoff_base = backoff_base
         self.max_backoff = max_backoff
@@ -307,8 +313,9 @@ class SafeHttpClient:
         req_headers = {**headers, "Host": parts.netloc.rsplit("@", 1)[-1]}
         # Many tenants share one platform's servers (all *.wd3.myworkdayjobs.com resolve to the
         # same IPs), so politeness is enforced per resolved IP as well as per hostname.
-        self.throttle.wait(host)
-        self.throttle.wait(f"ip:{ip}")
+        interval = self.host_intervals.get(host)
+        self.throttle.wait(host, interval)
+        self.throttle.wait(f"ip:{ip}", interval)
         request = self._client.build_request(
             method, pinned, headers=req_headers, content=body, extensions={"sni_hostname": host}
         )

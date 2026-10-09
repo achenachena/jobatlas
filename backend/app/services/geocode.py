@@ -5,6 +5,11 @@ A coordinate from a geocoder never proves where a job is; association is establi
 resolve?". Only rooftop/street-number precision is usable for a map point; multiple distant
 candidates or city/postal-level results stay unverified.
 
+Every candidate must AGREE with the input address before it can become a map point: same house
+number, same street (abbreviations and directions normalized), same city, and the same postal
+area when both sides state one. A clear conflict rejects the candidate; an input that cannot be
+checked (no house number, street or city) is never resolved to a point — it stays unverified.
+
 Providers:
 - none (default): nothing is geocoded; addresses stay unverified. Honest default while no
   production provider is chosen.
@@ -27,9 +32,18 @@ import httpx
 
 from app.core.config import get_settings
 from app.net.safe_http import FetchError, SafeHttpClient, UnsafeURLError
-from app.services.addresses import UNIT_RE
+from app.services.addresses import DIRECTIONS, STREET_RE, SUFFIXES, UNIT_RE
 
-Status = Literal["ok", "ambiguous", "low_precision", "not_found", "error", "not_configured"]
+Status = Literal[
+    "ok",
+    "ambiguous",
+    "low_precision",
+    "mismatch",
+    "unverifiable",
+    "not_found",
+    "error",
+    "not_configured",
+]
 PRECISE = {"rooftop", "street"}
 POSTAL_RE = re.compile(r"\b([ABCEGHJ-NPRSTVXY]\d[ABCEGHJ-NPRSTV-Z])\s?\d[ABCEGHJ-NPRSTV-Z]\d\b")
 
@@ -72,7 +86,97 @@ class FixedGeocoder:
         return GeocodeResult("not_found", self.name)
 
 
-def _distance_m(a: tuple[float, float], b: tuple[float, float]) -> float:
+# ------------------------------------------------------------- address agreement
+
+PROVINCE_WORDS = {"on", "ontario", "canada", "ca", "qc", "quebec", "bc", "ab", "ny", "usa", "us"}
+# Nominatim address keys that can name the input's city (Toronto's former boroughs appear as
+# city_district/suburb, e.g. "North York").
+CITY_KEYS = ("city", "town", "village", "municipality", "city_district", "borough", "suburb",
+             "hamlet", "county")  # fmt: skip
+ROAD_KEYS = ("road", "pedestrian", "footway", "path", "square", "place", "residential")
+
+
+@dataclass(frozen=True)
+class AddressParts:
+    house: str | None
+    street: tuple[str, ...] | None  # normalized words, e.g. ("king", "st", "w")
+    city: str | None
+    fsa: str | None
+
+
+def _norm_words(text: str) -> tuple[str, ...]:
+    t = re.sub(r"[.,']", " ", text.lower())
+    return tuple(SUFFIXES.get(w, DIRECTIONS.get(w, w)) for w in t.split())
+
+
+def _is_noise(word: str) -> bool:
+    """Province/country words and postal-code halves are not part of a city name."""
+    return word.lower().strip(".") in PROVINCE_WORDS or bool(
+        re.fullmatch(r"[A-Za-z]\d[A-Za-z]|\d[A-Za-z]\d", word)
+    )
+
+
+def parse_address(address: str) -> AddressParts:
+    """House number, street, city and postal area as the input states them."""
+    text = re.sub(r"\s+", " ", UNIT_RE.sub(" ", address)).strip(" ,")
+    fsa_m = POSTAL_RE.search(text.upper())
+    m = re.search(STREET_RE, text)
+    if not m:
+        return AddressParts(None, None, None, fsa_m.group(1) if fsa_m else None)
+    house, _, street = m.group(0).partition(" ")
+    city = None
+    for part in text[m.end() :].split(","):
+        words = [w for w in re.split(r"\s+", part.strip()) if w and not _is_noise(w)]
+        if words and not re.fullmatch(r"\d[\w ]*", " ".join(words)):
+            city = " ".join(words).lower()
+            break
+    return AddressParts(house.lower(), _norm_words(street), city, fsa_m.group(1) if fsa_m else None)
+
+
+def _house_matches(wanted: str, given: str) -> bool:
+    """'55' matches '55', '55;57' and the range '51-59'."""
+    for token in re.split(r"[;,]", given.lower()):
+        token = token.strip()
+        if token == wanted:
+            return True
+        rng = re.fullmatch(r"(\d+)\s*-\s*(\d+)", token)
+        if rng and wanted.isdigit() and int(rng[1]) <= int(wanted) <= int(rng[2]):
+            return True
+    return False
+
+
+def _street_matches(wanted: tuple[str, ...], given: str) -> bool:
+    """Same name and street type; a direction the input omits may be added by the result,
+    but a different direction ("King St E" vs "King St W") is a different street."""
+    got = _norm_words(given)
+    dirs = set(DIRECTIONS.values())
+    if [w for w in wanted if w not in dirs] != [w for w in got if w not in dirs]:
+        return False
+    want_dir = [w for w in wanted if w in dirs]
+    got_dir = [w for w in got if w in dirs]
+    return not want_dir or want_dir == got_dir
+
+
+def check_agreement(parts: AddressParts, candidate: dict) -> str | None:
+    """None when the candidate agrees with the input; otherwise the reason it does not."""
+    addr = candidate.get("address") or {}
+    if not parts.house or not _house_matches(parts.house, str(addr.get("house_number", ""))):
+        return f"house {addr.get('house_number')!r} != {parts.house!r}"
+    road = next((addr[k] for k in ROAD_KEYS if addr.get(k)), None)
+    if not parts.street or not road or not _street_matches(parts.street, road):
+        return f"street {road!r} != {' '.join(parts.street or ())!r}"
+    if parts.city:
+        names = {str(addr[k]).lower() for k in CITY_KEYS if addr.get(k)}
+        # whole-word containment: "new york" is named by "City of New York"
+        if not any(re.search(rf"\b{re.escape(parts.city)}\b", n) for n in names):
+            return f"city {sorted(names)} lacks {parts.city!r}"
+    postcode = str(addr.get("postcode") or "").upper().replace(" ", "")
+    if parts.fsa and postcode and not postcode.startswith(parts.fsa):
+        return f"postcode {postcode} not in {parts.fsa}"
+    return None
+
+
+def distance_m(a: tuple[float, float], b: tuple[float, float]) -> float:
     lon1, lat1, lon2, lat2 = map(math.radians, (*a, *b))
     h = (
         math.sin((lat2 - lat1) / 2) ** 2
@@ -106,23 +210,27 @@ class NominatimGeocoder:
         if not results:
             return GeocodeResult("not_found", self.name)
         precise = [r for r in results if (r.get("address") or {}).get("house_number")]
-        fsa = POSTAL_RE.search(address.upper())
-        if fsa and precise:
-            # The source's own postal code disambiguates same-named streets (Toronto has
-            # several John Streets): keep candidates in the same forward sortation area.
-            area = fsa.group(1)
-            same = [
-                r for r in precise
-                if ((r.get("address") or {}).get("postcode") or "").upper().startswith(area)
-            ]  # fmt: skip
-            if same:
-                precise = same
         if not precise:
             return GeocodeResult(
                 "low_precision", self.name, detail=f"best={results[0].get('addresstype')}"
             )
+        parts = parse_address(address)
+        if not parts.house or not parts.street or not (parts.city or parts.fsa):
+            # Without house number, street and a city/postal area a match cannot be checked.
+            return GeocodeResult("unverifiable", self.name, detail="input lacks house/street/city")
+        reasons = []
+        agreeing = []
+        for r in precise:
+            why = check_agreement(parts, r)
+            if why is None:
+                agreeing.append(r)
+            else:
+                reasons.append(why)
+        if not agreeing:
+            return GeocodeResult("mismatch", self.name, detail="; ".join(reasons)[:300])
+        precise = agreeing
         points = [(float(r["lon"]), float(r["lat"])) for r in precise]
-        if any(_distance_m(points[0], p) > 300 for p in points[1:]):
+        if any(distance_m(points[0], p) > 300 for p in points[1:]):
             return GeocodeResult("ambiguous", self.name, detail=f"{len(points)} distant matches")
         top = precise[0]
         precision = "rooftop" if top.get("addresstype") in ("building", "house") else "street"

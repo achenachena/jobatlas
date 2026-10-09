@@ -149,6 +149,17 @@ def _verify_key(provider, rec: JobSourceRecord) -> str:
     return rec.external_id
 
 
+# Queue position for re-checking jobs a partial listing no longer shows: a confirmed-open job
+# moves 12 h back; failures move exponentially further back (capped).
+UNLISTED_RECHECK_OK = timedelta(hours=12)
+UNLISTED_RETRY_BASE = timedelta(minutes=30)
+UNLISTED_RETRY_MAX = timedelta(hours=24)
+
+
+def _retry_delay(failures: int) -> timedelta:
+    return min(UNLISTED_RETRY_BASE * (2 ** max(failures - 1, 0)), UNLISTED_RETRY_MAX)
+
+
 def process_unlisted(
     session: Session,
     source_id: uuid.UUID,
@@ -160,28 +171,46 @@ def process_unlisted(
 ) -> int:
     """For providers whose listing is never complete (career sites, JSON-LD pages): a tracked
     job that no longer appears is re-checked on its own page. Only explicit closure evidence
-    closes it; anything inconclusive leaves it to age into Pending via the freshness sweep."""
+    closes it; anything inconclusive leaves it to age into Pending via the freshness sweep.
+
+    Fair scheduling: when there are more such jobs than `limit`, they are taken in order of
+    `next_verify_at` (never-checked first). Every attempt — open, inconclusive or failed —
+    pushes the job back in the queue (failures exponentially further), so a job that keeps
+    failing cannot hold a slot run after run while others age out of search. With spare
+    capacity every unlisted job is still re-checked on each run."""
     source = session.get(Source, source_id)
     if source is None:
         return 0
     provider = get_provider(source.provider)
     ref = SourceRef(source.provider, source.tenant_key)
     now = utcnow()
-    rows = session.execute(
+    query = (
         select(JobSourceRecord, Job)
         .join(Job, Job.id == JobSourceRecord.job_id)
         .where(JobSourceRecord.source_id == source_id, Job.status != "closed")
         .where(JobSourceRecord.last_seen_run_id != run_id)
-        .limit(limit * 4)
-    ).all()
+        .order_by(
+            JobSourceRecord.next_verify_at.asc().nulls_first(),
+            Job.last_verified_at.asc().nulls_first(),
+            JobSourceRecord.id,
+        )
+    )
+    if still_listed and len(still_listed) <= 5000:
+        query = query.where(JobSourceRecord.external_id.not_in(still_listed))
+    rows = session.execute(query.limit(limit * 2)).all()
     closed = checked = 0
     for rec, job in rows:
-        if rec.external_id in still_listed or checked >= limit:
+        if rec.external_id in still_listed:
             continue
+        if checked >= limit:
+            break
         checked += 1
         try:
             verdict = provider.verify_job(client, ref, _verify_key(provider, rec))
         except (ProviderError, FetchError, UnsafeURLError):
+            rec.verify_failures += 1
+            rec.next_verify_at = now + _retry_delay(rec.verify_failures)
+            session.commit()
             continue
         if verdict.state == "closed":
             transition(
@@ -189,15 +218,21 @@ def process_unlisted(
                 now=now, method=f"{source.provider}_detail_check",
                 source_url=rec.canonical_url, source_run_id=run_id,
             )  # fmt: skip
+            rec.next_verify_at = None
             closed += 1
         elif verdict.state == "active":
             job.last_verified_at = now
             rec.last_seen_at = now
+            rec.verify_failures = 0
+            rec.next_verify_at = now + UNLISTED_RECHECK_OK
             if job.status == "pending_verification":
                 transition(
                     session, job, "active", f"{source.provider}: {verdict.reason}",
                     now=now, method=f"{source.provider}_detail_check", source_run_id=run_id,
                 )  # fmt: skip
+        else:  # inconclusive page: try again later, like a failure
+            rec.verify_failures += 1
+            rec.next_verify_at = now + _retry_delay(rec.verify_failures)
         session.commit()
     return closed
 

@@ -9,7 +9,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 Workplace = Literal["on_site", "hybrid", "remote", "unknown"]
-LocationStatus = Literal["exact_work_location", "company_location", "unverified"]
+LocationStatus = Literal["exact_work_location", "inferred_office", "company_location", "unverified"]
 Group = Literal["in_view", "remote_elsewhere", "location_unverified"]
 
 
@@ -42,6 +42,10 @@ class JobCard(BaseModel):
     posted_precision: Literal["datetime", "date", "none"]
     posted_basis: Literal["original", "republished_only", "unknown"]
     first_seen_at: str
+    listed_after: str | None = Field(
+        description="The posting was absent from the source's complete listing fetched at this "
+        "time, so it first appeared after it. Not a posting time."
+    )
     last_verified_at: str
     employment_type: str | None
     salary: Salary | None
@@ -168,6 +172,10 @@ class JobDetail(BaseModel):
     posted_precision: Literal["datetime", "date", "none"]
     posted_basis: Literal["original", "republished_only", "unknown"]
     first_seen_at: str | None
+    listed_after: str | None = Field(
+        description="The posting was absent from the source's complete listing fetched at this "
+        "time, so it first appeared after it. Not a posting time."
+    )
     last_verified_at: str | None
     closed_at: str | None
     close_reason: str | None

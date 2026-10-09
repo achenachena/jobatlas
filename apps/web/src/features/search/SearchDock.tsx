@@ -9,6 +9,8 @@ import { useRegions } from "./useSearch";
 import styles from "./SearchDock.module.css";
 
 const TIME_OPTIONS: TimeWindow[] = ["all", "today", "24h", "2d", "3d", "7d", "30d"];
+/** Default search window: postings from the past 7 days. */
+export const DEFAULT_TIME_WINDOW: TimeWindow = "7d";
 const WORKPLACE_OPTIONS: WorkplaceFilter[] = ["all", "on_site", "hybrid", "remote"];
 export const WORKPLACE_GLYPH: Record<string, GlyphName> = {
   all: "starSmall",
@@ -38,7 +40,7 @@ interface Props {
  * Everything else lives in on-demand popovers so the map keeps the screen. */
 export function SearchDock(p: Props) {
   const ids = { q: useId(), filters: useId(), area: useId() };
-  const active = (p.timeWindow !== "all" ? 1 : 0) + (p.workplace !== "all" ? 1 : 0);
+  const active = (p.timeWindow !== DEFAULT_TIME_WINDOW ? 1 : 0) + (p.workplace !== "all" ? 1 : 0);
   return (
     <div className={styles.dockArea}>
       <div className={styles.dock} role="search">
@@ -91,8 +93,8 @@ export function SearchDock(p: Props) {
           {t.filters}
           {active > 0 && <span className={styles.count}>{active}</span>}
         </button>
-        {p.timeWindow !== "all" && (
-          <ActiveChip label={t.timeWindows[p.timeWindow]} onRemove={() => p.onTimeWindow("all")} />
+        {p.timeWindow !== DEFAULT_TIME_WINDOW && (
+          <ActiveChip label={t.timeWindows[p.timeWindow]} onRemove={() => p.onTimeWindow(DEFAULT_TIME_WINDOW)} />
         )}
         {p.workplace !== "all" && (
           <ActiveChip
@@ -188,7 +190,7 @@ function FilterPopover(p: Props & { id: string }) {
           type="button"
           className={styles.ghost}
           onClick={() => {
-            p.onTimeWindow("all");
+            p.onTimeWindow(DEFAULT_TIME_WINDOW);
             p.onWorkplace("all");
           }}
         >

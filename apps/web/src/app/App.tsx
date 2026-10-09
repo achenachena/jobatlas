@@ -20,7 +20,7 @@ import { ResultsPanel } from "../features/jobs/ResultsPanel";
 import { type PickerJob, SameSitePicker } from "../features/jobs/SameSitePicker";
 import { jobCoordinates } from "../features/map/locations";
 import { type FlyTarget, type MapSelection, MapView } from "../features/map/MapView";
-import { type DockPopover, SearchDock } from "../features/search/SearchDock";
+import { DEFAULT_TIME_WINDOW, type DockPopover, SearchDock } from "../features/search/SearchDock";
 import { useCoverage, useGroupPages, useJobSearch } from "../features/search/useSearch";
 import styles from "./App.module.css";
 
@@ -64,7 +64,7 @@ export function App() {
   const isPhone = useIsPhone();
 
   const [q, setQ] = useState("");
-  const [timeWindow, setTimeWindow] = useState<TimeWindow>("all");
+  const [timeWindow, setTimeWindow] = useState<TimeWindow>(DEFAULT_TIME_WINDOW);
   const [workplace, setWorkplace] = useState<WorkplaceFilter>("all");
   const [region, setRegion] = useState<Region>(GTA);
   const [viewport, setViewport] = useState<{ bbox: Bbox; zoom: number } | null>(null);
@@ -183,7 +183,16 @@ export function App() {
 
   const selection: MapSelection | null =
     overlay?.kind === "detail" && overlay.at
-      ? { lon: overlay.at[0], lat: overlay.at[1], workplace: overlay.workplace, count: 1 }
+      ? {
+          lon: overlay.at[0],
+          lat: overlay.at[1],
+          workplace: overlay.workplace,
+          count: 1,
+          inferred: features.some((f) => {
+            const p = f.properties as { job_id?: string; inferred?: boolean } | null;
+            return p?.job_id === overlay.jobId && p.inferred === true;
+          }),
+        }
       : overlay?.kind === "site"
         ? { lon: overlay.at[0], lat: overlay.at[1], workplace: "mixed", count: overlay.jobIds.length }
         : null;

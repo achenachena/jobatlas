@@ -40,6 +40,10 @@ ATS_SURT_PREFIXES = {
     "workday-site": "com,myworkdaysite,",
     "bamboohr": "com,bamboohr,",
     "workable": "com,workable,apply)/",
+    # Oracle Recruiting Cloud pods; ca2/ca3 are the Canadian data centres.
+    "oracle-ca2": "com,oraclecloud,ca2,fa,",
+    "oracle-ca3": "com,oraclecloud,ca3,fa,",
+    "oracle": "com,oraclecloud,",
 }
 
 

@@ -38,10 +38,13 @@ WORKPLACE_TYPES = ("on_site", "hybrid", "remote", "unknown")
 JOB_STATUSES = ("active", "pending_verification", "closed")
 POSTED_PRECISION = ("datetime", "date", "none")
 POSTED_BASIS = ("original", "republished_only", "unknown")
-LOCATION_STATUSES = ("exact_work_location", "company_location", "unverified")
+# inferred_office: the only work-site evidence is "the company publishes exactly one address in
+# the job's city" (user rule 2026-10-08) — shown on the map, never labelled as verified.
+LOCATION_STATUSES = ("exact_work_location", "inferred_office", "company_location", "unverified")
 SOURCE_STATUSES = ("active", "idle", "failing", "disabled")
 PROVIDERS = (
     "greenhouse", "ashby", "lever", "jsonld", "successfactors", "workday", "bamboohr", "workable",
+    "oracle",
 )  # fmt: skip
 CANDIDATE_STATES = ("new", "accepted", "rejected", "deferred")
 RUN_STATUSES = ("running", "succeeded", "partial", "failed")
@@ -106,6 +109,9 @@ class Source(TimestampMixin, Base):
     locked_by: Mapped[str | None] = mapped_column(Text)
     locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     relevant_job_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Hashed ids of every posting in the last complete listing, and when it was fetched.
+    listing_ids: Mapped[list[str] | None] = mapped_column(JSONB)
+    listing_ids_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class DiscoveryCandidate(TimestampMixin, Base):
@@ -191,6 +197,9 @@ class Job(TimestampMixin, Base):
     posted_basis: Mapped[str] = mapped_column(String(24), nullable=False, default="unknown")
     posted_tz_basis: Mapped[str | None] = mapped_column(Text)
     first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # The posting was absent from the source's previous complete listing fetched at this time,
+    # so it first appeared after it. A bound on first appearance, not a posting time.
+    listed_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -233,8 +242,14 @@ class JobSourceRecord(TimestampMixin, Base):
     source_republished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_seen_run_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("source_runs.id"))
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # When the job's own detail page was last read (listing-only records leave it empty).
+    detail_fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     consecutive_missing: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     first_missing_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Fair re-check scheduling for jobs a partial listing no longer shows (lifecycle.
+    # process_unlisted): due records are checked oldest-first, every attempt moves this on.
+    next_verify_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    verify_failures: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
 class Location(TimestampMixin, Base):

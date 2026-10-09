@@ -93,3 +93,23 @@ def test_listing_endpoint_disallowed_falls_back_to_sitemap(session, make_client,
     r = sync_source(session, src.id, make_client())
     assert r.created == 1 and not r.is_complete
     assert not any(CXS in str(x.url) for x in fake_web.requests)
+
+
+def test_listing_rows_now_details_later(session, make_client, fake_web, monkeypatch):
+    from app.providers.workday import WorkdayProvider
+
+    monkeypatch.setattr(WorkdayProvider, "detail_cap_per_run", 1)
+    _setup(fake_web, POSTINGS)
+    src = _source(session)
+    r = sync_source(session, src.id, make_client())
+    assert r.created == 2 and len(_page_requests(fake_web)) == 1
+    recs = session.scalars(select(JobSourceRecord).order_by(JobSourceRecord.external_id)).all()
+    assert sorted(bool(x.detail_fetched_at) for x in recs) == [False, True]
+    thin = next(x for x in recs if x.detail_fetched_at is None)
+    assert session.get(Job, thin.job_id).posted_basis == "unknown"  # no guessed date
+
+    sync_source(session, src.id, make_client())  # the remaining detail is read now
+    session.refresh(thin)
+    assert thin.detail_fetched_at is not None
+    assert session.get(Job, thin.job_id).posted_basis == "original"
+    assert len(_page_requests(fake_web)) == 2

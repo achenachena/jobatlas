@@ -2,7 +2,9 @@ import uuid
 from datetime import timedelta
 
 import structlog
-from sqlalchemy import update
+from redis import Redis
+from redis.exceptions import RedisError
+from sqlalchemy import select, update
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
@@ -17,22 +19,55 @@ from app.workers.celery_app import celery_app
 
 log = get_logger(__name__)
 
+# Page-by-page career sites. Many tenants share a few IPs (all Workday wd3 employers sit behind
+# one), so the per-IP throttle makes their syncs slow; they get their own queue and threads so
+# one-request API boards (Greenhouse, Ashby, Lever) never wait behind them.
+CAREERSITE_PROVIDERS = {"workday", "successfactors", "oracle", "jsonld", "bamboohr", "workable"}
+CAREERSITE_QUEUE = "careersite"
+# Keep the career-site queue short: syncs there take minutes each, and a long queue would
+# outlive the scheduling lease and enqueue the same sources twice.
+CAREERSITE_MAX_QUEUED = 12
+DEFAULT_QUEUE = "celery"
+DEFAULT_MAX_QUEUED = 200
+
+
+def _room(queue: str, cap: int) -> int:
+    try:
+        return max(0, cap - int(Redis.from_url(get_settings().redis_url).llen(queue)))
+    except RedisError:
+        return 0  # unknown backlog: enqueue nothing this tick
+
+
+def enqueue_syncs(session, source_ids) -> None:
+    providers = dict(
+        session.execute(select(Source.id, Source.provider).where(Source.id.in_(source_ids))).all()
+    )
+    for source_id in source_ids:
+        queue = CAREERSITE_QUEUE if providers.get(source_id) in CAREERSITE_PROVIDERS else None
+        sync_source_task.apply_async((str(source_id),), queue=queue)
+
 
 @celery_app.task(name="jobatlas.schedule_due_sources")
 def schedule_due_sources() -> int:
     """Enqueue due sources. Each is given a short lease on next_run_at so the next tick does
     not enqueue it again; the sync sets the real next_run_at. A lost message simply makes the
-    source due again when the lease expires."""
+    source due again when the lease expires. API boards and career sites are picked
+    separately so a backlog of slow career sites never starves the API boards."""
     lease = timedelta(minutes=get_settings().source_lock_ttl_minutes)
+    api_room = _room(DEFAULT_QUEUE, DEFAULT_MAX_QUEUED)
+    site_room = _room(CAREERSITE_QUEUE, CAREERSITE_MAX_QUEUED)
     with sync_session() as session:
-        ids = due_source_ids(session)
+        ids = []
+        if api_room:
+            ids += due_source_ids(session, api_room, exclude_providers=CAREERSITE_PROVIDERS)
+        if site_room:
+            ids += due_source_ids(session, site_room, providers=CAREERSITE_PROVIDERS)
         if ids:
             session.execute(
                 update(Source).where(Source.id.in_(ids)).values(next_run_at=utcnow() + lease)
             )
             session.commit()
-    for source_id in ids:
-        sync_source_task.delay(str(source_id))
+            enqueue_syncs(session, ids)
     return len(ids)
 
 
@@ -64,8 +99,7 @@ def discover_commoncrawl(self) -> dict:
             raise
         stats = {"harvest": harvest.as_dict(), "verify": verify.as_dict()}
         pipeline.finish_run(session, run, stats)
-    for source_id in verify.accepted_new_source:
-        sync_source_task.delay(str(source_id))
+        enqueue_syncs(session, verify.accepted_new_source)
     log.info("discovery_done", **stats["verify"])
     return stats
 

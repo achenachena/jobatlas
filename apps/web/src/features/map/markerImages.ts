@@ -153,7 +153,29 @@ function celFill(ctx: Ctx, shape: Path2D, cx: number, cy: number, b: number, bas
   ctx.restore();
 }
 
-export function drawMarker(kind: MarkerKind, state: MarkerState): ImageData {
+/** "≈" chip on the badge's top-right corner: the point is inferred (the company's only office
+ * in the city), not an address the posting states. */
+function inferredChip(ctx: Ctx, x: number, y: number) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(x, y, 7.2, 0, Math.PI * 2);
+  ctx.fillStyle = C.sun;
+  ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = INK;
+  ctx.stroke();
+  ctx.lineWidth = 1.6;
+  for (const dy of [-1.8, 1.8]) {
+    ctx.beginPath();
+    ctx.moveTo(x - 3.6, y + dy + 0.6);
+    ctx.quadraticCurveTo(x - 1.8, y + dy - 1.6, x, y + dy);
+    ctx.quadraticCurveTo(x + 1.8, y + dy + 1.6, x + 3.6, y + dy - 0.6);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+export function drawMarker(kind: MarkerKind, state: MarkerState, inferred = false): ImageData {
   const s = STATE_SCALE[state] * (kind === "unknown" ? 0.88 : 1);
   const b = BODY * s;
   const tip = TIP * s;
@@ -228,6 +250,7 @@ export function drawMarker(kind: MarkerKind, state: MarkerState): ImageData {
     const glyph = kind === "on_site" ? GLYPHS.onSite : kind === "remote" ? GLYPHS.remote : GLYPHS.unknown;
     drawGlyph(ctx, glyph, cx, cy + 0.5, gs, col.glyph, kind === "unknown" ? 3 : 2.6);
   }
+  if (inferred) inferredChip(ctx, cx + b / 2 - 1, cy - b / 2 + 1);
   return imageOf(c);
 }
 
@@ -466,7 +489,9 @@ function addBanner(map: MlMap) {
 }
 
 export const IMAGE_IDS: string[] = [
-  ...MARKER_KINDS.flatMap((k) => [`marker-${k}`, `marker-${k}-hover`, `marker-${k}-selected`]),
+  ...MARKER_KINDS.flatMap((k) =>
+    ["", "-inferred"].flatMap((v) => [`marker-${k}${v}`, `marker-${k}${v}-hover`, `marker-${k}${v}-selected`]),
+  ),
   "stack",
   "stack-hover",
   "stack-selected",
@@ -482,8 +507,10 @@ export const IMAGE_IDS: string[] = [
 
 /** Image id → artwork. */
 export function imageFor(id: string): ImageData | null {
-  const m = /^marker-(on_site|hybrid|remote|unknown)(?:-(hover|selected))?$/.exec(id);
-  if (m) return drawMarker(m[1] as MarkerKind, (m[2] as MarkerState | undefined) ?? "default");
+  const m = /^marker-(on_site|hybrid|remote|unknown)(-inferred)?(?:-(hover|selected))?$/.exec(id);
+  if (m) {
+    return drawMarker(m[1] as MarkerKind, (m[3] as MarkerState | undefined) ?? "default", Boolean(m[2]));
+  }
   const st = /^stack(?:-(hover|selected))?$/.exec(id);
   if (st) return drawStack((st[1] as MarkerState | undefined) ?? "default");
   const cl = /^cluster-(s|m|l)$/.exec(id);

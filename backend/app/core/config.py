@@ -77,6 +77,23 @@ class Settings(BaseSettings):
 
     jsonld_max_job_pages: int = Field(default=30, alias="JSONLD_MAX_JOB_PAGES")
 
+    http_host_intervals: str = Field(
+        default="boards-api.greenhouse.io=0.34,api.ashbyhq.com=0.34",
+        alias="HTTP_HOST_INTERVALS",
+    )
+
+    @property
+    def host_interval_map(self) -> dict[str, float]:
+        out: dict[str, float] = {}
+        for item in self.http_host_intervals.split(","):
+            if "=" in item:
+                host, value = item.split("=", 1)
+                try:
+                    out[host.strip().lower()] = max(float(value), 0.2)  # never above 5/s
+                except ValueError:
+                    continue
+        return out
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

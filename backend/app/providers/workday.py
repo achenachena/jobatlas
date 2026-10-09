@@ -70,6 +70,7 @@ def site_root(url: str) -> str | None:
     return None
 
 
+MULTI_LOCATION_RE = re.compile(r"^\d+\s+Locations?$", re.I)
 CXS_PAGE = 20
 CXS_MAX_JOBS = 6000
 # Workday's global id for the country Canada (same across tenants; facet names differ:
@@ -118,6 +119,7 @@ class WorkdayProvider(JsonLdProvider):
     incremental = True
     verify_by_url = True
     detail_recheck_hours = 168  # presence in the complete listing is the daily evidence
+    detail_cap_per_run = 80  # details trickle in; listing rows make jobs visible immediately
 
     def _listing(self, client: SafeHttpClient, root: str) -> tuple[list[dict], bool]:
         """(postings, complete) from the career site's own listing endpoint, narrowed to
@@ -227,7 +229,7 @@ class WorkdayProvider(JsonLdProvider):
                 raise
             return self._fetch_from_sitemap(client, source)
         root = source.tenant_key.rstrip("/")
-        cap = get_settings().careersite_max_detail_pages
+        cap = min(get_settings().careersite_max_detail_pages, self.detail_cap_per_run)
         records: list[dict[str, Any]] = []
         listed: list[str] = []
         fetched = 0
@@ -238,9 +240,15 @@ class WorkdayProvider(JsonLdProvider):
             loc = str(posting.get("locationsText") or "")
             if not slug_may_be_relevant(loc):
                 continue  # e.g. "Flourtown, Pennsylvania": never a GTA job
-            if key in source.recently_verified or fetched >= cap:
+            if key in source.recently_verified:
                 # Listed in the complete listing: open evidence for a job we already track.
                 records.append({"_listing_only": True, "external_id": key, "_complete": complete})
+                continue
+            if fetched >= cap:
+                if MULTI_LOCATION_RE.match(loc):
+                    continue  # "8 Locations": wait for the detail page to know where
+                # Visible now from the listing row; the detail page fills in later runs.
+                records.append({**posting, "_listing_record": True, "url": url})
                 continue
             fetched += 1
             try:
@@ -279,6 +287,8 @@ class WorkdayProvider(JsonLdProvider):
         return FetchPage(records, None, is_complete=False, http_status=200, listed_only=listed_only)
 
     def normalize(self, raw: dict[str, Any]) -> NormalizedJob:
+        if raw.get("_listing_record"):
+            return self._normalize_listing(raw)
         n = super().normalize(raw)
         if n.workplace_type == "remote":
             n.workplace_type = "unknown"  # see module docstring
@@ -297,3 +307,23 @@ class WorkdayProvider(JsonLdProvider):
             for a in n.structured_addresses
         ]
         return n
+
+    def _normalize_listing(self, raw: dict[str, Any]) -> NormalizedJob:
+        """A listing row: title, location label and link only. Its relative date ("Posted 3
+        Days Ago", server time zone unknown) is NOT used as a posting time; the exact
+        datePosted arrives with the detail page."""
+        url = raw["url"]
+        loc = str(raw.get("locationsText") or "").strip() or None
+        return NormalizedJob(
+            external_id=self.candidate_for(url).canonical_url,
+            title=(raw.get("title") or "").strip() or None,
+            company_name=None,
+            apply_url=url,
+            canonical_url=url,
+            description_text=None,
+            location_text=loc,
+            posted_precision="none",
+            posted_basis="unknown",
+            requisition_id=(raw.get("bulletFields") or [None])[0],
+            from_listing=True,
+        )

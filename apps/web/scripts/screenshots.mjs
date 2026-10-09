@@ -181,7 +181,7 @@ shot("Z-assets", async () => {
     const toCanvas = (img) => { const c = document.createElement("canvas"); c.width = img.width; c.height = img.height;
       c.getContext("2d").putImageData(img, 0, 0); c.style.width = img.width / 2 + "px"; c.style.height = img.height / 2 + "px"; return c; };
     const title = (t) => { const h = document.createElement("h2"); h.textContent = t; h.style.cssText = "margin:8px 0 8px;font:800 17px 'M PLUS Rounded 1c'"; root.append(h); };
-    const ids = [["On-site", "marker-on_site"], ["Hybrid", "marker-hybrid"], ["Remote", "marker-remote"], ["Not stated", "marker-unknown"], ["Same address", "stack"]];
+    const ids = [["On-site", "marker-on_site"], ["Hybrid", "marker-hybrid"], ["Remote", "marker-remote"], ["Not stated", "marker-unknown"], ["Inferred office (on-site)", "marker-on_site-inferred"], ["Same address", "stack"]];
     title("Job markers — default / hover / selected, on every map surface (tip = exact coordinate)");
     const row = document.createElement("div"); row.style.cssText = "display:flex;gap:10px";
     for (const [bgName, bg] of bgs) {

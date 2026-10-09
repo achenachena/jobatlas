@@ -26,9 +26,18 @@ class RobotsUnavailable(FetchError):
 
 
 class RobotsCache:
+    """Adapters create one per request, so parsed files live in a process-wide cache (one
+    fetch per origin per TTL_SECONDS, shared by worker threads)."""
+
+    _shared: dict[str, tuple[float, RobotFileParser | None, bool]] = {}
+
     def __init__(self, client: SafeHttpClient):
         self.client = client
-        self._cache: dict[str, tuple[float, RobotFileParser | None, bool]] = {}
+        self._cache = RobotsCache._shared
+
+    @classmethod
+    def clear(cls) -> None:
+        cls._shared.clear()
 
     def _load(self, origin: str) -> tuple[RobotFileParser | None, bool]:
         """Returns (parser, allow_all), or raises RobotsUnavailable for transient failures."""

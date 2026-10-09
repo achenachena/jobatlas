@@ -231,3 +231,21 @@ def test_date_only_postings_in_rolling_windows(client, session):
     today_body = client.get("/api/v1/search", params={"q": "program coordinator",
                                                       "time_window": "today"}).json()  # fmt: skip
     assert today_body["counts"]["total"] == 0
+
+
+def test_first_appearance_bound_counts_only_without_original_time(client, session):
+    now = utcnow()
+    c = f.company(session)
+    new = f.job(session, c, title="Data Analyst", region="toronto", posted_basis="republished_only")
+    old = f.job(session, c, title="Data Analyst II", region="toronto")
+    dated = f.job(session, c, title="Data Analyst III", region="toronto",
+                  posted_at=now - timedelta(days=20))  # fmt: skip
+    new.listed_after = now - timedelta(hours=2)
+    old.listed_after = now - timedelta(days=10)
+    dated.listed_after = now - timedelta(hours=2)  # its original posting time wins
+    session.commit()
+    body = client.get("/api/v1/search", params={"q": "data analyst", "time_window": "7d"}).json()
+    got = set(_ids(body, "location_unverified"))
+    assert got == {str(new.id)}
+    card = next(j for j in body["groups"]["location_unverified"]["items"] if j["id"] == str(new.id))
+    assert card["listed_after"] is not None

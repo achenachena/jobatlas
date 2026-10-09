@@ -5,6 +5,8 @@
 export interface JobPointProps {
   job_id: string;
   workplace_type: string;
+  /** The point is the company's single city office, not an address the job states. */
+  inferred?: boolean;
 }
 
 export interface LocationProps {
@@ -16,6 +18,8 @@ export interface LocationProps {
   /** JSON array of job ids (MapLibre feature properties are flat). */
   job_ids: string;
   workplace_type: string;
+  /** Single job whose point is inferred (company's only office in the city). */
+  inferred: boolean;
 }
 
 const key = (c: number[]) => `${c[0]!.toFixed(6)},${c[1]!.toFixed(6)}`;
@@ -23,16 +27,20 @@ const key = (c: number[]) => `${c[0]!.toFixed(6)},${c[1]!.toFixed(6)}`;
 export function groupByLocation(
   features: GeoJSON.Feature[],
 ): GeoJSON.FeatureCollection<GeoJSON.Point, LocationProps> {
-  const byKey = new Map<string, { coords: [number, number]; ids: string[]; types: Set<string> }>();
+  const byKey = new Map<
+    string,
+    { coords: [number, number]; ids: string[]; types: Set<string>; inferred: boolean }
+  >();
   for (const f of features) {
     if (f.geometry?.type !== "Point") continue;
     const p = f.properties as JobPointProps | null;
     if (!p?.job_id) continue;
     const coords = f.geometry.coordinates as [number, number];
     const k = key(coords);
-    const entry = byKey.get(k) ?? { coords, ids: [], types: new Set<string>() };
+    const entry = byKey.get(k) ?? { coords, ids: [], types: new Set<string>(), inferred: true };
     if (!entry.ids.includes(String(p.job_id))) entry.ids.push(String(p.job_id));
     entry.types.add(p.workplace_type);
+    entry.inferred = entry.inferred && p.inferred === true;
     byKey.set(k, entry);
   }
   return {
@@ -46,6 +54,7 @@ export function groupByLocation(
         job_id: e.ids.length === 1 ? e.ids[0]! : "",
         job_ids: JSON.stringify(e.ids),
         workplace_type: e.types.size === 1 ? [...e.types][0]! : "mixed",
+        inferred: e.ids.length === 1 && e.inferred,
       },
     })),
   };

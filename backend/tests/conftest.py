@@ -55,6 +55,15 @@ def fake_web() -> FakeWeb:
     return FakeWeb()
 
 
+@pytest.fixture(autouse=True)
+def _fresh_robots_cache():
+    from app.net.robots import RobotsCache
+
+    RobotsCache.clear()  # each test serves its own robots.txt
+    yield
+    RobotsCache.clear()
+
+
 @pytest.fixture
 def make_client(fake_web: FakeWeb):
     clients: list[SafeHttpClient] = []

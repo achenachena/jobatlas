@@ -8,7 +8,7 @@ const job = (id: string, over: Record<string, unknown> = {}) => ({
   location_status: "exact_work_location", location_label: "Toronto, ON",
   markers: [{ lon: -79.3832, lat: 43.6487, role: "work_site", address: "1 Fixture Way, Toronto, ON" }],
   remote_eligibility_text: null, posted_at: iso(5 * 3600e3), posted_date: null, posted_precision: "datetime",
-  posted_basis: "original", first_seen_at: iso(86400e3), last_verified_at: iso(600e3), employment_type: null,
+  posted_basis: "original", first_seen_at: iso(86400e3), listed_after: null, last_verified_at: iso(600e3), employment_type: null,
   salary: { min: 110000, max: 140000, currency: "CAD", period: "year", raw_text: null },
   apply_url: "https://example.test/apply/" + id, ...over,
 });
@@ -65,7 +65,7 @@ export async function mockApi(page: Page, opts: { failSearch?: boolean } = {}) {
       const j = all.find((x) => x.id === id) ?? JOBS.inView[0]!;
       return json({ id: j.id, title: j.title, company: { name: j.company, website: null }, workplace_type: j.workplace_type,
         status: "active", is_open_opportunity: true, posted_at: j.posted_at, posted_date: null, posted_precision: "datetime",
-        posted_basis: "original", first_seen_at: j.first_seen_at, last_verified_at: j.last_verified_at, closed_at: null,
+        posted_basis: "original", first_seen_at: j.first_seen_at, listed_after: null, last_verified_at: j.last_verified_at, closed_at: null,
         close_reason: null, location_status: j.location_status, location_label: j.location_label,
         locations: (j.markers as any[]).map((m) => ({ role: m.role, address: m.address, coordinates: [m.lon, m.lat], precision: "rooftop",
           evidence: { method: "fixture", excerpt: null, source_url: null, observed_at: null } })),

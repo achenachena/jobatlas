@@ -45,12 +45,14 @@ def _links(session, job):
     ).all()
 
 
-def test_single_city_office_becomes_exact_work_location(session):
+def test_single_city_office_is_shown_as_inferred_not_verified(session):
+    # User decision 2026-10-09: the company's only office in the job's city goes on the map,
+    # but is labelled inferred — the posting itself never stated that address.
     c = f.company(session)
     _office(session, c, "171 John Street", "toronto")
     job = f.job(session, c, workplace="hybrid", region="toronto")
     link_job_to_company_locations(session, job, utcnow())
-    assert refresh_location_status(session, job) == "exact_work_location"
+    assert refresh_location_status(session, job) == "inferred_office"
     assert _links(session, job) == [("work_site", "verified", "company_single_city_office")]
     ev = session.scalar(
         select(Evidence).where(
@@ -108,6 +110,20 @@ def test_explicit_job_address_is_never_replaced_by_company_office(session):
     session.flush()
     link_job_to_company_locations(session, job, utcnow())
     assert [m for _, _, m in _links(session, job)] == ["description_explicit_address"]
+
+
+def test_job_stated_address_outranks_inferred_office(session):
+    c = f.company(session)
+    _office(session, c, "171 John Street", "toronto")
+    job = f.job(session, c, workplace="on_site", region="toronto")
+    link_job_to_company_locations(session, job, utcnow())
+    assert refresh_location_status(session, job) == "inferred_office"
+    explicit = f.job(session, c, workplace="on_site", region="toronto", point=(-79.38, 43.65))
+    session.scalar(
+        select(Evidence).where(Evidence.entity_id == explicit.id)
+    ).method = "description_explicit_address"
+    session.flush()
+    assert refresh_location_status(session, explicit) == "exact_work_location"
 
 
 def test_second_office_later_invalidates_the_link(session):

@@ -15,7 +15,14 @@ export function relativeTime(iso: string | null | undefined, now = Date.now()): 
   return rtf.format(Math.round(hours / 24), "day");
 }
 
-export function postedText(job: Pick<JobCard, "posted_at" | "posted_date" | "posted_basis" | "posted_precision">): string {
+type PostedFields = Pick<JobCard, "posted_at" | "posted_date" | "posted_basis" | "posted_precision"> & {
+  listed_after?: string | null;
+  first_seen_at?: string | null;
+};
+
+export function postedText(job: PostedFields): string {
+  // New in a complete source listing: a first-appearance time, not a posting time.
+  if (job.posted_basis !== "original" && job.listed_after) return t.newListing(relativeTime(job.first_seen_at) ?? "");
   if (job.posted_basis === "republished_only") return t.republishedOnly;
   if (job.posted_precision === "datetime" && job.posted_at) return `Posted ${relativeTime(job.posted_at)}`;
   if (job.posted_precision === "date" && job.posted_date) {
