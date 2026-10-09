@@ -17,7 +17,11 @@ SUFFIXES = {
     "square": "sq", "terrace": "terr", "highway": "hwy", "circle": "cir",
 }  # fmt: skip
 DIRECTIONS = {"west": "w", "east": "e", "north": "n", "south": "s"}
-UNIT_RE = re.compile(r"\b(suite|ste\.?|unit|floor|fl\.?|#)\s*[\w-]+,?", re.I)
+UNIT_RE = re.compile(
+    r"\b(?:(?:suite|ste\.?|unit|floor|fl\.?|#)\s*[\w-]+|\d{1,3}(?:st|nd|rd|th)\s+(?:floor|fl\.?))"
+    r",?",
+    re.I,
+)
 STREET_TYPES = (
     r"Street|St\.?|Avenue|Ave\.?|Road|Rd\.?|Boulevard|Blvd\.?|Drive|Dr\.?|Way|Lane|Ln\.?|"
     r"Court|Ct\.?|Crescent|Cres\.?|Parkway|Pkwy\.?|Place|Pl\.?|Square|Sq\.?|Quay|Terrace|"
@@ -86,6 +90,24 @@ def _has_city(display: str) -> bool:
     )
 
 
+def _clean(display: str) -> tuple[str, bool]:
+    """(display, has_city). Words after the street that are not a city ("181 Bay Street Job
+    Family Group") are dropped, as is a following sentence ("..., Toronto. See ...")."""
+    street = re.match(STREET_RE, display)
+    if street:
+        head, rest = display[: street.end()], display[street.end() :]
+        rest = re.split(r"(?<=[a-z]{3})\.\s+[A-Z]", rest)[0]
+        display = (head + rest).strip(" ,.")
+    if _has_city(display):
+        return display, True
+    if street:
+        unit = re.match(
+            r"(?:,?\s*(?:Suite|Ste\.?|Unit|Floor|Fl\.?|#)\s*[\w-]+)?", display[street.end() :]
+        )
+        display = (display[: street.end()] + (unit.group(0) if unit else "")).strip(" ,.")
+    return display, False
+
+
 def _field_addresses(text: str, seen: set[str]) -> list[ExtractedAddress]:
     found = []
     for field in FIELD_RE.finditer(text):
@@ -93,13 +115,13 @@ def _field_addresses(text: str, seen: set[str]) -> list[ExtractedAddress]:
         end = FIELD_END_RE.search(rest)
         segment = rest[: end.start()] if end else rest
         for m in FULL_ADDRESS_RE.finditer(segment):
-            display = re.sub(r"\s+", " ", m.group(0)).strip(" ,.")
+            display, has_city = _clean(re.sub(r"\s+", " ", m.group(0)).strip(" ,."))
             key = normalize_address(display)
             if key in seen:
                 continue
             seen.add(key)
             excerpt = re.sub(r"\s+", " ", text[field.start() : field.end() + len(segment)])
-            found.append(ExtractedAddress(display, excerpt.strip()[:400], _has_city(display)))
+            found.append(ExtractedAddress(display, excerpt.strip()[:400], has_city))
     return found
 
 
@@ -113,12 +135,12 @@ def extract_explicit_addresses(text: str | None) -> list[ExtractedAddress]:
         m = FULL_ADDRESS_RE.match(window.lstrip(" \t:-"))
         if not m:
             continue
-        display = re.sub(r"\s+", " ", m.group(0)).strip(" ,.")
+        display, has_city = _clean(re.sub(r"\s+", " ", m.group(0)).strip(" ,."))
         key = normalize_address(display)
         if key in seen:
             continue
         seen.add(key)
         start = max(0, anchor.start() - 60)
         excerpt = re.sub(r"\s+", " ", text[start : anchor.end() + len(m.group(0)) + 5]).strip()
-        found.append(ExtractedAddress(display, excerpt[:400], _has_city(display)))
+        found.append(ExtractedAddress(display, excerpt[:400], has_city))
     return found

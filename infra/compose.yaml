@@ -9,11 +9,8 @@ x-backend: &backend
   environment:
     DATABASE_URL: postgresql+psycopg://jobatlas:jobatlas@db:5432/jobatlas
     REDIS_URL: redis://redis:6379/0
-    # Self-hosted geocoders (start with --profile geocoder / geocoder-full); defaults off.
-    GEOCODER_PROVIDER: ${GEOCODER_PROVIDER:-none}
-    GEOCODER_BASE_URL: ${GEOCODER_BASE_URL:-http://geocoder:8080}
-    GEOCODER_INTERNAL: ${GEOCODER_INTERNAL:-true}
-    GEOCODER_POI_URL: ${GEOCODER_POI_URL:-}
+    # GEOCODER_* come from ../.env (env_file above); listing them here would override it.
+    # Self-hosted geocoders start with --profile geocoder / geocoder-full; off by default.
   depends_on:
     db:
       condition: service_healthy

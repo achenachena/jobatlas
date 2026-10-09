@@ -88,7 +88,20 @@ class FixedGeocoder:
 
 # ------------------------------------------------------------- address agreement
 
-PROVINCE_WORDS = {"on", "ontario", "canada", "ca", "qc", "quebec", "bc", "ab", "ny", "usa", "us"}
+PROVINCE_WORDS = {
+    "on",
+    "ont",
+    "ontario",
+    "canada",
+    "ca",
+    "qc",
+    "quebec",
+    "bc",
+    "ab",
+    "ny",
+    "usa",
+    "us",
+}
 # Nominatim address keys that can name the input's city (Toronto's former boroughs appear as
 # city_district/suburb, e.g. "North York").
 CITY_KEYS = ("city", "town", "village", "municipality", "city_district", "borough", "suburb",

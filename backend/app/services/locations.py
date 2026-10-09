@@ -348,10 +348,17 @@ def geocode_pending(
     touched: list[uuid.UUID] = []
     for loc in pending:
         stats.attempted += 1
-        query = loc.display_address or loc.normalized_address
-        if loc.postal_code and not POSTAL_RE.search(query.upper()):  # never add a second one
-            query = f"{query}, {loc.postal_code}"
-        result = geocoder.geocode(query, (loc.country or "ca").lower())
+        base = loc.display_address or loc.normalized_address
+        country = (loc.country or "ca").lower()
+        if loc.postal_code and not POSTAL_RE.search(base.upper()):  # never add a second one
+            result = geocoder.geocode(f"{base}, {loc.postal_code}", country)
+            if result.status in ("not_found", "mismatch"):
+                # The hint is the job's postal code, which can belong to another site (City
+                # of Toronto jobs carry City Hall's). Without it the ambiguity check still
+                # refuses same-named streets that are far apart.
+                result = geocoder.geocode(base, country)
+        else:
+            result = geocoder.geocode(base, country)
         loc.geocoder = result.provider
         loc.geocoded_at = now
         if result.status == "ok" and result.precision in PRECISE:

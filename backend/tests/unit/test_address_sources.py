@@ -191,3 +191,27 @@ def test_canada_facet_detection_real_shapes():
     assert canada_facet(td) == ("locationCountry", True)
     assert canada_facet(us_only) == (None, True)  # no Canadian jobs: skip the tenant cheaply
     assert canada_facet(none) == (None, False)  # no country facet: read the full listing
+
+
+@pytest.mark.parametrize(
+    "text,expected,has_city",
+    [
+        # Section words after the street are not a city (seen live on Workday detail pages).
+        ("Office located at 181 Bay Street Job Family Group: Finance", "181 Bay Street", False),
+        ("Location: 81 Bay Street Duration: 12 months", "81 Bay Street", False),
+        ("Work Location: 55 John Street, Toronto. See the posting for hours",
+         "55 John Street, Toronto", True),
+        ("Location: 123 St. Clair Ave W, Toronto, ON", "123 St. Clair Ave W, Toronto, ON", True),
+    ],
+)  # fmt: skip
+def test_trailing_words_are_not_cities(text, expected, has_city):
+    [a] = extract_explicit_addresses(text)
+    assert (a.display, a.has_city) == (expected, has_city)
+
+
+def test_ordinal_floor_and_ont_abbreviation():
+    from app.services.addresses import normalize_address
+    from app.services.geocode import parse_address
+
+    assert "floor" not in normalize_address("55 York Street, 12th Floor, Toronto")
+    assert parse_address("2190 Derry Rd E Mississauga Ont. L5S 1E2").city == "mississauga"

@@ -282,3 +282,25 @@ def test_null_geocoder_caches_nothing(session, make_client, fake_web):
     stats = geocode_pending(session, NullGeocoder())
     assert stats.skipped_not_configured
     assert session.scalar(select(Location)).geocoded_at is None
+
+
+def test_conflicting_postal_hint_is_dropped_on_retry(session):
+    loc = Location(normalized_address="850 coxwell ave toronto on", precision="unknown",
+                   display_address="850 Coxwell Ave, Toronto, ON", postal_code="M5V")  # fmt: skip
+    session.add(loc)
+    session.commit()
+    queries = []
+
+    class HintRefusing:
+        name = "stub"
+
+        def geocode(self, address, country_code="ca"):
+            queries.append(address)
+            if "M5V" in address:  # the job's City Hall postal code: no such address there
+                return GeocodeResult("not_found", self.name)
+            return GeocodeResult("ok", self.name, lon=-79.33, lat=43.69, precision="street")
+
+    assert geocode_pending(session, HintRefusing()).precise == 1
+    assert queries == ["850 Coxwell Ave, Toronto, ON, M5V", "850 Coxwell Ave, Toronto, ON"]
+    session.refresh(loc)
+    assert loc.point is not None and loc.precision == "street"
