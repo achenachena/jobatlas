@@ -34,3 +34,13 @@ def test_due_sources_can_be_picked_per_queue(session):
     sites = tasks.CAREERSITE_PROVIDERS
     assert due_source_ids(session, exclude_providers=sites) == [gh.id]
     assert due_source_ids(session, 5, providers=sites) == [wd.id]
+
+
+def test_maintenance_tasks_have_their_own_queue_and_expire():
+    from app.workers.celery_app import MAINTENANCE_QUEUE, celery_app
+
+    routes = celery_app.conf.task_routes
+    assert routes["jobatlas.verify_candidates"] == {"queue": MAINTENANCE_QUEUE}
+    assert "jobatlas.sync_source" not in routes
+    entry = celery_app.conf.beat_schedule["verify-candidates"]
+    assert entry["options"]["expires"] == entry["schedule"]

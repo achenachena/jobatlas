@@ -359,6 +359,11 @@ def geocode_pending(
                 result = geocoder.geocode(base, country)
         else:
             result = geocoder.geocode(base, country)
+        if result.status == "error":
+            # Geocoder down or unreachable: not a fact about this address. Leave it (and the
+            # rest of the batch) for the next run instead of caching a failure.
+            stats.unusable["error"] = stats.unusable.get("error", 0) + 1
+            break
         loc.geocoder = result.provider
         loc.geocoded_at = now
         if result.status == "ok" and result.precision in PRECISE:

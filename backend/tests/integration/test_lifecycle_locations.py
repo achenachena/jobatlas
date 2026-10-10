@@ -304,3 +304,20 @@ def test_conflicting_postal_hint_is_dropped_on_retry(session):
     assert queries == ["850 Coxwell Ave, Toronto, ON, M5V", "850 Coxwell Ave, Toronto, ON"]
     session.refresh(loc)
     assert loc.point is not None and loc.precision == "street"
+
+
+def test_unreachable_geocoder_caches_nothing(session):
+    loc = Location(normalized_address="1 yonge st toronto on", precision="unknown",
+                   display_address="1 Yonge St, Toronto, ON")  # fmt: skip
+    session.add(loc)
+    session.commit()
+
+    class Down:
+        name = "stub"
+
+        def geocode(self, address, country_code="ca"):
+            return GeocodeResult("error", self.name, detail="connection refused")
+
+    assert geocode_pending(session, Down()).unusable == {"error": 1}
+    session.refresh(loc)
+    assert loc.geocoded_at is None and loc.geocode_error is None

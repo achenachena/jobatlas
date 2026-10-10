@@ -83,6 +83,17 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  # Candidate verification, discovery, geocoding: one at a time, in one process so Celery's
+  # time limits apply (the thread pools above do not enforce them).
+  worker-maintenance:
+    <<: *backend
+    command: ["celery", "-A", "app.workers.celery_app", "worker", "--loglevel=INFO", "--pool=prefork", "--concurrency=1", "-Q", "maintenance", "-n", "maintenance@%h"]
+    mem_limit: 768m
+    stop_grace_period: 60s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
   # Exactly one scheduler. It only enqueues; schedule state lives in PostgreSQL.
   scheduler:
     <<: *backend
