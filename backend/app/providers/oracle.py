@@ -53,6 +53,23 @@ PATH_RE = re.compile(
     r"/hcmUI/CandidateExperience/[a-zA-Z_-]{2,8}/sites/(?P<site>[A-Za-z0-9_]{1,40})"
 )
 TITLE_RE = re.compile(r"<title>([^<]{1,200})</title>", re.I)
+OG_IMAGE_RE = re.compile(r'<meta[^>]+property="og:image"[^>]+content="(https://[^"]{1,300})"', re.I)
+# Site titles wrap the employer name in recruiting words ("Careers at Marriott", "Ford Global
+# Career Site"); some are nothing but those words ("Candidate Experience site").
+TITLE_PREFIX_RE = re.compile(r"^careers?\s*(?:at|@|\|)\s*", re.I)
+TITLE_SUFFIX_RE = re.compile(
+    r"[\s|:\-\u2013\u2014]*(?:(?:new\s+)?career\s+site\s+splash\s+page|minimal\s+template"
+    r"\s+external\s+career\s+site|career\s+site\s+minimal|(?:candidate|experienced|campus|"
+    r"global|external)\s+(?:experience\s+|career\s+)?site|careers?\s+site|global\s+support"
+    r"\s+center\s+careers?|recommended\s+jobs|job\s+openings|jobs\s+and\s+careers|"
+    r"recruitment\s+team|experience\s+site|careers?|jobs|employment|vacancies)?[\s|:\-\u2013\u2014]*$",
+    re.I,
+)
+GENERIC_TITLES = {"", "candidate experience", "all", "all community", "external",
+                  "external site", "talent acquisition", "talent acquisition team",
+                  "graduate and apprenticeship"}  # fmt: skip
+NOT_EMPLOYER_HOSTS = ("oraclecloud.com", "oracle.com", "cloudfront.net", "amazonaws.com",
+                      "akamaized.net", "googleusercontent.com", "azureedge.net")  # fmt: skip
 STREET_RE = re.compile(r"^\d{1,6}[A-Za-z]?\s+\S")
 WORKPLACE = {"ORA_ON_SITE": "on_site", "ORA_HYBRID": "hybrid", "ORA_REMOTE": "remote"}
 PAGE = 100
@@ -73,6 +90,35 @@ def listing_path(site: str, offset: int) -> str:
 def detail_path(site: str, external_id: str) -> str:
     finder = quote(f'ById;Id="{external_id}",siteNumber={site}', safe=";,=")
     return f"{REST}/recruitingCEJobRequisitionDetails?expand=all&onlyData=true&finder={finder}"
+
+
+def clean_site_title(title: str | None) -> str | None:
+    """The employer name inside a career-site title, or None when the title is generic."""
+    if not title:
+        return None
+    name = re.sub(r"\s+", " ", html.unescape(title).replace("\\'", "'")).strip()
+    name = TITLE_PREFIX_RE.sub("", name)
+    while True:
+        shorter = TITLE_SUFFIX_RE.sub("", name).strip()
+        if shorter == name:
+            break
+        name = shorter
+    return None if name.lower() in GENERIC_TITLES else name
+
+
+def site_name(page: str) -> str | None:
+    """Employer display name from the public site page: its cleaned title, else the domain
+    its logo is served from (e.g. "ghd.com"), stated as a domain, never a guessed name."""
+    m = TITLE_RE.search(page)
+    name = clean_site_title(m.group(1)) if m else None
+    if name:
+        return name
+    img = OG_IMAGE_RE.search(page)
+    host = (urlsplit(html.unescape(img.group(1))).hostname or "").lower() if img else ""
+    host = re.sub(r"^(?:www|static|cdn|assets|images?|media)\d*\.", "", host)
+    if not host or "." not in host or host.endswith(NOT_EMPLOYER_HOSTS):
+        return None
+    return host
 
 
 def split_key(tenant_key: str) -> tuple[str, str]:
@@ -158,10 +204,9 @@ class OracleProvider:
                 return BoardInfo(exists=False, http_status=exc.http_status, reason="site_not_found")
             raise
         name = None
-        try:  # the public site's page title is the employer's display name
+        try:
             resp = self._get(client, source.tenant_key, accept="text/html")
-            m = TITLE_RE.search(resp.text) if resp.status_code == 200 else None
-            name = html.unescape(m.group(1)).strip() or None if m else None
+            name = site_name(resp.text) if resp.status_code == 200 else None
         except (ProviderError, FetchError):
             pass
         return BoardInfo(

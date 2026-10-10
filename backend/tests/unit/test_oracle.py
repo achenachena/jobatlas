@@ -1,7 +1,14 @@
 import httpx
+import pytest
 
 from app.providers.base import SourceRef
-from app.providers.oracle import OracleProvider, detail_path, listing_path
+from app.providers.oracle import (
+    OracleProvider,
+    clean_site_title,
+    detail_path,
+    listing_path,
+    site_name,
+)
 from app.services.ingest import assess
 
 HOST = "ehkn.fa.ca2.oraclecloud.com"
@@ -112,3 +119,37 @@ def test_verify_closed_only_while_site_answers(make_client, fake_web):
     assert oracle.verify_job(make_client(), REF, "5").state == "unknown"
     fake_web.json(HOST, detail_path("CX_1001", "5"), _detail("5", []))
     assert oracle.verify_job(make_client(), REF, "5").state == "active"
+
+
+@pytest.mark.parametrize(
+    "title,name",
+    [
+        ("Careers at Marriott", "Marriott"),
+        ("Careers | Monrovia", "Monrovia"),
+        ("Ford Global Career Site", "Ford"),
+        ("BDO USA Experienced Career Site", "BDO USA"),
+        ("Pearson Candidate Experience Site", "Pearson"),
+        ("ArcelorMittal - Recommended Jobs", "ArcelorMittal"),
+        ("Rice University Minimal Template External Career Site", "Rice University"),
+        ("Misk Foundation New Career Site Splash Page", "Misk Foundation"),
+        ("Dubai World Trade Centre -", "Dubai World Trade Centre"),
+        ("Bloomingdale&#39;s", "Bloomingdale's"),
+        ("Honeywell", "Honeywell"),
+        ("Texas Children\\'s Careers", "Texas Children's"),
+        ("Marie Curie - Volunteers", "Marie Curie - Volunteers"),
+        ("Candidate Experience site", None),
+        ("All Jobs", None),
+        ("Talent Acquisition Team", None),
+    ],
+)
+def test_clean_site_title(title, name):
+    assert clean_site_title(title) == name
+
+
+def test_generic_title_falls_back_to_logo_domain_only():
+    page = ('<title>Candidate Experience site</title><meta property="og:image" '
+            'content="https://www.ghd.com/dist/assets/GHD-logo.svg">')  # fmt: skip
+    assert site_name(page) == "ghd.com"
+    assert site_name(page.replace("www.ghd.com", "static.myconnect.ae")) == "myconnect.ae"
+    cdn = page.replace("www.ghd.com", "static.oraclecloud.com")
+    assert site_name(cdn) is None

@@ -15,6 +15,7 @@ Invariants (DEVELOPMENT.md §3, §6.3, §7):
 from __future__ import annotations
 
 import hashlib
+import html
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -412,7 +413,7 @@ def _adopt_company_name(session: Session, source: Source, n: NormalizedJob) -> N
         return
     company = session.get(Company, source.company_id)
     if company is not None and company.name in (source.tenant_key, source.base_url):
-        company.name = n.company_name[:200]
+        company.name = html.unescape(n.company_name).strip()[:200]
 
 
 def _previous_complete_count(
