@@ -7,7 +7,8 @@
  *   on-site  — solid badge, office glyph
  *   hybrid   — split badge (solid half / pale half), home + office glyph
  *   remote   — hollow badge with a thick inner ring, signal glyph
- *   unknown  — smaller pale badge, dashed ring, "?" glyph
+ *   unknown  — smaller pale badge, dashed ring, grey dot ("arrangement not stated"; the
+ *              address itself is confirmed, so no "?")
  * Same-address stack: a fan of coloured cards with the count. Region cluster: count medallion
  * on the brand navigation star (no tip — it is an area, not a point).
  *
@@ -248,7 +249,7 @@ export function drawMarker(kind: MarkerKind, state: MarkerState, inferred = fals
     }
   } else {
     const glyph = kind === "on_site" ? GLYPHS.onSite : kind === "remote" ? GLYPHS.remote : GLYPHS.unknown;
-    drawGlyph(ctx, glyph, cx, cy + 0.5, gs, col.glyph, kind === "unknown" ? 3 : 2.6);
+    drawGlyph(ctx, glyph, cx, cy + 0.5, gs, kind === "unknown" ? col.shade : col.glyph);
   }
   if (inferred) inferredChip(ctx, cx + b / 2 - 1, cy - b / 2 + 1);
   return imageOf(c);

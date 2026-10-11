@@ -27,7 +27,7 @@ export const t = {
     "7d": "Past 7 days",
     "30d": "Past 30 days",
   },
-  workplaces: { all: "All", on_site: "On-site", hybrid: "Hybrid", remote: "Remote", unknown: "Not stated" },
+  workplaces: { all: "All", on_site: "On-site", hybrid: "Hybrid", remote: "Remote", unknown: "Arrangement not stated" },
   workplaceFilterNote: "“All” also includes jobs whose workplace is not stated.",
   groups: {
     in_view: "In this map area",

@@ -37,10 +37,9 @@ export const GLYPHS = {
     fill: "M12 18.3a1.9 1.9 0 1 1 0 3.8 1.9 1.9 0 0 1 0-3.8Z",
   },
   /** Workplace not stated. */
-  unknown: {
-    stroke: "M8.9 8.6a3.2 3.2 0 1 1 4.7 2.9c-1 .5-1.6 1.3-1.6 2.4v.8",
-    fill: "M12 17.3a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3Z",
-  },
+  /** Work arrangement not stated: a plain dot ("the job is here"). Not a "?", which reads as
+   * "location unknown" although the address is confirmed. */
+  unknown: { fill: "M12 7a5 5 0 1 1 0 10 5 5 0 0 1 0-10Z" },
   /** Several jobs at one address. */
   stack: {
     stroke: "M7 6.5V5.2C7 4.5 7.5 4 8.2 4h10.6c.7 0 1.2.5 1.2 1.2v10.6c0 .7-.5 1.2-1.2 1.2H17.5",
