@@ -18,7 +18,7 @@ import type { Bbox, SearchResponse } from "../../lib/api";
 import { t } from "../../lib/strings";
 import { INK } from "../../theme/palette";
 import { groupByLocation } from "./locations";
-import { buildStyle, FONT_BOLD, FONT_HEAVY } from "./mapStyle";
+import { buildStyle, FONT_DISPLAY, FONT_HEAVY } from "./mapStyle";
 import { BADGE_CENTER_OFFSET, MARKER_ICON_OFFSET, provideImages } from "./markerImages";
 import styles from "./MapView.module.css";
 
@@ -51,7 +51,7 @@ interface Props {
 
 const CLUSTER_MAX_ZOOM = 15;
 /** Default "3D" camera: tilted, and turned so Toronto's street grid runs across the screen. */
-const TILT = { pitch: 45, bearing: -17 };
+const TILT = { pitch: 35, bearing: -17 };
 const INTERACTIVE = ["job-clusters", "job-stacks", "job-points", "job-aggregated"];
 /** Space kept clear of the floating search dock and the bottom bar. */
 const SAFE = { top: 84, bottom: 76, side: 16 };
@@ -134,7 +134,7 @@ export function MapView({
     map.on("load", () => {
       window.clearTimeout(styleTimeout);
       const countText = {
-        "text-font": [FONT_HEAVY],
+        "text-font": [FONT_DISPLAY],
         "text-size": STACK_TEXT_SIZE,
         "text-allow-overlap": true,
         "text-ignore-placement": true,
@@ -167,7 +167,7 @@ export function MapView({
           // Clusters never hide city plates (Toronto sits under the downtown cluster).
           "icon-ignore-placement": true,
           "text-field": ["to-string", ["get", "jobs"]],
-          "text-font": [FONT_HEAVY],
+          "text-font": [FONT_DISPLAY],
           "text-size": ["step", ["get", "jobs"], 13, 10, 15, 50, 17],
           "text-allow-overlap": true,
           "text-ignore-placement": true,
@@ -184,7 +184,7 @@ export function MapView({
           "icon-allow-overlap": true,
           "icon-ignore-placement": true,
           "text-field": ["to-string", ["get", "job_count"]],
-          "text-font": [FONT_HEAVY],
+          "text-font": [FONT_DISPLAY],
           "text-size": 14,
           "text-allow-overlap": true,
         },
@@ -199,7 +199,7 @@ export function MapView({
         layout: {
           "icon-image": "stack",
           "icon-anchor": "bottom",
-          "icon-offset": MARKER_ICON_OFFSET,
+          "icon-offset": MARKER_ICON_OFFSET.default,
           "icon-allow-overlap": true,
           "text-field": ["to-string", ["get", "count"]],
           "text-offset": stackTextOffset(1),
@@ -216,7 +216,7 @@ export function MapView({
           "icon-image": ["concat", "marker-", ["get", "workplace_type"],
             ["case", ["==", ["get", "inferred"], true], "-inferred", ""]],
           "icon-anchor": "bottom",
-          "icon-offset": MARKER_ICON_OFFSET,
+          "icon-offset": MARKER_ICON_OFFSET.default,
           "icon-allow-overlap": true,
           // Street level: the workplace word sits beside the badge as well.
           "text-field": [
@@ -240,7 +240,7 @@ export function MapView({
       });
       for (const [id, source, state, scale] of [
         ["job-hover", "job-hover", "hover", 1.1],
-        ["job-selected", "job-selected", "selected", 1.18],
+        ["job-selected", "job-selected", "selected", 1.2],
       ] as const) {
         map.addLayer({
           id,
@@ -255,7 +255,7 @@ export function MapView({
                 ["case", ["==", ["get", "inferred"], true], "-inferred", ""], `-${state}`],
             ],
             "icon-anchor": "bottom",
-          "icon-offset": MARKER_ICON_OFFSET,
+            "icon-offset": MARKER_ICON_OFFSET[state],
             "icon-allow-overlap": true,
             "icon-ignore-placement": true,
             "text-field": ["case", [">", ["get", "count"], 1], ["to-string", ["get", "count"]], ""],

@@ -17,9 +17,9 @@
   width: 3.5rem;
   height: 3.5rem;
   border: var(--line) solid var(--edge);
-  border-radius: 14px;
-  background: var(--paper-2);
-  box-shadow: inset 0 0 0 3px var(--paper), inset 0 0 0 4px var(--edge-inner);
+  border-radius: 0;
+  background: var(--tone-light), var(--paper);
+  box-shadow: 3px 3px 0 var(--ink-900);
   color: var(--ink-900);
 }
 
@@ -29,14 +29,14 @@
   right: 0.45rem;
   color: var(--gold);
   font-size: 1.5rem;
-  filter: drop-shadow(0 1.5px 0 #c99a2e);
+  filter: drop-shadow(1.5px 1.5px 0 var(--ink-900));
 }
 
 .route {
   position: absolute;
   bottom: 0.45rem;
   left: 0.4rem;
-  color: var(--lavender);
+  color: var(--ink-900);
   font-size: 1.9rem;
   stroke-dasharray: 0.1 3.4;
 }
@@ -45,7 +45,7 @@
   color: var(--error);
   font-family: var(--font-display);
   font-size: 1.6rem;
-  font-weight: var(--fw-heavy);
+  font-weight: 400;
 }
 
 .error .art {
@@ -100,8 +100,8 @@
 
 .skeleton span {
   height: 0.7rem;
-  border-radius: var(--radius-pill);
-  background: var(--paper-3);
+  border-radius: 0;
+  background: var(--tone), var(--paper-2);
 }
 
 .skeleton span:first-child {

@@ -1,16 +1,20 @@
 /* Each result is a small sticker card. */
+/* Each result is a small manga panel. */
 .card {
   list-style: none;
   margin-bottom: var(--space-3);
-  border: 2px solid var(--ink-900);
-  border-radius: var(--radius-md);
+  border: 2.5px solid var(--ink-900);
+  border-radius: 0;
   background: #fff;
-  box-shadow: 0 3px 0 var(--ink-900);
-  transition: transform var(--motion-fast) var(--ease);
+  box-shadow: 4px 4px 0 var(--ink-900);
+  transition:
+    transform var(--motion-fast) var(--ease-snap),
+    box-shadow var(--motion-fast) var(--ease-snap);
 }
 
 .card:hover {
-  transform: translateY(-2px);
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0 var(--ink-900);
 }
 
 .main {
@@ -26,7 +30,7 @@
 }
 
 .selected {
-  background: var(--sun);
+  background: var(--tone), var(--sun);
 }
 
 .title {
@@ -77,8 +81,8 @@
   justify-self: start;
   margin-top: 0.2rem;
   padding: 0.1rem 0.5rem;
-  border-radius: var(--radius-pill);
   background: var(--coral-soft);
+  border: 1.5px solid var(--ink-900);
   color: var(--coral-ink);
   font-size: var(--fs-xs);
   font-weight: var(--fw-heavy);

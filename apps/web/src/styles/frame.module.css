@@ -1,9 +1,15 @@
-/* Shared game-HUD frame language (compose into component modules). Every rule is wrapped in
+/* Shared manga-page frame language (compose into component modules). Every rule is wrapped in
    :where() (zero specificity), so a composing component's own rules always win, whatever
    order the stylesheets load in.
-   Window: paper body, 2.5px ink outline, double edge inside, hard ink drop. `.bevel` cuts ONE
-   corner (key windows only: search dock, detail card, list sheet); browsers without
-   `corner-shape` keep the rounded corner. `.ribbon` is a striped title band. */
+
+   .panel   a manga panel: paper, heavy ink frame + thin inner rule, hard black drop
+   .bevel   one cut corner (top-right) on key panels only (search dock, detail, list)
+   .ribbon  a title band: spot colour + white speed-line stripes, ink rule underneath;
+            set --ribbon to recolour
+   .inkText white display lettering with an ink outline (titles on ribbons)
+   .caption a black narration box with white lettering (small section labels)
+   .control / .primary / .sunny / .ghost
+            stamp-like buttons: square, ink frame, hard drop, pressed = shifted onto its drop */
 
 :where(.panel) {
   border: var(--line) solid var(--edge);
@@ -13,18 +19,23 @@
   color: var(--ink-700);
 }
 
+/* The cut corner is drawn as an ink triangle so it works in every browser. */
 :where(.bevel) {
-  border-top-right-radius: var(--bevel);
+  position: relative;
 }
 
-@supports (corner-shape: bevel) {
-  :where(.bevel) {
-    border-top-right-radius: calc(var(--bevel) + 6px);
-    corner-top-right-shape: bevel;
-  }
+:where(.bevel)::after {
+  content: "";
+  position: absolute;
+  z-index: 3;
+  top: calc(-1 * var(--line));
+  right: calc(-1 * var(--line));
+  width: var(--bevel);
+  height: var(--bevel);
+  background: linear-gradient(45deg, transparent 50%, var(--ink-900) 50%);
+  pointer-events: none;
 }
 
-/* Striped title band; set --ribbon to recolour. Title text gets an ink outline. */
 :where(.ribbon) {
   position: relative;
   background: var(--stripes), var(--ribbon, var(--sky));
@@ -34,77 +45,82 @@
 
 :where(.inkText) {
   color: #fff;
-  -webkit-text-stroke: 5px var(--ink-900);
+  font-family: var(--font-display);
+  font-weight: 400;
+  -webkit-text-stroke: 4px var(--ink-900);
   paint-order: stroke fill;
-  letter-spacing: 0.01em;
+  letter-spacing: 0.02em;
 }
 
-/* Chunky pressable button: ink outline, hard ink drop, top highlight, presses down.
-   Layout (display/alignment) is left to the composing class, so composition order between
-   stylesheets can never change it. */
+:where(.caption) {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  background: var(--ink-900);
+  color: #fff;
+  font-family: var(--font-display);
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* Layout (display/alignment) is left to the composing class. */
 :where(.control, .primary, .sunny, .ghost) {
   min-width: 46px;
   min-height: 46px;
   border: var(--line) solid var(--edge);
   border-radius: var(--radius-md);
   background: var(--paper);
-  box-shadow: inset 0 -3px 0 rgb(43 53 102 / 0.08), var(--shadow-cel);
+  box-shadow: var(--shadow-cel);
   color: var(--ink-900);
   font-size: 1.3rem;
   font-weight: var(--fw-heavy);
   transition:
-    transform var(--motion-fast) var(--ease),
-    box-shadow var(--motion-fast) var(--ease),
+    transform var(--motion-fast) var(--ease-snap),
+    box-shadow var(--motion-fast) var(--ease-snap),
     background var(--motion-fast) var(--ease);
 }
 
-:where(.control, .sunny, .ghost):hover {
+:where(.control, .primary, .sunny, .ghost):hover {
   background: #fff;
-  transform: translateY(-1px);
-  box-shadow: inset 0 -3px 0 rgb(43 53 102 / 0.08), 0 4px 0 var(--ink-900);
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 var(--ink-900);
 }
 
 :where(.control, .primary, .sunny, .ghost):active {
-  transform: translateY(3px);
+  transform: translate(3px, 3px);
   box-shadow: 0 0 0 var(--ink-900);
 }
 
-:where(.primary) {
+:where(.primary, .sunny) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
   padding: 0 var(--space-4);
-  background: var(--blue);
-  box-shadow: inset 0 3px 0 rgb(255 255 255 / 0.25), inset 0 -4px 0 var(--blue-strong), var(--shadow-cel);
-  color: var(--ink-inverse);
   font-family: var(--font-display);
   font-size: var(--fs-md);
+  font-weight: 400;
+  letter-spacing: 0.02em;
   text-decoration: none;
 }
 
-:where(.primary):hover {
-  background: #2a80f0;
-  box-shadow: inset 0 3px 0 rgb(255 255 255 / 0.25), inset 0 -4px 0 var(--blue-strong), 0 4px 0 var(--ink-900);
+:where(.primary) {
+  background: var(--stripes), var(--blue);
+  color: #fff;
+  text-shadow: 1.5px 1.5px 0 var(--ink-900);
 }
 
-:where(.primary):active {
-  box-shadow: inset 0 -2px 0 var(--blue-strong);
+:where(.primary):hover {
+  background: var(--stripes), #2a7cf0;
 }
 
 :where(.sunny) {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-2);
-  padding: 0 var(--space-4);
   background: var(--sun);
-  box-shadow: inset 0 3px 0 rgb(255 255 255 / 0.45), inset 0 -4px 0 var(--sun-deep), var(--shadow-cel);
-  font-size: var(--fs-md);
 }
 
 :where(.sunny):hover {
-  background: #ffdb5c;
+  background: #ffdd5e;
 }
 
 :where(.ghost) {
@@ -115,22 +131,25 @@
   font-size: var(--fs-sm);
 }
 
-/* Section label inside windows. */
+/* Section label inside panels: a small caption box. */
 :where(.kicker) {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
   margin: 0;
-  color: var(--ink-900);
+  padding: 0.1rem 0.5rem;
+  background: var(--ink-900);
+  color: #fff;
   font-family: var(--font-display);
-  font-size: var(--fs-sm);
-  font-weight: var(--fw-heavy);
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  letter-spacing: 0.05em;
 }
 
 :where(.kicker)::before {
   content: "";
-  width: 0.7rem;
-  height: 0.7rem;
+  width: 0.65rem;
+  height: 0.65rem;
   background: var(--sun);
   clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%);
 }

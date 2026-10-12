@@ -1,40 +1,38 @@
-/** "Summer Anime City" palette (docs/visual-redesign.md). One source for the map art, the
- * canvas-drawn markers/icons and (mirrored in tokens.css) the UI. */
+/** "Colour Manga Page" palette (docs/visual-redesign.md). One source for the map art, the
+ * canvas-drawn markers/icons and (mirrored in tokens.css) the UI.
+ *
+ * A manga page is ink on paper: near-black line art, white/paper fills, grey screentones,
+ * and only a few spot colours (sky, sakura, sun, mint) used sparingly for meaning. */
 
-export const INK = "#2b3566"; // line-art ink: outlines, text
-export const PAPER = "#fffaf0";
+export const INK = "#17151f"; // line art, lettering
+export const PAPER = "#fdfbf5";
 
 export const C = {
   ink: INK,
-  ink2: "#4a5285",
+  ink2: "#3b3848",
+  tone: "#8d8a99", // screentone dots / hatching
+  toneLight: "#c9c6d3",
   paper: PAPER,
-  sky: "#36a9ff",
-  skyDeep: "#1a73e8",
-  sakura: "#ff6f9c",
-  sun: "#ffd23f",
-  mint: "#2ec99a",
-  lilac: "#9b7bff",
-  // map
-  land: "#fdf3dc",
-  residential: "#fde6cc",
-  commercial: "#ffdde8",
-  industrial: "#e7e3f7",
-  school: "#fff0ad",
-  hospital: "#ffe0e0",
-  park: "#93dd73",
-  parkDeep: "#5fc163",
-  wood: "#6fcf6f",
-  water: "#45c1f2",
-  shallows: "#93e2fb",
-  shore: "#2a6fae",
+  paperShade: "#f1ede2",
+  sky: "#38b6ff",
+  skyDeep: "#1769e0",
+  sakura: "#ff5c93",
+  sun: "#ffd43b",
+  mint: "#3ddc97",
+  lilac: "#9a7bff",
+  // map spot colours (kept pale so ink and tones carry the drawing)
+  water: "#7fd3ff",
+  waterDeep: "#38b6ff",
+  park: "#bdf0c8",
+  parkInk: "#1f7a4a",
 } as const;
 
 export type MarkerKind = "on_site" | "hybrid" | "remote" | "unknown";
 
-/** Two-tone cel colours per workplace type: base + shade (lower-right) + glyph. */
-export const KIND_COLORS: Record<MarkerKind, { base: string; shade: string; tint: string; glyph: string }> = {
-  on_site: { base: "#2f8cff", shade: "#1f66d1", tint: "#d8ebff", glyph: "#ffffff" },
-  hybrid: { base: "#22c08e", shade: "#14966d", tint: "#dcf7ec", glyph: "#ffffff" },
-  remote: { base: "#8b6cff", shade: "#6a4ae0", tint: "#ffffff", glyph: "#7a5af5" },
-  unknown: { base: "#8c90ad", shade: "#6f7392", tint: "#fffaf0", glyph: INK },
+/** Per workplace type: spot colour + glyph colour. Shading is drawn as screentone dots. */
+export const KIND_COLORS: Record<MarkerKind, { base: string; tint: string; glyph: string }> = {
+  on_site: { base: C.skyDeep, tint: "#d6e8ff", glyph: "#ffffff" },
+  hybrid: { base: "#16b07a", tint: "#d9f7e9", glyph: "#ffffff" },
+  remote: { base: C.sakura, tint: "#ffffff", glyph: C.sakura },
+  unknown: { base: "#ffffff", tint: "#ffffff", glyph: INK },
 };

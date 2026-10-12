@@ -43,16 +43,16 @@
   clip-path: polygon(0 0, 100% 50%, 0 100%);
 }
 
-/* One short ring when a point is selected; nothing keeps moving afterwards. */
+/* One short "impact" burst when a point is selected; nothing keeps moving afterwards. */
 .ping {
   position: absolute;
   z-index: 5;
-  top: -26px;
-  left: -26px;
-  width: 52px;
-  height: 52px;
-  border: 3px solid var(--sun);
-  border-radius: 50%;
+  top: -34px;
+  left: -34px;
+  width: 68px;
+  height: 68px;
+  background: var(--sun);
+  clip-path: polygon(50% 0, 58% 30%, 85% 15%, 70% 42%, 100% 50%, 70% 58%, 85% 85%, 58% 70%, 50% 100%, 42% 70%, 15% 85%, 30% 58%, 0 50%, 30% 42%, 15% 15%, 42% 30%);
   pointer-events: none;
   opacity: 0;
   animation: ping var(--motion-slow) var(--ease) 1;
@@ -60,12 +60,14 @@
 
 @keyframes ping {
   from {
-    opacity: 0.9;
-    scale: 0.5;
+    opacity: 0.95;
+    scale: 0.4;
+    rotate: -12deg;
   }
   to {
     opacity: 0;
-    scale: 1.25;
+    scale: 1.3;
+    rotate: 8deg;
   }
 }
 
@@ -93,8 +95,12 @@
   font-size: var(--fs-md);
 }
 
+.tilt {
+  font-weight: 400;
+}
+
 .tilt[aria-pressed="true"] {
-  background: var(--sun);
+  background: var(--tone), var(--sun);
 }
 
 .control {
@@ -141,7 +147,7 @@
 
 .failedStar {
   flex: none;
-  color: var(--lavender);
+  color: var(--sun);
   font-size: 2rem;
 }
 
@@ -151,8 +157,9 @@
 }
 
 .wrap :global(.maplibregl-ctrl-attrib) {
-  border-radius: var(--radius-pill) !important;
-  background: rgb(255 253 247 / 0.92) !important;
+  border: 1.5px solid var(--ink-900);
+  border-radius: 0 !important;
+  background: var(--paper) !important;
   color: var(--ink-500);
   font-size: 11px;
 }

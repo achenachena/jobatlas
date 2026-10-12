@@ -175,7 +175,7 @@ shot("Z-assets", async () => {
   await page.evaluate(async () => {
     const mi = await import("/src/features/map/markerImages.ts");
     const { GLYPHS } = await import("/src/theme/glyphs.ts");
-    const bgs = [["Land", "#fdf3dc"], ["Residential", "#fde6cc"], ["Park", "#93dd73"], ["Water", "#45c1f2"], ["Road", "#ffffff"]];
+    const bgs = [["Paper", "#fdfbf5"], ["Tone", "#e3e0dc"], ["Park", "#bdf0c8"], ["Water", "#7fd3ff"], ["Road", "#ffffff"]];
     const root = document.createElement("div");
     root.style.cssText = "position:fixed;inset:0;z-index:99;background:#fffaf0;padding:18px 26px;overflow:hidden;font:600 12px 'M PLUS Rounded 1c',system-ui;color:#2b3566";
     const toCanvas = (img) => { const c = document.createElement("canvas"); c.width = img.width; c.height = img.height;
@@ -186,7 +186,7 @@ shot("Z-assets", async () => {
     const row = document.createElement("div"); row.style.cssText = "display:flex;gap:10px";
     for (const [bgName, bg] of bgs) {
       const cell = document.createElement("div");
-      cell.style.cssText = `background:${bg};border-radius:14px;padding:8px 10px;display:grid;gap:2px;border:2px solid #2b3566`;
+      cell.style.cssText = `background:${bg};border-radius:0;padding:8px 10px;display:grid;gap:2px;border:2px solid #2b3566`;
       const lab = document.createElement("div"); lab.textContent = bgName; lab.style.cssText = "font-weight:800"; cell.append(lab);
       for (const state of ["default", "hover", "selected"]) {
         const r = document.createElement("div"); r.style.cssText = "display:flex;align-items:flex-end;gap:0;min-height:44px";
@@ -206,9 +206,9 @@ shot("Z-assets", async () => {
       const w = document.createElement("div"); w.style.cssText = "display:grid;justify-items:center;font-size:10px"; w.append(toCanvas(mi.imageFor(`lm-${k}`)), k); r2.append(w);
     }
     r2.append(toCanvas(mi.imageFor("street-tree")));
-    for (const [tex, bg] of [["tex-trees", "#93dd73"], ["tex-water", "#45c1f2"]]) {
+    for (const [tex, bg] of [["tex-trees", "#bdf0c8"], ["tex-water", "#7fd3ff"], ["tone-light", "#fdfbf5"], ["tone-pink", "#fdfbf5"], ["tone-lines", "#fdfbf5"], ["tone-sun", "#fdfbf5"]]) {
       const c = toCanvas(mi.imageFor(tex)); const box = document.createElement("div");
-      box.style.cssText = `width:140px;height:70px;border:2px solid #2b3566;border-radius:10px;background:${bg} url(${c.toDataURL()});background-size:${c.width / 2}px ${c.height / 2}px`;
+      box.style.cssText = `width:110px;height:70px;border:2px solid #2b3566;border-radius:10px;background:${bg} url(${c.toDataURL()});background-size:${c.width / 2}px ${c.height / 2}px`;
       r2.append(box);
     }
     root.append(r2);

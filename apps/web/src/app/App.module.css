@@ -28,7 +28,7 @@
   min-height: 48px;
   padding: 0 var(--space-3) 0 0.35rem;
   border: var(--line) solid var(--edge);
-  border-radius: var(--radius-pill);
+  border-radius: 0;
   background: var(--paper);
   box-shadow: var(--shadow-cel);
   color: var(--ink-700);
@@ -37,22 +37,22 @@
   white-space: nowrap;
 }
 
+/* Small shout burst behind the star. */
 .countStar {
   box-sizing: content-box;
-  padding: 0.3rem;
-  border: 2px solid var(--ink-900);
-  border-radius: 50%;
+  padding: 0.4rem;
   background: var(--sun);
-  color: #fff;
-  font-size: 1.05rem;
-  filter: drop-shadow(0 0 0 var(--ink-900));
+  color: var(--ink-900);
+  font-size: 0.95rem;
+  clip-path: polygon(50% 0, 61% 22%, 85% 12%, 78% 38%, 100% 50%, 78% 62%, 85% 88%, 61% 78%, 50% 100%, 39% 78%, 15% 88%, 22% 62%, 0 50%, 22% 38%, 15% 12%, 39% 22%);
 }
 
 .countNum {
   color: var(--ink-900);
   font-family: var(--font-display);
-  font-size: var(--fs-lg);
-  font-weight: var(--fw-heavy);
+  font-size: 1.35rem;
+  font-weight: 400;
+  font-variant-numeric: proportional-nums;
 }
 
 .spin {
@@ -107,7 +107,6 @@
 .listButton {
   composes: primary from "../styles/frame.module.css";
   min-height: 48px;
-  border-radius: var(--radius-pill);
 }
 
 .listButton svg {
@@ -115,20 +114,19 @@
 }
 
 .listCount {
-  padding: 0 0.5rem;
+  padding: 0 0.45rem;
   border: 2px solid var(--ink-900);
-  border-radius: var(--radius-pill);
   background: var(--sun);
   color: var(--ink-900);
+  text-shadow: none;
   font-family: var(--font-body);
   font-size: var(--fs-sm);
   font-weight: var(--fw-medium);
 }
 
 .total {
-  padding: 0 0.55rem;
+  padding: 0 0.5rem;
   border: 2px solid var(--ink-900);
-  border-radius: var(--radius-pill);
   background: var(--sun);
   color: var(--ink-900);
   -webkit-text-stroke: 0;
@@ -166,6 +164,5 @@
   .bottomCard > * {
     max-height: 72dvh;
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-    corner-top-right-shape: round;
   }
 }

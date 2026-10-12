@@ -34,7 +34,7 @@
   width: 2.4rem;
   height: 2.4rem;
   border: 2px solid var(--ink-900);
-  border-radius: 12px;
+  border-radius: 0;
   background: var(--ink-900);
   box-shadow: 3px -3px 0 var(--sakura), 3px -3px 0 2px var(--ink-900);
   color: #fff;
@@ -59,9 +59,9 @@
   width: 40px;
   height: 40px;
   border: 2px solid var(--ink-900);
-  border-radius: 50%;
+  border-radius: 0;
   background: #fff;
-  box-shadow: 0 2px 0 var(--ink-900);
+  box-shadow: 2px 2px 0 var(--ink-900);
   color: var(--ink-900);
   font-size: 1.1rem;
 }
@@ -80,7 +80,7 @@
 }
 
 .list li + li {
-  border-top: 2px dashed var(--edge-inner);
+  border-top: 1.5px solid var(--ink-900);
 }
 
 .item {
