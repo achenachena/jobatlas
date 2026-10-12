@@ -11,9 +11,16 @@ The map is the in_view part of the same result: every usable point, never just t
 list page. Over SEARCH_MAX_MAP_POINTS the server aggregates the FULL point set into grid
 cells (mode=clusters) rather than sending a truncated sample.
 
-The ordered ids per group are stored in Redis for SEARCH_SNAPSHOT_TTL_SECONDS; pages are read
-from the snapshot so map and list never disagree. A page containing a job that is no longer
-open invalidates the snapshot (410 SEARCH_EXPIRED) instead of showing it as current.
+Grouping runs in the database (GROUP_SQL): keyword/time/workplace filters, remote
+eligibility for the region, "has a usable point" and the viewport test are all SQL, so Python
+only receives (id, group) rows in final order plus the coordinates of the jobs that actually
+get a marker. `group_candidates` is the pure reference implementation of the same rules (unit-
+tested, and compared against GROUP_SQL on random data in the integration tests).
+
+The ordered ids per group are stored in Redis (packed 16-byte UUIDs) for
+SEARCH_SNAPSHOT_TTL_SECONDS; pages are read from the snapshot so map and list never disagree.
+A page containing a job that is no longer open invalidates the snapshot (410 SEARCH_EXPIRED)
+instead of showing it as current.
 """
 
 from __future__ import annotations
@@ -23,6 +30,7 @@ import json
 import math
 import re
 import secrets
+import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
@@ -35,7 +43,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.timeutil import TORONTO, utcnow
-from app.services.region_match import covers
+from app.services.region_match import PARENT, covers, is_within
 
 TimeWindow = Literal["today", "24h", "2d", "3d", "7d", "30d", "all"]
 Workplace = Literal["all", "on_site", "hybrid", "remote"]
@@ -270,7 +278,7 @@ def _time_bounds(window: str, as_of: datetime) -> tuple[datetime | None, Any]:
 
 
 BASE_SQL = """
-SELECT j.id::text AS id, j.workplace_type, j.location_region_id, j.eligibility_status,
+SELECT j.id, j.workplace_type, j.location_region_id, j.eligibility_status,
        j.posted_at, j.first_seen_at,
        CASE
          WHEN CAST(:window_start AS timestamptz) IS NULL THEN true
@@ -299,19 +307,80 @@ WHERE j.status = 'active' AND j.is_publishable
        OR word_similarity(:q, coalesce(j.title, '')) >= 0.6)
 """
 
-POINTS_SQL = """
+USABLE_ROLES_SQL = (
+    "CASE WHEN c.workplace_type = 'remote' THEN ARRAY['company_office', 'headquarters'] "
+    "ELSE ARRAY['work_site'] END"
+)
+
+# Same rules as group_candidates, evaluated in the database.
+#   :chain    target region and its ancestors        (eligibility excludes / includes)
+#   :covering chain + regions inside the target      (eligibility includes)
+#   :inside   regions inside the target (DB tree)    (label region of jobs without a point)
+
+# Composed from module constants only; every value is a bound parameter. Each candidate's
+# few usable points are aggregated once (LATERAL, by primary key) into has_point / in_view, so
+# the viewport test runs on that job's points only.
+GROUP_SQL = f"""
+WITH cand AS MATERIALIZED (SELECT * FROM ({BASE_SQL}) base WHERE in_window),
+flags AS (
+  SELECT c.id, c.workplace_type, c.posted_at, c.first_seen_at, c.location_region_id,
+    (c.workplace_type <> 'remote' OR (
+       NOT EXISTS (SELECT 1 FROM job_eligibility_regions x WHERE x.job_id = c.id
+                   AND x.include_or_exclude = 'exclude' AND x.region_id = ANY(:chain))
+       AND EXISTS (SELECT 1 FROM job_eligibility_regions x WHERE x.job_id = c.id
+                   AND x.include_or_exclude = 'include' AND x.region_id = ANY(:covering))
+    )) AS eligible,
+    pt.n > 0 AS has_point,
+    coalesce(pt.in_view, false) AS in_view
+  FROM cand c
+  CROSS JOIN LATERAL (
+    SELECT count(*) AS n,
+           bool_or(ST_X(l.point) BETWEEN :w AND :e AND ST_Y(l.point) BETWEEN :s AND :n)
+             AS in_view
+    FROM job_locations jl JOIN locations l ON l.id = jl.location_id
+    WHERE jl.job_id = c.id AND jl.verification_status = 'verified'
+      AND l.point IS NOT NULL AND l.precision IN ('rooftop', 'street')
+      AND jl.role = ANY({USABLE_ROLES_SQL})
+  ) pt
+),
+graded AS (
+  SELECT id, posted_at, first_seen_at, workplace_type,
+    CASE
+      WHEN NOT eligible THEN NULL
+      WHEN in_view THEN 'in_view'
+      WHEN workplace_type = 'remote' AND has_point THEN 'remote_elsewhere'
+      WHEN NOT has_point AND (workplace_type = 'remote' OR location_region_id = ANY(:inside))
+        THEN 'location_unverified'
+    END AS grp
+  FROM flags
+)
+SELECT id::text AS id, workplace_type, grp FROM graded WHERE grp IS NOT NULL
+ORDER BY grp, posted_at DESC NULLS LAST, first_seen_at DESC, id::text COLLATE "C"
+"""  # noqa: S608
+
+UNTRUSTED_SQL = f"""
+WITH base AS ({BASE_SQL})
+SELECT count(*) FROM base WHERE NOT in_window AND NOT trusted_time
+"""  # noqa: S608
+
+# Usable points (role by workplace) of the given jobs, driven from the id list (hash join);
+# the viewport is a plain coordinate test on those points, never a spatial-index probe.
+VIEW_POINTS_SQL = """
 SELECT jl.job_id::text AS job_id, l.id::text AS location_id, jl.role,
        ST_X(l.point) AS lon, ST_Y(l.point) AS lat,
        coalesce(e.method = 'company_single_city_office', false) AS inferred
-FROM job_locations jl JOIN locations l ON l.id = jl.location_id
+FROM unnest(CAST(:ids AS uuid[])) AS ids(id)
+JOIN jobs j ON j.id = ids.id
+JOIN job_locations jl ON jl.job_id = ids.id
+JOIN locations l ON l.id = jl.location_id
 LEFT JOIN evidence e ON e.id = jl.evidence_id
-WHERE jl.job_id = ANY(CAST(:ids AS uuid[])) AND jl.verification_status = 'verified'
+WHERE jl.verification_status = 'verified'
   AND l.point IS NOT NULL AND l.precision IN ('rooftop', 'street')
-"""
-
-ELIG_SQL = """
-SELECT job_id::text AS job_id, region_id, include_or_exclude
-FROM job_eligibility_regions WHERE job_id = ANY(CAST(:ids AS uuid[]))
+  AND jl.role = ANY(CASE WHEN j.workplace_type = 'remote'
+                         THEN ARRAY['company_office', 'headquarters'] ELSE ARRAY['work_site'] END)
+  AND (CAST(:w AS float8) IS NULL
+       OR (ST_X(l.point) BETWEEN CAST(:w AS float8) AND CAST(:e AS float8)
+           AND ST_Y(l.point) BETWEEN CAST(:s AS float8) AND CAST(:n AS float8)))
 """
 
 
@@ -325,9 +394,17 @@ async def region_info(session: AsyncSession) -> dict[str, dict]:
     return {r.id: dict(r._mapping) for r in rows}
 
 
-def _sort_key(row) -> tuple:
-    posted = row.posted_at.timestamp() if row.posted_at else float("-inf")
-    return (-posted, -row.first_seen_at.timestamp(), row.id)
+def region_params(regions: dict[str, dict], region_id: str) -> dict[str, list[str]]:
+    """Region sets for GROUP_SQL, mirroring `covers` (static region tree) and `within`
+    (regions table) as used by group_candidates."""
+    parents = {rid: info["parent_id"] for rid, info in regions.items()}
+    known = set(regions) | set(PARENT)
+    chain = sorted(r for r in known if is_within(region_id, r))
+    return {
+        "chain": chain,
+        "covering": sorted(set(chain) | {r for r in known if is_within(r, region_id)}),
+        "inside": sorted(r for r in regions if within(r, region_id, parents)),
+    }
 
 
 async def run_search(session: AsyncSession, redis: Redis, p: SearchParams) -> dict:
@@ -360,55 +437,38 @@ async def run_search(session: AsyncSession, redis: Redis, p: SearchParams) -> di
     tsq = build_tsquery(q) if q else None
     if q and tsq is None:
         tsq = "zzzznomatch"
-    rows = (
+    params = {
+        "window_start": window_start,
+        "today_date": today_date,
+        # Rolling windows only; "today" with date-only data needs a known Toronto zone.
+        "date_floor": date_floor(window_start) if p.time_window != "today" else None,
+        "as_of": as_of,
+        "fresh_cutoff": as_of - timedelta(hours=s.freshness_hours),
+        "workplace": p.workplace,
+        "tsq": tsq,
+        "q": q or "",
+    }
+    grouped = (
         await session.execute(
-            text(BASE_SQL),
+            text(GROUP_SQL),
             {
-                "window_start": window_start,
-                "today_date": today_date,
-                # Rolling windows only; "today" with date-only data needs a known Toronto zone.
-                "date_floor": date_floor(window_start) if p.time_window != "today" else None,
-                "as_of": as_of,
-                "fresh_cutoff": as_of - timedelta(hours=s.freshness_hours),
-                "workplace": p.workplace,
-                "tsq": tsq,
-                "q": q or "",
+                **params,
+                "w": bbox.west, "s": bbox.south, "e": bbox.east, "n": bbox.north,
+                **region_params(regions, p.region_id),
             },
         )
-    ).all()
-    excluded_untrusted = sum(1 for r in rows if not r.in_window and not r.trusted_time)
-    rows = [r for r in rows if r.in_window]
-    ids = [r.id for r in rows]
-    points: dict[str, list[dict]] = defaultdict(list)
-    includes: dict[str, set[str]] = defaultdict(set)
-    excludes: dict[str, set[str]] = defaultdict(set)
-    if ids:
-        for pr in await session.execute(text(POINTS_SQL), {"ids": ids}):
-            points[pr.job_id].append(dict(pr._mapping))
-        for er in await session.execute(text(ELIG_SQL), {"ids": ids}):
-            (includes if er.include_or_exclude == "include" else excludes)[er.job_id].add(
-                er.region_id
-            )
-    cands = []
-    for r in rows:
-        usable_roles = (
-            {"company_office", "headquarters"} if r.workplace_type == "remote" else {"work_site"}
-        )
-        cands.append(
-            Candidate(
-                id=r.id,
-                workplace_type=r.workplace_type,
-                location_region_id=r.location_region_id,
-                eligibility_status=r.eligibility_status,
-                sort_key=_sort_key(r),
-                points=[pt for pt in points[r.id] if pt["role"] in usable_roles],
-                includes=includes[r.id],
-                excludes=excludes[r.id],
-            )
-        )
-    parents = {rid: info["parent_id"] for rid, info in regions.items()}
-    groups, view_points = group_candidates(cands, p.region_id, bbox, parents)
-    workplace_by_id = {c.id: c.workplace_type for c in cands}
+    ).all()  # fmt: skip
+    excluded_untrusted = 0
+    if p.time_window != "all":
+        excluded_untrusted = (await session.execute(text(UNTRUSTED_SQL), params)).scalar_one()
+
+    groups: dict[str, list[Candidate]] = {g: [] for g in GROUPS}
+    workplace_by_id: dict[str, str] = {}
+    for r in grouped:  # already in final order
+        groups[r.grp].append(Candidate(r.id, r.workplace_type, None, "", ()))
+        workplace_by_id[r.id] = r.workplace_type
+    # Coordinates for the map: usable points of in-view jobs, inside the bbox only.
+    view_points = await marker_points(session, [c.id for c in groups["in_view"]], bbox)
     fmap, map_meta = build_map(
         groups, view_points, workplace_by_id, p.zoom, s.search_max_map_points
     )
@@ -431,17 +491,17 @@ async def run_search(session: AsyncSession, redis: Redis, p: SearchParams) -> di
     snapshot = {
         "as_of": as_of.isoformat(),
         "filters": _filters(p, bbox),
-        "groups": {g: [c.id for c in groups[g]] for g in GROUPS},
-        "points": {c.id: view_points.get(c.id, c.points) for g in GROUPS for c in groups[g]},
+        # Ordered ids only; card markers are read per page (see project).
+        "groups": {g: pack_ids([c.id for c in groups[g]]) for g in GROUPS},
     }
     await redis.set(f"search:{search_id}", json.dumps(snapshot), ex=ttl)
     out_groups = {}
     for g in GROUPS:
-        page_ids = snapshot["groups"][g][: p.limit]
-        items = await project(session, page_ids, snapshot["points"], as_of)
+        page_ids = [c.id for c in groups[g][: p.limit]]
+        items = await project(session, page_ids, g, bbox, view_points)
         if items is None:  # a job changed between grouping and projection; extremely rare
             raise SearchError("SEARCH_EXPIRED", "results changed; retry", 410)
-        nxt = len(snapshot["groups"][g]) > p.limit
+        nxt = len(groups[g]) > p.limit
         out_groups[g] = {
             "items": items,
             "next_cursor": encode_cursor(search_id, g, p.limit) if nxt else None,
@@ -486,6 +546,18 @@ def decode_cursor(cursor: str) -> tuple[str, str, int]:
         raise SearchError("INVALID_CURSOR", "cursor is malformed", 422) from exc
 
 
+def pack_ids(ids: list[str]) -> str:
+    """Ordered job ids as base64 of their 16-byte UUIDs (~22 bytes each vs ~40 as JSON)."""
+    return base64.b64encode(b"".join(uuid.UUID(i).bytes for i in ids)).decode()
+
+
+def unpack_ids(packed: str | list[str]) -> list[str]:
+    if isinstance(packed, list):  # snapshot written before packing (expires within the TTL)
+        return packed
+    raw = base64.b64decode(packed)
+    return [str(uuid.UUID(bytes=raw[i : i + 16])) for i in range(0, len(raw), 16)]
+
+
 PROJECT_SQL = """
 SELECT j.id::text AS id, j.title, c.name AS company, j.workplace_type, j.status,
        j.is_publishable, j.last_verified_at, j.posted_at, j.posted_date, j.posted_precision,
@@ -497,14 +569,43 @@ WHERE j.id = ANY(CAST(:ids AS uuid[]))
 """
 
 
+async def marker_points(
+    session: AsyncSession, ids: list[str], bbox: BBox | None
+) -> dict[str, list[dict]]:
+    """Usable points per job (role by workplace); limited to `bbox` when given."""
+    out: dict[str, list[dict]] = defaultdict(list)
+    if not ids:
+        return out
+    box = (
+        {"w": bbox.west, "s": bbox.south, "e": bbox.east, "n": bbox.north}
+        if bbox
+        else {"w": None, "s": None, "e": None, "n": None}
+    )
+    for pr in await session.execute(text(VIEW_POINTS_SQL), {"ids": ids, **box}):
+        out[pr.job_id].append(dict(pr._mapping))
+    return out
+
+
 async def project(
-    session: AsyncSession, ids: list[str], points: dict[str, list[dict]], as_of: datetime
+    session: AsyncSession,
+    ids: list[str],
+    group: str,
+    bbox: BBox,
+    known_points: dict[str, list[dict]] | None = None,
 ) -> list[dict] | None:
-    """List-card projection in snapshot order. None if any job is no longer open/fresh."""
+    """List-card projection in snapshot order. None if any job is no longer open/fresh.
+    Card markers: in-view jobs show their points inside the searched bbox; remote jobs whose
+    company is elsewhere show the company point(s)."""
     if not ids:
         return []
     s = get_settings()
     rows = {r.id: r for r in await session.execute(text(PROJECT_SQL), {"ids": ids})}
+    if group == "location_unverified":
+        points: dict[str, list[dict]] = {}
+    elif known_points is not None and group == "in_view":
+        points = known_points
+    else:
+        points = await marker_points(session, ids, bbox if group == "in_view" else None)
     cutoff = utcnow() - timedelta(hours=s.freshness_hours)
     loc_ids = {p["location_id"] for i in ids for p in points.get(i, [])}
     labels = {}
@@ -584,9 +685,9 @@ async def page(
     if raw is None:
         raise SearchError("SEARCH_EXPIRED", "search snapshot expired; run the search again", 410)
     snap = json.loads(raw)
-    ids = snap["groups"][group]
+    ids = unpack_ids(snap["groups"][group])
     page_ids = ids[offset : offset + limit]
-    items = await project(session, page_ids, snap["points"], datetime.fromisoformat(snap["as_of"]))
+    items = await project(session, page_ids, group, BBox(*snap["filters"]["bbox"]))
     if items is None:
         await redis.delete(f"search:{search_id}")
         raise SearchError("SEARCH_EXPIRED", "a result is no longer open; run the search again", 410)

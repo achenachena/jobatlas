@@ -5,6 +5,10 @@ Seeds N synthetic jobs into a dedicated benchmark database (refuses any database
 this measurement; they never go near the dev or production database.
 
     uv run python scripts/bench_search.py --db postgresql+psycopg://jobatlas:jobatlas@localhost:54329/jobatlas_bench --jobs 10000
+
+`--pan N` adds a concurrency test: N clients each keep requesting street-level map views at
+random spots in the GTA (like users dragging the map) for `--seconds`; reports throughput,
+latency percentiles and the size of the Redis snapshot each search writes.
 """
 
 from __future__ import annotations
@@ -125,6 +129,48 @@ async def measure(url: str, redis_url: str, runs: int) -> dict:
     return out
 
 
+async def pan(url: str, redis_url: str, clients: int, seconds: float) -> dict:
+    """Concurrent street-level map searches at random GTA spots."""
+    os.environ["DATABASE_URL"] = url
+    os.environ["REDIS_URL"] = redis_url
+    from redis.asyncio import Redis
+
+    from app.db.session import _async_factory
+    from app.services.search import BBox, SearchParams, run_search
+
+    redis = Redis.from_url(redis_url, decode_responses=True)
+    rnd = random.Random(7)
+    latencies: list[float] = []
+    sizes: list[int] = []
+    deadline = time.perf_counter() + seconds
+
+    async def client() -> None:
+        while time.perf_counter() < deadline:
+            lon, lat = rnd.uniform(-79.70, -79.20), rnd.uniform(43.58, 43.85)
+            p = SearchParams(None, "gta", BBox(lon, lat, lon + 0.03, lat + 0.02), zoom=14)
+            async with _async_factory()() as s:
+                t = time.perf_counter()
+                body = await run_search(s, redis, p)
+                latencies.append((time.perf_counter() - t) * 1000)
+            if len(sizes) < 50:
+                sizes.append(await redis.strlen(f"search:{body['search_id']}"))
+
+    started = time.perf_counter()
+    await asyncio.gather(*(client() for _ in range(clients)))
+    elapsed = time.perf_counter() - started
+    await redis.aclose()
+    latencies.sort()
+    return {
+        "clients": clients,
+        "requests": len(latencies),
+        "req_per_s": round(len(latencies) / elapsed, 1),
+        "p50_ms": round(statistics.median(latencies), 1),
+        "p95_ms": round(latencies[int(len(latencies) * 0.95) - 1], 1),
+        "p99_ms": round(latencies[int(len(latencies) * 0.99) - 1], 1),
+        "snapshot_kb": round(statistics.median(sizes) / 1024, 1),
+    }
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--db", required=True)
@@ -132,14 +178,20 @@ def main() -> None:
     ap.add_argument("--jobs", type=int, default=10000)
     ap.add_argument("--runs", type=int, default=40)
     ap.add_argument("--skip-seed", action="store_true")
+    ap.add_argument("--pan", type=int, default=0, help="concurrent map-panning clients")
+    ap.add_argument("--seconds", type=float, default=20)
+    ap.add_argument("--skip-queries", action="store_true")
     a = ap.parse_args()
     if not a.skip_seed:
         t = time.perf_counter()
         seed(a.db, a.jobs)
         print(f"seeded {a.jobs} synthetic jobs in {time.perf_counter() - t:.0f}s")
     print(f"machine: {platform.platform()} {platform.machine()} cpus={os.cpu_count()}")
-    for name, r in asyncio.run(measure(a.db, a.redis, a.runs)).items():
-        print(f"{name:22s} {r}")
+    if not a.skip_queries:
+        for name, r in asyncio.run(measure(a.db, a.redis, a.runs)).items():
+            print(f"{name:22s} {r}")
+    if a.pan:
+        print("pan", asyncio.run(pan(a.db, a.redis, a.pan, a.seconds)))
 
 
 if __name__ == "__main__":
