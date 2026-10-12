@@ -392,7 +392,9 @@ def geocode_pending(
 class RecheckStats:
     checked: int = 0
     kept: int = 0
-    cleared: int = 0
+    moved: int = 0  # confirmed, but the validated result replaced a point >50 m away
+    cleared: int = 0  # contradicted (mismatch/ambiguous): point removed
+    unconfirmed: int = 0  # not found / too vague: point kept, outcome recorded
     errors: int = 0
 
 
@@ -400,10 +402,16 @@ def recheck_geocoded(
     session: Session, geocoder: Geocoder, *, limit: int | None = None
 ) -> RecheckStats:
     """Re-validate points that came from the geocoder against the address-agreement rules
-    (geocode.check_agreement). A point the geocoder no longer confirms — mismatch, ambiguity,
-    or a move of more than 50 m — is removed and its jobs fall back to "address not yet
-    confirmed". Temporary geocoder errors keep the point. OSM site resolutions are not
-    geocoder output and are left alone."""
+    (geocode.check_agreement).
+
+    - The geocoder confirms the address (ok, precise): the point stays; if the confirmed
+      result lies more than 50 m away, the validated result replaces the old point.
+    - The geocoder contradicts it (mismatch: other number/street/city/postal area) or finds
+      several distant matches (ambiguous): the point is removed and its jobs fall back to
+      "address not yet confirmed".
+    - Anything else (not found, input too vague to check, low precision, temporary error) is
+      absence of evidence, not a conflict: the point is kept and the outcome recorded.
+    OSM site resolutions are not geocoder output and are left alone."""
     stats = RecheckStats()
     if geocoder.name == "none":
         return stats
@@ -415,7 +423,7 @@ def recheck_geocoded(
         .order_by(Location.geocoded_at.nulls_first())
         .limit(limit)
     ).all()
-    cleared: list[uuid.UUID] = []
+    changed: list[uuid.UUID] = []
     for loc, lon, lat in rows:
         stats.checked += 1
         query = loc.display_address or loc.normalized_address
@@ -425,26 +433,32 @@ def recheck_geocoded(
         if result.status in ("error", "not_configured"):
             stats.errors += 1
             continue
-        moved = (
-            result.lon is not None
-            and result.lat is not None
-            and distance_m((lon, lat), (result.lon, result.lat)) > 50
-        )
         loc.geocoded_at = now
-        if result.status == "ok" and result.precision in PRECISE and not moved:
-            stats.kept += 1
-        else:
+        if result.status == "ok" and result.precision in PRECISE:
+            if distance_m((lon, lat), (result.lon, result.lat)) > 50:  # type: ignore[arg-type]
+                loc.point = WKTElement(f"POINT({result.lon} {result.lat})", srid=4326)
+                loc.precision = result.precision
+                loc.geocoder = result.provider
+                stats.moved += 1
+                changed.append(loc.id)
+            else:
+                stats.kept += 1
+            loc.geocode_error = None
+        elif result.status in ("mismatch", "ambiguous"):
             loc.point = None
             loc.precision = "unknown"
             loc.geocode_error = f"recheck {result.status}: {result.detail or ''}"[:500]
-            cleared.append(loc.id)
             stats.cleared += 1
+            changed.append(loc.id)
+        else:
+            loc.geocode_error = f"recheck {result.status} (point kept): {result.detail or ''}"[:500]
+            stats.unconfirmed += 1
         session.commit()
-    if cleared:
+    if changed:
         jobs = session.scalars(
             select(Job)
             .join(JobLocation, JobLocation.job_id == Job.id)
-            .where(JobLocation.location_id.in_(cleared))
+            .where(JobLocation.location_id.in_(changed))
         ).unique()
         for job in jobs:
             refresh_location_status(session, job)

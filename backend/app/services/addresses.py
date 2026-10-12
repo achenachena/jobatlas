@@ -17,9 +17,11 @@ SUFFIXES = {
     "square": "sq", "terrace": "terr", "highway": "hwy", "circle": "cir",
 }  # fmt: skip
 DIRECTIONS = {"west": "w", "east": "e", "north": "n", "south": "s"}
+# Unit/suite/floor designators. Keywords must be whole words: "Steeles", "Fleet", "Florence"
+# and "Unity" are street names, not units. "Office" counts only when a number follows.
 UNIT_RE = re.compile(
-    r"\b(?:(?:suite|ste\.?|unit|floor|fl\.?|#)\s*[\w-]+|\d{1,3}(?:st|nd|rd|th)\s+(?:floor|fl\.?))"
-    r",?",
+    r"(?:\b(?:suite|ste|unit|floor|fl)\b\.?\s*[\w-]+|#\s*[\w-]+|\boffice\s+#?\d[\w-]*"
+    r"|\b\d{1,3}(?:st|nd|rd|th)\s+(?:floor|fl)\b\.?),?",
     re.I,
 )
 STREET_TYPES = (

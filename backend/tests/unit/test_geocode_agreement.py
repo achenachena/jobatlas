@@ -128,3 +128,53 @@ def test_city_named_inside_a_longer_official_name(address, city):
         check_agreement(parts, {"address": {"house_number": house, "road": road, "city": official}})
         is None
     )
+
+
+@pytest.mark.parametrize(
+    ("raw", "kept"),
+    [
+        ("3500 Steeles Avenue East, Markham", "3500 Steeles Avenue East, Markham"),
+        ("10 Fleet St, Toronto", "10 Fleet St, Toronto"),
+        ("5 Florence Street, Toronto", "5 Florence Street, Toronto"),
+        ("1 Unity Rd, Toronto", "1 Unity Rd, Toronto"),
+        ("Suite 200, 1 Yonge St, Toronto", "1 Yonge St, Toronto"),
+        ("Ste. 4, 1 Yonge St, Toronto", "1 Yonge St, Toronto"),
+        ("12th Floor, 1 Bay St, Toronto", "1 Bay St, Toronto"),
+    ],
+)
+def test_unit_designators_are_whole_words_only(raw, kept):
+    # "Ste"/"Fl"/"Unit" at the start of a street name used to delete the street name.
+    from app.services.addresses import UNIT_RE
+
+    assert " ".join(UNIT_RE.sub(" ", raw).replace(" ,", ",").split()) == kept
+
+
+def test_hash_unit_is_dropped_and_city_still_found():
+    parts = parse_address("1 Bay St # 300, Toronto")
+    assert (parts.house, parts.street, parts.city) == ("1", ("bay", "st"), "toronto")
+
+
+def test_street_starting_like_a_unit_word_is_parsed():
+    parts = parse_address("3500 Steeles Avenue East, Markham, Canada")
+    assert (parts.house, parts.street, parts.city) == ("3500", ("steeles", "ave", "e"), "markham")
+
+
+def test_unspaced_postal_code_is_not_taken_for_a_city():
+    parts = parse_address("100 Queen Street West, M5H2N2")
+    assert parts.city is None and parts.fsa == "M5H"
+
+
+def test_numbered_office_is_a_unit_but_head_office_is_not():
+    from app.services.addresses import UNIT_RE
+
+    assert "Office" not in UNIT_RE.sub(" ", "30 Adelaide St. East, Office 1271, Toronto")
+    assert UNIT_RE.sub(" ", "Head Office, 1 Bay St, Toronto") == "Head Office, 1 Bay St, Toronto"
+
+
+def test_community_name_accepted_only_with_exact_postal_code():
+    # Concord is a community inside Vaughan; the geocoder names the municipality.
+    parts = parse_address("2900 Steeles Avenue West, Concord, ON L4K 3S2")
+    hit_ = {"house_number": "2900", "road": "Steeles Avenue West", "city": "Vaughan"}
+    assert check_agreement(parts, {"address": {**hit_, "postcode": "L4K 3S2"}}) is None
+    assert check_agreement(parts, {"address": {**hit_, "postcode": "L4K 9Z9"}})
+    assert check_agreement(parts, {"address": hit_})  # no postcode to vouch for it

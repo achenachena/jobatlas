@@ -115,6 +115,7 @@ class AddressParts:
     street: tuple[str, ...] | None  # normalized words, e.g. ("king", "st", "w")
     city: str | None
     fsa: str | None
+    postal: str | None = None  # full postal code, no space ("L4K3S2")
 
 
 def _norm_words(text: str) -> tuple[str, ...]:
@@ -125,8 +126,13 @@ def _norm_words(text: str) -> tuple[str, ...]:
 def _is_noise(word: str) -> bool:
     """Province/country words and postal-code halves are not part of a city name."""
     return word.lower().strip(".") in PROVINCE_WORDS or bool(
-        re.fullmatch(r"[A-Za-z]\d[A-Za-z]|\d[A-Za-z]\d", word)
+        re.fullmatch(r"[A-Za-z]\d[A-Za-z]|\d[A-Za-z]\d|[A-Za-z]\d[A-Za-z]\d[A-Za-z]\d", word)
     )
+
+
+def _full_postal(text: str) -> str | None:
+    m = POSTAL_RE.search(text.upper())
+    return m.group(0).replace(" ", "") if m else None
 
 
 def parse_address(address: str) -> AddressParts:
@@ -135,7 +141,7 @@ def parse_address(address: str) -> AddressParts:
     fsa_m = POSTAL_RE.search(text.upper())
     m = re.search(STREET_RE, text)
     if not m:
-        return AddressParts(None, None, None, fsa_m.group(1) if fsa_m else None)
+        return AddressParts(None, None, None, fsa_m.group(1) if fsa_m else None, _full_postal(text))
     house, _, street = m.group(0).partition(" ")
     city = None
     for part in text[m.end() :].split(","):
@@ -143,7 +149,13 @@ def parse_address(address: str) -> AddressParts:
         if words and not re.fullmatch(r"\d[\w ]*", " ".join(words)):
             city = " ".join(words).lower()
             break
-    return AddressParts(house.lower(), _norm_words(street), city, fsa_m.group(1) if fsa_m else None)
+    return AddressParts(
+        house.lower(),
+        _norm_words(street),
+        city,
+        fsa_m.group(1) if fsa_m else None,
+        _full_postal(text),
+    )
 
 
 def _house_matches(wanted: str, given: str) -> bool:
@@ -181,7 +193,15 @@ def check_agreement(parts: AddressParts, candidate: dict) -> str | None:
     if parts.city:
         names = {str(addr[k]).lower() for k in CITY_KEYS if addr.get(k)}
         # whole-word containment: "new york" is named by "City of New York"
-        if not any(re.search(rf"\b{re.escape(parts.city)}\b", n) for n in names):
+        same_postal = (
+            bool(parts.postal)
+            and str(addr.get("postcode") or "").upper().replace(" ", "") == parts.postal
+        )
+        # A community name inside a municipality ("Concord" in Vaughan) is not a conflict when
+        # the full postal code matches exactly.
+        if not same_postal and not any(
+            re.search(rf"\b{re.escape(parts.city)}\b", n) for n in names
+        ):
             return f"city {sorted(names)} lacks {parts.city!r}"
     postcode = str(addr.get("postcode") or "").upper().replace(" ", "")
     if parts.fsa and postcode and not postcode.startswith(parts.fsa):
