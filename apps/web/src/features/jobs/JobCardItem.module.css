@@ -3,10 +3,10 @@
 .card {
   list-style: none;
   margin-bottom: var(--space-3);
-  border: 2.5px solid var(--ink-900);
+  border: 1px solid var(--edge);
   border-radius: 0;
-  background: #fff;
-  box-shadow: 4px 4px 0 var(--ink-900);
+  background: var(--paper-2);
+  box-shadow: var(--shadow-cel);
   transition:
     transform var(--motion-fast) var(--ease-snap),
     box-shadow var(--motion-fast) var(--ease-snap);
@@ -14,7 +14,7 @@
 
 .card:hover {
   transform: translate(-2px, -2px);
-  box-shadow: 6px 6px 0 var(--ink-900);
+  box-shadow: var(--shadow-cel);
 }
 
 .main {
@@ -30,7 +30,8 @@
 }
 
 .selected {
-  background: var(--tone), var(--sun);
+  background: var(--sun);
+  color: var(--ink-inverse);
 }
 
 .title {
@@ -82,7 +83,7 @@
   margin-top: 0.2rem;
   padding: 0.1rem 0.5rem;
   background: var(--coral-soft);
-  border: 1.5px solid var(--ink-900);
+  border: 1px solid var(--edge);
   color: var(--coral-ink);
   font-size: var(--fs-xs);
   font-weight: var(--fw-heavy);

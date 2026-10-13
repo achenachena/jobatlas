@@ -42,7 +42,7 @@
   box-sizing: content-box;
   padding: 0.4rem;
   background: var(--sun);
-  color: var(--ink-900);
+  color: var(--ink-inverse);
   font-size: 0.95rem;
   clip-path: polygon(50% 0, 61% 22%, 85% 12%, 78% 38%, 100% 50%, 78% 62%, 85% 88%, 61% 78%, 50% 100%, 39% 78%, 15% 88%, 22% 62%, 0 50%, 22% 38%, 15% 12%, 39% 22%);
 }
@@ -115,9 +115,9 @@
 
 .listCount {
   padding: 0 0.45rem;
-  border: 2px solid var(--ink-900);
+  border: 1px solid var(--edge);
   background: var(--sun);
-  color: var(--ink-900);
+  color: var(--ink-inverse);
   text-shadow: none;
   font-family: var(--font-body);
   font-size: var(--fs-sm);
@@ -126,9 +126,9 @@
 
 .total {
   padding: 0 0.5rem;
-  border: 2px solid var(--ink-900);
+  border: 1px solid var(--edge);
   background: var(--sun);
-  color: var(--ink-900);
+  color: var(--ink-inverse);
   -webkit-text-stroke: 0;
   font-family: var(--font-body);
   font-size: var(--fs-sm);

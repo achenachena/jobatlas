@@ -175,9 +175,9 @@ shot("Z-assets", async () => {
   await page.evaluate(async () => {
     const mi = await import("/src/features/map/markerImages.ts");
     const { GLYPHS } = await import("/src/theme/glyphs.ts");
-    const bgs = [["Paper", "#fdfbf5"], ["Tone", "#e3e0dc"], ["Park", "#bdf0c8"], ["Water", "#7fd3ff"], ["Road", "#ffffff"]];
+    const bgs = [["Ground", "#141838"], ["Park", "#18334a"], ["Water", "#0c2350"], ["Street", "#3a3f7a"], ["Building", "#4f53c4"]];
     const root = document.createElement("div");
-    root.style.cssText = "position:fixed;inset:0;z-index:99;background:#fffaf0;padding:18px 26px;overflow:hidden;font:600 12px 'M PLUS Rounded 1c',system-ui;color:#2b3566";
+    root.style.cssText = "position:fixed;inset:0;z-index:99;background:#0d1030;padding:18px 26px;overflow:hidden;font:600 12px 'M PLUS Rounded 1c',system-ui;color:#f6f2ff";
     const toCanvas = (img) => { const c = document.createElement("canvas"); c.width = img.width; c.height = img.height;
       c.getContext("2d").putImageData(img, 0, 0); c.style.width = img.width / 2 + "px"; c.style.height = img.height / 2 + "px"; return c; };
     const title = (t) => { const h = document.createElement("h2"); h.textContent = t; h.style.cssText = "margin:8px 0 8px;font:800 17px 'M PLUS Rounded 1c'"; root.append(h); };
@@ -186,7 +186,7 @@ shot("Z-assets", async () => {
     const row = document.createElement("div"); row.style.cssText = "display:flex;gap:10px";
     for (const [bgName, bg] of bgs) {
       const cell = document.createElement("div");
-      cell.style.cssText = `background:${bg};border-radius:0;padding:8px 10px;display:grid;gap:2px;border:2px solid #2b3566`;
+      cell.style.cssText = `background:${bg};border-radius:0;padding:8px 10px;display:grid;gap:2px;border:1px solid #6a64d8`;
       const lab = document.createElement("div"); lab.textContent = bgName; lab.style.cssText = "font-weight:800"; cell.append(lab);
       for (const state of ["default", "hover", "selected"]) {
         const r = document.createElement("div"); r.style.cssText = "display:flex;align-items:flex-end;gap:0;min-height:44px";
@@ -196,27 +196,26 @@ shot("Z-assets", async () => {
       row.append(cell);
     }
     root.append(row);
-    const legend = document.createElement("div"); legend.style.cssText = "margin:4px 0 6px;color:#5f6690";
+    const legend = document.createElement("div"); legend.style.cssText = "margin:4px 0 6px;color:#a8a2dc";
     legend.textContent = "Columns: " + ids.map(([n]) => n).join(" · ") + ". Counts on stacks/clusters are drawn by the map as text.";
     root.append(legend);
-    title("Region clusters · landmark stickers (real OSM POIs) · street tree · textures");
+    title("Region clusters · landmarks (real OSM POIs) · water and facade textures");
     const r2 = document.createElement("div"); r2.style.cssText = "display:flex;align-items:center;gap:8px;flex-wrap:wrap";
     for (const t of ["s", "m", "l"]) r2.append(toCanvas(mi.imageFor(`cluster-${t}`)));
     for (const k of ["station", "university", "stadium", "museum", "hospital", "library", "ferry_terminal", "attraction", "park"]) {
       const w = document.createElement("div"); w.style.cssText = "display:grid;justify-items:center;font-size:10px"; w.append(toCanvas(mi.imageFor(`lm-${k}`)), k); r2.append(w);
     }
-    r2.append(toCanvas(mi.imageFor("street-tree")));
-    for (const [tex, bg] of [["tex-trees", "#bdf0c8"], ["tex-water", "#7fd3ff"], ["tone-light", "#fdfbf5"], ["tone-pink", "#fdfbf5"], ["tone-lines", "#fdfbf5"], ["tone-sun", "#fdfbf5"]]) {
+    for (const [tex, bg] of [["water-shimmer", "#0c2350"], ["facade-low", "#3a43a6"], ["facade-mid", "#4f53c4"], ["facade-tall", "#6d68dc"]]) {
       const c = toCanvas(mi.imageFor(tex)); const box = document.createElement("div");
-      box.style.cssText = `width:110px;height:70px;border:2px solid #2b3566;border-radius:10px;background:${bg} url(${c.toDataURL()});background-size:${c.width / 2}px ${c.height / 2}px`;
+      box.style.cssText = `width:110px;height:70px;border:1px solid #6a64d8;border-radius:10px;background:${bg} url(${c.toDataURL()});background-size:${c.width / 2}px ${c.height / 2}px`;
       r2.append(box);
     }
     root.append(r2);
     title("Shared glyph set (24px grid, 2px stroke, even-odd solids)");
     const g = document.createElement("div"); g.style.cssText = "display:flex;flex-wrap:wrap;gap:6px";
     for (const [name, gl] of Object.entries(GLYPHS)) {
-      const c = document.createElement("div"); c.style.cssText = "display:grid;justify-items:center;gap:2px;width:64px;padding:5px 0;border:2px solid #f0dfbf;border-radius:10px;font-size:10px;color:#5f6690";
-      c.innerHTML = `<svg viewBox="0 0 24 24" width="26" height="26" style="color:#2b3566">${gl.fill ? `<path d="${gl.fill}" fill="currentColor" fill-rule="evenodd"/>` : ""}${gl.stroke ? `<path d="${gl.stroke}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>` : ""}</svg>${name}`;
+      const c = document.createElement("div"); c.style.cssText = "display:grid;justify-items:center;gap:2px;width:64px;padding:5px 0;border:1px solid #2f3577;border-radius:10px;font-size:10px;color:#a8a2dc";
+      c.innerHTML = `<svg viewBox="0 0 24 24" width="26" height="26" style="color:#f6f2ff">${gl.fill ? `<path d="${gl.fill}" fill="currentColor" fill-rule="evenodd"/>` : ""}${gl.stroke ? `<path d="${gl.stroke}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>` : ""}</svg>${name}`;
       g.append(c);
     }
     root.append(g);

@@ -35,8 +35,8 @@
   padding: 0 var(--space-3) 0 0.55rem;
   border-right: var(--line) solid var(--edge);
   background:
-    repeating-conic-gradient(from 0deg at 18px 50%, rgb(255 255 255 / 0.16) 0 3deg, transparent 3deg 11deg),
-    var(--ink-900);
+    radial-gradient(circle at 18px 50%, rgb(255 207 115 / 0.35), transparent 60%),
+    linear-gradient(100deg, #0d1030, #2a2a7a);
 }
 
 .wordmark {
@@ -93,7 +93,7 @@
 
 .input:focus-visible {
   border-color: var(--sky);
-  background: #fff;
+  background: var(--paper-2);
   box-shadow: none;
 }
 
@@ -104,7 +104,7 @@
   place-items: center;
   width: 32px;
   height: 32px;
-  border: 2px solid var(--ink-900);
+  border: 1px solid var(--edge);
   border-radius: var(--radius-sm);
   background: var(--paper-2);
   color: var(--ink-900);
@@ -137,8 +137,14 @@
   color: var(--blue);
 }
 
-.pillOn {
-  background: var(--tone), var(--sun);
+.pillOn,
+.pillOn svg {
+  background: var(--sun);
+  color: var(--ink-inverse);
+}
+
+.pillOn svg {
+  background: none;
 }
 
 .pillOn:hover {
@@ -158,10 +164,10 @@
   min-width: 1.5rem;
   height: 1.5rem;
   padding: 0 0.3rem;
-  border: 2px solid var(--ink-900);
+  border: 1px solid var(--edge);
   border-radius: 0;
   background: var(--sakura);
-  color: #fff;
+  color: var(--ink-inverse);
   font-size: var(--fs-xs);
   font-weight: var(--fw-heavy);
 }
@@ -172,10 +178,10 @@
   gap: 0.3rem;
   height: 38px;
   padding: 0 0.2rem 0 0.75rem;
-  border: 2px solid var(--ink-900);
+  border: 1px solid var(--edge);
   border-radius: 0;
-  background: var(--tone), var(--sky-pale);
-  box-shadow: 2px 2px 0 var(--ink-900);
+  background: var(--sky-pale);
+  box-shadow: var(--shadow-cel);
   color: var(--ink-900);
   font-size: var(--fs-sm);
   font-weight: var(--fw-heavy);
@@ -254,10 +260,10 @@
   gap: 0.35rem;
   min-height: 40px;
   padding: 0 var(--space-3);
-  border: 2px solid var(--ink-900);
+  border: 1px solid var(--edge);
   border-radius: 0;
-  background: #fff;
-  box-shadow: 2px 2px 0 var(--ink-900);
+  background: var(--paper-2);
+  box-shadow: var(--shadow-cel);
   color: var(--ink-900);
   font-size: var(--fs-sm);
   font-weight: var(--fw-medium);
@@ -276,10 +282,12 @@
 }
 
 .optionOn {
-  background: var(--tone), var(--sun);
+  border-color: #ffe2a8;
+  background: var(--sun);
   font-weight: var(--fw-heavy);
-  transform: translate(2px, 2px);
-  box-shadow: 0 0 0 var(--ink-900);
+  transform: none;
+  box-shadow: none;
+  color: var(--ink-inverse);
 }
 
 .workplace svg {
@@ -329,15 +337,15 @@
 }
 
 .areaPopover .popTitle {
-  --ribbon: var(--mint);
+  --ribbon: linear-gradient(100deg, #2f3796, #2a8f8a);
 }
 
 .areaInput {
   height: 46px;
   padding: 0 var(--space-3);
-  border: 2px solid var(--ink-900);
+  border: 1px solid var(--edge);
   border-radius: var(--radius-md);
-  background: #fff;
+  background: var(--paper-2);
   color: var(--ink-900);
   font-weight: var(--fw-medium);
 }
@@ -412,4 +420,9 @@
     translate: 0 24px;
     opacity: 0;
   }
+}
+
+/* Selected option: the glyph follows the dark text on amber. */
+.optionOn svg {
+  color: var(--ink-inverse) !important;
 }

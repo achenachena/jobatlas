@@ -1,38 +1,37 @@
-/** "Colour Manga Page" palette (docs/visual-redesign.md). One source for the map art, the
- * canvas-drawn markers/icons and (mirrored in tokens.css) the UI.
+/** "Twilight City" palette (docs/visual-redesign.md): an anime-film city at dusk. One source
+ * for the map art, the canvas-drawn markers/icons and (mirrored in tokens.css) the UI.
  *
- * A manga page is ink on paper: near-black line art, white/paper fills, grey screentones,
- * and only a few spot colours (sky, sakura, sun, mint) used sparingly for meaning. */
+ * Strictly limited hues: indigo / violet for the city in shadow, peach-amber for sunset light
+ * and street lights, cyan for water and interactive accents, a little sakura for focus. */
 
-export const INK = "#17151f"; // line art, lettering
-export const PAPER = "#fdfbf5";
+export const INK = "#0d1030"; // deepest navy: outlines, text on light chips
+export const PAPER = "#f6f1ff"; // pale lavender-white: text on dark, highlights
 
 export const C = {
   ink: INK,
-  ink2: "#3b3848",
-  tone: "#8d8a99", // screentone dots / hatching
-  toneLight: "#c9c6d3",
+  night: "#141838", // ground
+  dusk: "#1d2250", // blocks / panels
+  violet: "#3a3a8c",
+  lavender: "#a9a2ff",
+  peach: "#ffb08a", // sunset light
+  amber: "#ffcf73", // street lights, highlights
+  sakura: "#ff7eb3",
+  cyan: "#5fe0ff",
+  sky: "#5aa9ff",
+  mint: "#5fe3b5",
+  water: "#0c2350",
+  waterLight: "#1e4f8f",
+  park: "#18334a",
+  parkLight: "#2a5a63",
   paper: PAPER,
-  paperShade: "#f1ede2",
-  sky: "#38b6ff",
-  skyDeep: "#1769e0",
-  sakura: "#ff5c93",
-  sun: "#ffd43b",
-  mint: "#3ddc97",
-  lilac: "#9a7bff",
-  // map spot colours (kept pale so ink and tones carry the drawing)
-  water: "#7fd3ff",
-  waterDeep: "#38b6ff",
-  park: "#bdf0c8",
-  parkInk: "#1f7a4a",
 } as const;
 
 export type MarkerKind = "on_site" | "hybrid" | "remote" | "unknown";
 
-/** Per workplace type: spot colour + glyph colour. Shading is drawn as screentone dots. */
+/** Per workplace type: badge colour + glyph colour (badges glow on the dark city). */
 export const KIND_COLORS: Record<MarkerKind, { base: string; tint: string; glyph: string }> = {
-  on_site: { base: C.skyDeep, tint: "#d6e8ff", glyph: "#ffffff" },
-  hybrid: { base: "#16b07a", tint: "#d9f7e9", glyph: "#ffffff" },
-  remote: { base: C.sakura, tint: "#ffffff", glyph: C.sakura },
-  unknown: { base: "#ffffff", tint: "#ffffff", glyph: INK },
+  on_site: { base: C.amber, tint: "#fff1cc", glyph: INK },
+  hybrid: { base: C.mint, tint: "#d9fff1", glyph: INK },
+  remote: { base: C.sakura, tint: INK, glyph: C.sakura },
+  unknown: { base: PAPER, tint: INK, glyph: PAPER },
 };

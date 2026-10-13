@@ -1,22 +1,22 @@
-/** "Colour Manga Page" basemap (docs/visual-redesign.md).
+/** "Twilight City" basemap (docs/visual-redesign.md): the GTA as an anime-film city at dusk.
  *
  * Tiles: a GTA extract of the Protomaps OpenStreetMap build served as one PMTiles file
  * (VITE_MAP_TILES_URL). Labels use bundled web fonts through the style's `font-faces` (drawn
- * client-side): Dela Gothic One for display lettering (city captions, counts), M PLUS Rounded
- * 1c for everything else. `glyphs` (self-hosted Noto Sans) is only a fallback outside Latin.
- * No third-party servers. Data © OpenStreetMap contributors (ODbL).
+ * client-side): Dela Gothic One for city captions, M PLUS Rounded 1c for everything else.
+ * `glyphs` (self-hosted Noto Sans) is only a fallback outside Latin. No third-party servers.
+ * Data © OpenStreetMap contributors (ODbL).
  *
- * Every road, shoreline, building and POI stays where OSM puts it. The manga look is in how
- * it is drawn:
- *  - paper and ink: off-white paper with grain, near-black line art, few spot colours;
- *  - screentones instead of flat fills: grey dots (residential), sakura dots (commercial),
- *    hatching (industrial), sun dots (campus);
- *  - water as a spot colour with ink wave curls, a halftone band along the shore, a white
- *    foam line and an ink shoreline; parks as pale mint with inked bushes and an ink edge;
- *  - roads as white strips with ink edges (only thin grey lines at city scale), motorways
- *    with a sun-yellow spot colour; no building footprints (the 3D toy city replaces them);
- *  - city names in narration boxes; landmarks and real street trees as small inked stickers.
- */
+ * Refined but abstract: real silhouettes, no materials beyond lit windows.
+ *  - buildings: the real OSM footprints and heights as plain massing (native fill-extrusion,
+ *    tiled on the GPU — nothing is rebuilt while the map moves), faced with a window texture
+ *    (indigo -> violet with height, a share of windows lit warm), under a soft sunset key
+ *    light from the west;
+ *  - streets as light: arterials and motorways glow (blurred halo + bright core) like traffic
+ *    at dusk; side streets are faint;
+ *  - ground, parks and water in deep, close values so the light reads;
+ *  - a sunset sky with horizon fog when the camera is tilted;
+ *  - labels in pale lavender with a dark halo; cities as small captions.
+ * Every road, shoreline, building and POI stays where OSM puts it. */
 import dela from "@fontsource/dela-gothic-one/files/dela-gothic-one-latin-400-normal.woff2?url";
 import delaExt from "@fontsource/dela-gothic-one/files/dela-gothic-one-latin-ext-400-normal.woff2?url";
 import rounded700 from "@fontsource/m-plus-rounded-1c/files/m-plus-rounded-1c-latin-700-normal.woff2?url";
@@ -26,7 +26,7 @@ import rounded800ext from "@fontsource/m-plus-rounded-1c/files/m-plus-rounded-1c
 import { type Flavor, layers, namedFlavor } from "@protomaps/basemaps";
 import type { ExpressionSpecification, LayerSpecification, StyleSpecification } from "maplibre-gl";
 
-import { C, INK, PAPER } from "../../theme/palette";
+import { C, PAPER } from "../../theme/palette";
 import { LANDMARKS } from "./markerImages";
 
 export const TILES_URL: string =
@@ -51,74 +51,75 @@ const FONT_FACES = {
   [FONT_DISPLAY]: face(dela, delaExt),
 };
 
+const GROUND = C.night;
 const flavor: Flavor = {
-  ...namedFlavor("light"),
-  background: "#efe9db",
-  earth: PAPER,
+  ...namedFlavor("dark"),
+  background: "#0e1130",
+  earth: GROUND,
   park_a: C.park,
   park_b: C.park,
-  wood_a: "#a9e8b8",
-  wood_b: "#a9e8b8",
-  scrub_a: "#d4f3d6",
-  scrub_b: "#d4f3d6",
-  glacier: "#ffffff",
-  sand: "#fbf1cf",
-  beach: "#fbf1cf",
-  hospital: PAPER,
-  school: PAPER,
-  industrial: PAPER,
+  wood_a: "#163044",
+  wood_b: "#163044",
+  scrub_a: "#172d44",
+  scrub_b: "#172d44",
+  glacier: "#2a3166",
+  sand: "#2a2c55",
+  beach: "#2d2d58",
+  hospital: GROUND,
+  school: GROUND,
+  industrial: GROUND,
   zoo: C.park,
-  aerodrome: "#f3f0e7",
-  runway: "#ffffff",
-  pedestrian: "#ffffff",
-  pier: "#ffffff",
-  military: "#f3f0e7",
+  aerodrome: "#171c40",
+  runway: "#262c5c",
+  pedestrian: "#1b2048",
+  pier: "#232a5a",
+  military: GROUND,
   water: C.water,
-  buildings: "#ffffff",
-  other: "#ffffff",
-  minor_service: "#ffffff",
-  minor_a: "#ffffff",
-  minor_b: "#ffffff",
-  link: "#ffffff",
-  major: "#ffffff",
-  highway: C.sun,
-  minor_service_casing: INK,
-  minor_casing: INK,
-  link_casing: INK,
-  major_casing_early: INK,
-  major_casing_late: INK,
-  highway_casing_early: INK,
-  highway_casing_late: INK,
-  bridges_other_casing: INK,
-  bridges_minor_casing: INK,
-  bridges_link_casing: INK,
-  bridges_major_casing: INK,
-  bridges_highway_casing: INK,
-  bridges_other: "#ffffff",
-  bridges_minor: "#ffffff",
-  bridges_link: "#ffffff",
-  bridges_major: "#ffffff",
-  bridges_highway: C.sun,
-  tunnel_other_casing: C.toneLight,
-  tunnel_minor_casing: C.toneLight,
-  tunnel_link_casing: C.toneLight,
-  tunnel_major_casing: C.toneLight,
-  tunnel_highway_casing: C.tone,
-  tunnel_other: "#ffffff",
-  tunnel_minor: "#ffffff",
-  tunnel_link: "#ffffff",
-  tunnel_major: "#ffffff",
-  tunnel_highway: "#fff3c4",
-  railway: INK,
-  boundaries: C.tone,
+  buildings: C.dusk,
+  other: "#232a58",
+  minor_service: "#232a58",
+  minor_a: "#262d60",
+  minor_b: "#262d60",
+  link: "#3a3f7a",
+  major: "#3a3f7a",
+  highway: "#4a4a86",
+  minor_service_casing: GROUND,
+  minor_casing: GROUND,
+  link_casing: GROUND,
+  major_casing_early: GROUND,
+  major_casing_late: GROUND,
+  highway_casing_early: GROUND,
+  highway_casing_late: GROUND,
+  bridges_other_casing: GROUND,
+  bridges_minor_casing: GROUND,
+  bridges_link_casing: GROUND,
+  bridges_major_casing: GROUND,
+  bridges_highway_casing: GROUND,
+  bridges_other: "#232a58",
+  bridges_minor: "#262d60",
+  bridges_link: "#3a3f7a",
+  bridges_major: "#3a3f7a",
+  bridges_highway: "#4a4a86",
+  tunnel_other_casing: GROUND,
+  tunnel_minor_casing: GROUND,
+  tunnel_link_casing: GROUND,
+  tunnel_major_casing: GROUND,
+  tunnel_highway_casing: GROUND,
+  tunnel_other: "#1b2048",
+  tunnel_minor: "#1b2048",
+  tunnel_link: "#1b2048",
+  tunnel_major: "#1b2048",
+  tunnel_highway: "#1b2048",
+  railway: "#3c3f78",
+  boundaries: "#3c3f78",
   landcover: {
-    grassland: "rgba(222, 246, 222, 1)",
-    barren: "rgba(250, 247, 238, 1)",
-    urban_area: "rgba(253, 251, 245, 1)",
-    farmland: "rgba(246, 244, 228, 1)",
-    glacier: "rgba(255, 255, 255, 1)",
-    scrub: "rgba(222, 246, 222, 1)",
-    forest: "rgba(196, 238, 204, 1)",
+    grassland: "rgba(23, 45, 68, 1)",
+    barren: "rgba(22, 26, 58, 1)",
+    urban_area: "rgba(20, 24, 56, 1)",
+    farmland: "rgba(24, 40, 62, 1)",
+    glacier: "rgba(42, 49, 102, 1)",
+    scrub: "rgba(23, 45, 68, 1)",
+    forest: "rgba(21, 44, 64, 1)",
   },
 };
 
@@ -126,15 +127,7 @@ type Layer = LayerSpecification;
 type Exp = ExpressionSpecification;
 const POLYGON: Exp = ["==", ["geometry-type"], "Polygon"];
 const NAME: Exp = ["coalesce", ["get", "name:en"], ["get", "name"]];
-const PARKISH = ["park", "national_park", "nature_reserve", "golf_course", "forest", "wood", "garden", "recreation_ground", "cemetery"];
-
-/** Road widths. Below z12 arterials are thin grey strokes (no casing) so the city view is not
- * a mesh of lines; from z12 they become white strips with ink edges. */
-const W = {
-  major: ["interpolate", ["exponential", 1.6], ["zoom"], 8, 0.3, 11, 0.8, 12, 2.6, 15, 7, 18, 22] as Exp,
-  highway: ["interpolate", ["exponential", 1.6], ["zoom"], 5, 0.6, 9, 1.8, 12, 3.6, 15, 9, 18, 26] as Exp,
-  casing: ["interpolate", ["linear"], ["zoom"], 12, 1, 15, 2.2, 18, 3] as Exp,
-};
+const HEIGHT: Exp = ["coalesce", ["get", "height"], 8];
 
 function tune(layer: Layer): Layer | null {
   const l = structuredClone(layer) as Layer & { layout?: Record<string, unknown>; paint?: Record<string, unknown>; minzoom?: number };
@@ -142,259 +135,203 @@ function tune(layer: Layer): Layer | null {
   const paint = (l.paint ??= {}) as Record<string, unknown>;
   const layout = (l.layout ??= {}) as Record<string, unknown>;
 
-  // Generalisation: side streets, service roads and paths only at street level.
+  // Side streets and paths only near street level; they stay faint.
   if (/^roads_(minor|minor_service|other|link)(_casing)?$/.test(id) || /^roads_bridges_(minor|other|link)/.test(id)) {
-    l.minzoom = Math.max(l.minzoom ?? 0, id.includes("other") ? 15.5 : 13.5);
+    l.minzoom = Math.max(l.minzoom ?? 0, id.includes("other") ? 15 : 12.5);
   }
-  if (/^roads_tunnels_(minor|other|link)/.test(id)) l.minzoom = 15;
-
-  if (/^roads(_bridges|_tunnels)?_major$/.test(id)) {
-    paint["line-width"] = W.major;
-    paint["line-color"] = ["step", ["zoom"], C.tone, 12, "#ffffff"];
-  }
-  if (/^roads(_bridges|_tunnels)?_major_casing/.test(id)) {
-    l.minzoom = Math.max(l.minzoom ?? 0, 12);
-    paint["line-gap-width"] = W.major;
-    paint["line-width"] = W.casing;
-  }
-  if (/^roads(_bridges|_tunnels)?_highway$/.test(id)) paint["line-width"] = W.highway;
-  if (/^roads(_bridges|_tunnels)?_highway_casing/.test(id)) {
-    paint["line-gap-width"] = W.highway;
-    paint["line-width"] = ["interpolate", ["linear"], ["zoom"], 6, 0.8, 12, 1.8, 15, 2.8];
-  }
-  if (/^roads_(minor|minor_service)_casing$/.test(id)) {
-    paint["line-color"] = ["step", ["zoom"], C.tone, 15, INK];
-    paint["line-width"] = ["interpolate", ["linear"], ["zoom"], 13.5, 0.5, 16, 1.4];
-  }
+  if (/^roads_tunnels_/.test(id)) l.minzoom = Math.max(l.minzoom ?? 0, 14);
+  if (/_casing/.test(id)) return null; // streets are lights, not drawn strips
   if (id === "roads_rail") {
-    paint["line-color"] = C.tone;
-    paint["line-opacity"] = 1;
-    paint["line-dasharray"] = [3, 2];
-    paint["line-width"] = ["interpolate", ["linear"], ["zoom"], 10, 0.8, 16, 1.8];
+    paint["line-color"] = "#4b4f8f";
+    paint["line-dasharray"] = [2, 2];
+    paint["line-width"] = ["interpolate", ["linear"], ["zoom"], 10, 0.6, 16, 1.6];
   }
-  if (id === "landuse_park") paint["fill-opacity"] = ["interpolate", ["linear"], ["zoom"], 6, 0.5, 10, 1];
 
   if (l.type === "symbol") {
-    const ink = { "text-color": INK, "text-halo-color": "#ffffff", "text-halo-width": 2.6, "text-halo-blur": 0 };
+    const halo = { "text-halo-color": "rgba(13,16,48,0.9)", "text-halo-width": 1.8, "text-halo-blur": 0.6 };
     switch (id) {
       case "places_locality":
-        // Larger cities sit in narration boxes; small towns are plain lettering.
-        for (const k of ["icon-size", "icon-padding", "text-radial-offset", "text-variable-anchor", "text-justify"]) delete layout[k];
+        for (const k of ["icon-image", "icon-size", "icon-padding", "text-radial-offset", "text-variable-anchor", "text-justify"]) delete layout[k];
         Object.assign(layout, {
           "text-field": NAME,
           "text-font": ["step", ["get", "population_rank"], ["literal", [FONT_HEAVY]], 9, ["literal", [FONT_DISPLAY]]],
-          "text-size": ["interpolate", ["linear"], ["zoom"], 8, ["step", ["get", "population_rank"], 10, 9, 14], 12, ["step", ["get", "population_rank"], 12, 9, 19]],
-          "icon-image": ["step", ["get", "population_rank"], "", 9, "banner"],
-          "icon-text-fit": "both",
-          "icon-text-fit-padding": [4, 9, 5, 9],
+          "text-size": ["interpolate", ["linear"], ["zoom"], 8, ["step", ["get", "population_rank"], 10, 9, 13], 12, ["step", ["get", "population_rank"], 12, 9, 18]],
+          "text-letter-spacing": 0.08,
+          "text-transform": "uppercase",
           "text-padding": 14,
         });
-        Object.assign(paint, {
-          "text-color": INK,
-          "text-halo-color": "#ffffff",
-          "text-halo-width": ["step", ["get", "population_rank"], 2.4, 9, 0],
-        });
+        Object.assign(paint, { ...halo, "text-color": PAPER, "text-halo-width": 2.4 });
         return l;
       case "places_subplace":
         Object.assign(layout, {
           "text-field": NAME,
-          "text-font": [FONT_HEAVY],
+          "text-font": [FONT_BOLD],
           "text-transform": "none",
-          "text-letter-spacing": 0.02,
-          "text-size": ["interpolate", ["linear"], ["zoom"], 11, 11, 14, 13.5, 17, 16],
+          "text-letter-spacing": 0.04,
+          "text-size": ["interpolate", ["linear"], ["zoom"], 11, 10.5, 14, 13, 17, 15],
           "text-padding": ["interpolate", ["linear"], ["zoom"], 11, 30, 14, 22],
         });
-        Object.assign(paint, { ...ink, "text-color": C.ink2, "text-opacity": ["interpolate", ["linear"], ["zoom"], 10.5, 0, 11.5, 1] });
+        Object.assign(paint, { ...halo, "text-color": C.lavender, "text-opacity": ["interpolate", ["linear"], ["zoom"], 10.5, 0, 11.5, 1] });
         return l;
       case "roads_labels_major":
       case "roads_labels_minor":
-        Object.assign(layout, { "text-field": NAME, "text-font": [FONT_BOLD], "text-size": ["interpolate", ["linear"], ["zoom"], 12, 11, 16, 13.5] });
-        Object.assign(paint, ink);
+        Object.assign(layout, { "text-field": NAME, "text-font": [FONT_BOLD], "text-size": ["interpolate", ["linear"], ["zoom"], 12, 10.5, 16, 13] });
+        Object.assign(paint, { ...halo, "text-color": "#c9c3ff" });
         return l;
       case "water_label_lakes":
       case "water_label_ocean":
       case "water_waterway_label":
-        Object.assign(layout, { "text-field": NAME, "text-font": [FONT_DISPLAY], "text-letter-spacing": 0.1 });
-        Object.assign(paint, { "text-color": C.skyDeep, "text-halo-color": "#ffffff", "text-halo-width": 2.4 });
+        Object.assign(layout, {
+          "text-field": NAME, "text-font": [FONT_BOLD], "text-letter-spacing": 0.35,
+          "text-transform": "uppercase", "text-size": 11,
+        });
+        Object.assign(paint, { ...halo, "text-color": "#5d8fe0", "text-halo-width": 0, "text-opacity": 0.85 });
         return l;
       case "places_region":
       case "places_country":
       case "earth_label_islands":
         Object.assign(layout, { "text-field": NAME, "text-font": [FONT_BOLD] });
-        Object.assign(paint, { ...ink, "text-color": C.tone });
-        return l;
-      case "address_label":
-        layout["text-font"] = [FONT_BOLD];
-        Object.assign(paint, { "text-color": C.tone });
+        Object.assign(paint, { ...halo, "text-color": "#7c78c0" });
         return l;
       default:
-        return null; // remaining symbol layers need the Protomaps sprite sheet
+        return null; // address numbers and sprite-based layers are dropped
     }
   }
   return l;
 }
 
-/** Extra art layers inserted right after a basemap layer id. */
+/** Zoom curve through (zoom, width) stops, each width scaled by k. */
+const curve = (stops: Array<[number, number]>, k = 1): Exp =>
+  ["interpolate", ["exponential", 1.5], ["zoom"], ...stops.flatMap(([z, w]) => [z, w * k])] as unknown as Exp;
+
+/** Glowing streets: a wide blurred halo and a thin bright core per class. */
+function glow(id: string, filter: Exp, color: string, core: string, stops: Array<[number, number]>, minzoom = 0): Layer[] {
+  const base = { type: "line", source: "protomaps", "source-layer": "roads", filter, minzoom } as const;
+  return [
+    {
+      ...base,
+      id: `${id}-halo`,
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: { "line-color": color, "line-width": curve(stops, 4), "line-blur": curve(stops, 3), "line-opacity": 0.35 },
+    },
+    {
+      ...base,
+      id: `${id}-core`,
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: { "line-color": core, "line-width": curve(stops), "line-opacity": 0.95 },
+    },
+  ] as Layer[];
+}
+
+const STREET_LIGHTS: Layer[] = [
+  ...glow(
+    "light-major",
+    ["==", ["get", "kind"], "major_road"],
+    C.peach,
+    "#ffd9c2",
+    [[9, 0.3], [12, 0.9], [15, 2.2], [18, 5]],
+    9,
+  ),
+  ...glow(
+    "light-highway",
+    ["==", ["get", "kind"], "highway"],
+    C.amber,
+    "#fff0c4",
+    [[6, 0.5], [10, 1.2], [14, 3], [18, 7]],
+  ),
+];
+
+// Water: city lights reflected as shimmer (a fill pattern — outline-based effects would also
+// trace the tile seams of the clipped water polygons).
 const EXTRAS: Record<string, Layer[]> = {
-  earth: [
-    {
-      id: "art-paper",
-      type: "fill",
-      source: "protomaps",
-      "source-layer": "earth",
-      paint: { "fill-pattern": "paper" },
-    },
-  ],
-  landcover: [
-    {
-      // Zoning as screentones: the city reads as a drawn page, not coloured blocks.
-      id: "art-zoning-tone",
-      type: "fill",
-      source: "protomaps",
-      "source-layer": "landuse",
-      minzoom: 10,
-      filter: ["in", ["get", "kind"], ["literal", ["residential", "commercial", "retail", "industrial", "university", "college", "school"]]],
-      paint: {
-        "fill-pattern": ["match", ["get", "kind"],
-          "residential", "tone-light",
-          ["commercial", "retail"], "tone-pink",
-          "industrial", "tone-lines",
-          "tone-sun"],
-        "fill-opacity": ["interpolate", ["linear"], ["zoom"], 10, 0.5, 12, 1],
-      },
-    },
-  ],
-  landuse_park: [
-    {
-      id: "art-park-trees",
-      type: "fill",
-      source: "protomaps",
-      "source-layer": "landuse",
-      filter: ["in", ["get", "kind"], ["literal", PARKISH]],
-      minzoom: 11.5,
-      paint: { "fill-pattern": "tex-trees", "fill-opacity": ["interpolate", ["linear"], ["zoom"], 11.5, 0.4, 13, 1] },
-    },
-    {
-      id: "art-park-edge",
-      type: "line",
-      source: "protomaps",
-      "source-layer": "landuse",
-      filter: ["in", ["get", "kind"], ["literal", PARKISH]],
-      minzoom: 11,
-      paint: { "line-color": INK, "line-width": ["interpolate", ["linear"], ["zoom"], 11, 0.5, 15, 1.8] },
-    },
-  ],
   water: [
     {
-      // Halftone band hugging the shore on the water side.
-      id: "art-water-tone",
-      type: "line",
-      source: "protomaps",
-      "source-layer": "water",
-      filter: POLYGON,
-      minzoom: 9,
-      paint: {
-        "line-pattern": "tone-band",
-        "line-width": ["interpolate", ["linear"], ["zoom"], 9, 4, 12, 12, 16, 22],
-        "line-offset": ["interpolate", ["linear"], ["zoom"], 9, 3, 12, 8, 16, 13],
-      },
-    },
-    {
-      id: "art-water-texture",
+      id: "art-water-shimmer",
       type: "fill",
       source: "protomaps",
       "source-layer": "water",
       filter: POLYGON,
-      paint: { "fill-pattern": "tex-water" },
-    },
-    {
-      id: "art-water-foam",
-      type: "line",
-      source: "protomaps",
-      "source-layer": "water",
-      filter: POLYGON,
-      minzoom: 10,
-      paint: {
-        "line-color": "#ffffff",
-        "line-width": ["interpolate", ["linear"], ["zoom"], 10, 1.2, 16, 3],
-        "line-offset": ["interpolate", ["linear"], ["zoom"], 10, 2.4, 16, 4],
-      },
-    },
-    {
-      id: "art-water-ink",
-      type: "line",
-      source: "protomaps",
-      "source-layer": "water",
-      filter: POLYGON,
-      minzoom: 7,
-      paint: { "line-color": INK, "line-width": ["interpolate", ["linear"], ["zoom"], 7, 0.8, 12, 2, 16, 3] },
+      paint: { "fill-pattern": "water-shimmer" },
     },
   ],
 };
 
-/** Above the line work: real street trees and landmark stickers (low density). */
-const ON_TOP: Layer[] = [
+/** Buildings: real silhouettes as plain massing, coloured by height. */
+const BUILDINGS: Layer[] = [
   {
-    id: "art-street-trees",
-    type: "symbol",
+    id: "art-buildings",
+    type: "fill-extrusion",
     source: "protomaps",
-    "source-layer": "pois",
-    minzoom: 16,
-    filter: ["==", ["get", "kind"], "tree"],
-    layout: { "icon-image": "street-tree", "icon-anchor": "bottom", "icon-padding": 1, "icon-size": ["interpolate", ["linear"], ["zoom"], 16, 0.8, 18, 1.3] },
-  },
+    "source-layer": "buildings",
+    minzoom: 12,
+    paint: {
+      // facades with lit windows (markerImages.FACADES), banded by real height
+      "fill-extrusion-pattern": ["step", HEIGHT, "facade-low", 25, "facade-mid", 80, "facade-tall"],
+      "fill-extrusion-height": ["interpolate", ["linear"], ["zoom"], 12, 0, 13, HEIGHT],
+      "fill-extrusion-base": ["coalesce", ["get", "min_height"], 0],
+      "fill-extrusion-opacity": 1,
+      "fill-extrusion-vertical-gradient": true,
+    },
+  } as Layer,
+];
+
+const ON_TOP: Layer[] = [
   {
     id: "art-landmarks",
     type: "symbol",
     source: "protomaps",
     "source-layer": "pois",
-    minzoom: 12,
+    minzoom: 13,
     filter: ["all",
       ["in", ["get", "kind"], ["literal", Object.keys(LANDMARKS)]],
-      [">=", ["zoom"], ["+", ["get", "min_zoom"], 0.5]]],
+      [">=", ["zoom"], ["+", ["get", "min_zoom"], 1]]],
     layout: {
       "symbol-sort-key": ["get", "min_zoom"],
       "icon-image": ["concat", "lm-", ["get", "kind"]],
-      "icon-padding": 10,
-      "text-field": ["step", ["zoom"], "", 14, NAME],
-      "text-font": [FONT_HEAVY],
-      "text-size": 11.5,
+      "icon-padding": 12,
+      "text-field": ["step", ["zoom"], "", 15, NAME],
+      "text-font": [FONT_BOLD],
+      "text-size": 11,
       "text-anchor": "top",
-      "text-offset": [0, 1.25],
+      "text-offset": [0, 1.1],
       "text-max-width": 8,
       "text-optional": true,
     },
-    paint: { "text-color": INK, "text-halo-color": "#ffffff", "text-halo-width": 2.4 },
+    paint: { "text-color": PAPER, "text-halo-color": "rgba(13,16,48,0.9)", "text-halo-width": 1.8 },
   },
 ];
 
-/** Sky for the tilted camera (seen only at steep pitch): bright blue over a paper horizon. */
+/** Dusk sky: deep blue overhead, sunset peach at the horizon, violet haze over the far city. */
 const SKY = {
-  "sky-color": "#38b6ff",
-  "horizon-color": PAPER,
-  "sky-horizon-blend": 0.7,
-  "horizon-fog-blend": 0.6,
-  "fog-color": "#e6f6ff",
-  "fog-ground-blend": 0.5,
+  "sky-color": "#1c2a78",
+  "horizon-color": "#ff9a7a",
+  "sky-horizon-blend": 0.55,
+  "horizon-fog-blend": 0.8,
+  "fog-color": "#4a3b86",
+  "fog-ground-blend": 0.35,
   "atmosphere-blend": 0,
 };
+
+/** Warm sunset key light, low from the west. */
+const LIGHT = { anchor: "map", color: "#ffe1d6", intensity: 0.3, position: [1.25, 255, 58] };
 
 export function buildStyle(): StyleSpecification {
   const out: Layer[] = [];
   for (const layer of layers("protomaps", flavor, { lang: "en" }) as Layer[]) {
-    if (layer.id === "buildings") continue; // the city is drawn as abstract toy blocks (toyCity.ts)
+    if (layer.id === "buildings") continue; // drawn as extrusions below the labels
     const tuned = tune(layer);
     if (tuned) out.push(tuned);
     out.push(...(EXTRAS[layer.id] ?? []));
   }
-  // Stickers go below the place labels so city captions win collisions.
-  const firstLabel = out.findIndex((l) => l.id === "places_subplace");
-  out.splice(firstLabel < 0 ? out.length : firstLabel, 0, ...ON_TOP);
+  // Street lights, buildings and landmarks go below the place labels.
+  const firstLabel = out.findIndex((l) => l.type === "symbol");
+  out.splice(firstLabel < 0 ? out.length : firstLabel, 0, ...STREET_LIGHTS, ...BUILDINGS, ...ON_TOP);
   return {
     version: 8,
     glyphs: GLYPHS_URL,
     "font-faces": FONT_FACES,
     sky: SKY,
+    light: LIGHT,
     sources: {
       protomaps: {
         type: "vector",

@@ -1,57 +1,57 @@
-/* JobAtlas design tokens — "Colour Manga Page" (docs/visual-redesign.md).
+/* JobAtlas design tokens — "Twilight City" (docs/visual-redesign.md).
 
-   The UI is drawn like a manga page laid over the map: panels are square-cornered frames
-   with heavy ink borders and a hard black drop (no soft shadows, no glass, no gradients),
-   section titles are black caption bars, emphasis comes from screentone dots, speed lines
-   and a bold display face (Dela Gothic One). Spot colours — sky, sakura, sun, mint — are
-   used sparingly for meaning. Map palette: src/theme/palette.ts (kept in step). */
+   The UI is a game HUD floating over an anime city at dusk: solid deep-navy panels (no
+   glass), thin lavender lines, one cut corner on key panels, light text. Amber is the
+   primary action and highlight (the colour of the city's lights), cyan marks links and
+   interactive accents, sakura marks notes and selection. Soft depth shadows only.
+   Map palette: src/theme/palette.ts (kept in step). */
 :root {
   color-scheme: light;
 
   /* surfaces */
-  --paper: #fdfbf5;
-  --paper-2: #f1ede2;
-  --paper-3: #e7e2d4;
-  --edge: #17151f; /* outer line = ink */
-  --edge-inner: #d9d4c6; /* inner line of the double edge, row dividers */
-  --edge-strong: #17151f;
+  --paper: #161b48;
+  --paper-2: #20265c;
+  --paper-3: #0d1030;
+  --edge: #6a64d8; /* outer line */
+  --edge-inner: #2f3577; /* inner line of the double edge, row dividers */
+  --edge-strong: #9c95ff;
 
   /* ink */
-  --ink-900: #17151f;
-  --ink-700: #2e2b3a;
-  --ink-500: #5a5767; /* ≥ 6:1 on --paper */
-  --ink-inverse: #ffffff;
+  --ink-900: #f6f2ff;
+  --ink-700: #d9d4fb;
+  --ink-500: #a8a2dc; /* ≥ 6:1 on --paper */
+  --ink-inverse: #0d1030;
 
   /* colour */
-  --blue: #1769e0;
-  --blue-strong: #0f4fae;
-  --blue-soft: #dcecff;
-  --sky: #38b6ff;
-  --sky-pale: #bfe3ff;
-  --sun: #ffd43b;
+  --blue: #ffc768;
+  --blue-strong: #ff9f5a;
+  --blue-soft: #2b2f6e;
+  --sky: #5fe0ff;
+  --sky-pale: #26306f;
+  --sun: #ffcf73;
   --sun-deep: #f5b800;
-  --sakura: #ff5c93;
-  --mint: #3ddc97;
-  --coral: #ff5c93;
-  --coral-ink: #c2185b;
-  --coral-soft: #ffe3ec;
+  --sakura: #ff7eb3;
+  --mint: #5fe3b5;
+  --coral: #ff7eb3;
+  --coral-ink: #ffb3d1;
+  --coral-soft: #3a2457;
   --lavender: #9b7bff;
   --gold: #ffd23f;
 
   /* workplace language (shape + glyph + word; colour only reinforces) */
-  --onsite: #1769e0;
-  --onsite-shade: #0f4fae;
-  --hybrid: #16b07a;
-  --hybrid-shade: #0e8a5e;
-  --remote: #ff5c93;
-  --unknown: #5a5767;
+  --onsite: #ffcf73;
+  --onsite-shade: #e0a640;
+  --hybrid: #5fe3b5;
+  --hybrid-shade: #39b98c;
+  --remote: #ff7eb3;
+  --unknown: #c8c2ff;
 
   /* status */
-  --ok: #0f7a52;
-  --warn: #8f5300;
-  --warn-soft: #fff0c7;
-  --error: #c42b45;
-  --error-soft: #ffe3e8;
+  --ok: #5fe3b5;
+  --warn: #ffcf73;
+  --warn-soft: #3a2f3f;
+  --error: #ff8aa0;
+  --error-soft: #3d1f3c;
 
   /* type: Dela Gothic One for lettering (titles, counts, buttons); rounded text for reading */
   --font-display: "Dela Gothic One", "M PLUS Rounded 1c", system-ui, sans-serif;
@@ -75,24 +75,24 @@
   --space-6: 2rem;
 
   /* shape */
-  --radius-sm: 3px;
-  --radius-md: 4px;
-  --radius-lg: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
   --radius-pill: 999px;
-  --bevel: 18px;
-  --line: 3px;
-  /* manga panel: heavy outer frame + thin inner rule */
-  --double-edge: inset 0 0 0 3px var(--paper), inset 0 0 0 4.5px var(--ink-900);
+  --bevel: 14px;
+  --line: 1.5px;
+  /* HUD panel: thin outer line + faint inner line */
+  --double-edge: inset 0 0 0 3px var(--paper), inset 0 0 0 4px var(--edge-inner);
 
-  /* depth: hard black drop only, offset like a printed panel */
-  --shadow-cel: 3px 3px 0 var(--ink-900);
-  --shadow-float: 6px 6px 0 var(--ink-900);
-  --focus-ring: 0 0 0 3px var(--paper), 0 0 0 6px var(--blue);
+  /* depth: soft shadows into the dusk, a faint lavender rim */
+  --shadow-cel: 0 4px 14px rgb(4 5 22 / 0.55);
+  --shadow-float: 0 0 0 1px rgb(169 162 255 / 0.12), 0 14px 36px rgb(4 5 22 / 0.65);
+  --focus-ring: 0 0 0 2px var(--paper-3), 0 0 0 4px var(--sky);
 
-  /* screentone dots and speed lines (CSS patterns) */
-  --tone: radial-gradient(circle, rgb(23 21 31 / 0.28) 0.9px, transparent 1.2px) 0 0 / 5px 5px;
-  --tone-light: radial-gradient(circle, rgb(23 21 31 / 0.14) 0.8px, transparent 1.1px) 0 0 / 5px 5px;
-  --stripes: repeating-linear-gradient(-58deg, rgb(255 255 255 / 0.32) 0 2px, transparent 2px 9px);
+  /* fine light textures */
+  --tone: linear-gradient(transparent, transparent);
+  --tone-light: linear-gradient(transparent, transparent);
+  --stripes: repeating-linear-gradient(-60deg, rgb(255 255 255 / 0.07) 0 1px, transparent 1px 7px);
 
   /* motion */
   --motion-fast: 120ms;
@@ -108,8 +108,8 @@
   --sheet-width: 46rem;
 
   /* brand mark */
-  --brand-ink: #17151f;
-  --brand-star: #ffd43b;
+  --brand-ink: #2a2f7a;
+  --brand-star: #ffcf73;
 }
 
 @media (prefers-reduced-motion: reduce) {

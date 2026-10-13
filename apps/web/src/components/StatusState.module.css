@@ -18,8 +18,8 @@
   height: 3.5rem;
   border: var(--line) solid var(--edge);
   border-radius: 0;
-  background: var(--tone-light), var(--paper);
-  box-shadow: 3px 3px 0 var(--ink-900);
+  background: var(--paper);
+  box-shadow: var(--shadow-cel);
   color: var(--ink-900);
 }
 
@@ -29,7 +29,7 @@
   right: 0.45rem;
   color: var(--gold);
   font-size: 1.5rem;
-  filter: drop-shadow(1.5px 1.5px 0 var(--ink-900));
+  filter: drop-shadow(0 0 6px rgb(255 207 115 / 0.55));
 }
 
 .route {
@@ -101,7 +101,7 @@
 .skeleton span {
   height: 0.7rem;
   border-radius: 0;
-  background: var(--tone), var(--paper-2);
+  background: var(--paper-2);
 }
 
 .skeleton span:first-child {

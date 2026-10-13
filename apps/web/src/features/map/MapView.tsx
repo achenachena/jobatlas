@@ -19,8 +19,7 @@ import { t } from "../../lib/strings";
 import { INK } from "../../theme/palette";
 import { groupByLocation } from "./locations";
 import { buildStyle, FONT_DISPLAY, FONT_HEAVY } from "./mapStyle";
-import { ToyCityLayer } from "./toyCity";
-import { BADGE_CENTER_OFFSET, MARKER_ICON_OFFSET, provideImages } from "./markerImages";
+import { BADGE_CENTER_OFFSET, centerOffset, MARKER_ICON_OFFSET, provideImages } from "./markerImages";
 import styles from "./MapView.module.css";
 
 export type FlyTarget =
@@ -52,9 +51,9 @@ interface Props {
 
 const CLUSTER_MAX_ZOOM = 15;
 /** Default "3D" camera: tilted, and turned so Toronto's street grid runs across the screen. */
-const TILT = { pitch: 58, bearing: -20 };
-/** First view: the toy city skyline, downtown Toronto in front. */
-const START = { center: [-79.40, 43.685] as [number, number], zoom: 11.9 };
+const TILT = { pitch: 74, bearing: -16 };
+/** First view: downtown Toronto's skyline at dusk, seen from the lake, sky above. */
+const START = { center: [-79.388, 43.6585] as [number, number], zoom: 14.0 };
 const INTERACTIVE = ["job-clusters", "job-stacks", "job-points", "job-aggregated"];
 /** Space kept clear of the floating search dock and the bottom bar. */
 const SAFE = { top: 84, bottom: 76, side: 16 };
@@ -77,9 +76,9 @@ function boundsOf(map: MapLibreMap): Bbox {
 const pointOf = (f: MapGeoJSONFeature) => (f.geometry as GeoJSON.Point).coordinates as [number, number];
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
-/** Text sitting on the stack badge: the badge centre is BADGE_CENTER_OFFSET px above the tip. */
+/** Text sitting on the stack badge, whose centre floats centerOffset(scale) px above the point. */
 const STACK_TEXT_SIZE = 13;
-const stackTextOffset = (scale: number): [number, number] => [0, (-BADGE_CENTER_OFFSET * scale) / STACK_TEXT_SIZE];
+const stackTextOffset = (scale: number): [number, number] => [0, -centerOffset(scale) / STACK_TEXT_SIZE];
 
 const emptyFc = (): GeoJSON.FeatureCollection => ({ type: "FeatureCollection", features: [] });
 
@@ -116,7 +115,7 @@ export function MapView({
         zoom: START.zoom,
         pitch: TILT.pitch,
         bearing: TILT.bearing,
-        maxPitch: 75,
+        maxPitch: 82,
         maxZoom: 18,
         attributionControl: false,
       });
@@ -129,18 +128,21 @@ export function MapView({
     if (import.meta.env.DEV) (window as unknown as { __map: MapLibreMap }).__map = map;
     map.addControl(new AttributionControl({ compact: true }), "bottom-right");
     provideImages(map);
-    const styleTimeout = window.setTimeout(() => {
-      if (!map.isStyleLoaded()) setFailed(true);
-    }, 15000);
+    // The camera (and so the viewport) is known before any tile loads: search right away.
+    handlers.current.onViewportChange(boundsOf(map), map.getZoom());
+    // "Couldn't load" only when the map really fails: a style/tile-source error before the
+    // first load, or no load at all within 45 s (slow machines can take a while for 3D).
+    let loaded = false;
+    const fail = () => !loaded && setFailed(true);
+    map.on("error", (e) => {
+      const sourceId = (e as unknown as { sourceId?: string }).sourceId;
+      if (!sourceId || sourceId === "protomaps") fail();
+    });
+    const styleTimeout = window.setTimeout(fail, 45000);
 
     map.on("load", () => {
+      loaded = true;
       window.clearTimeout(styleTimeout);
-      try {
-        const firstLabel = map.getStyle().layers.find((l) => l.type === "symbol")?.id;
-        map.addLayer(new ToyCityLayer(), firstLabel);
-      } catch {
-        // No WebGL2 / shader failure: the flat manga map remains.
-      }
       const countText = {
         "text-font": [FONT_DISPLAY],
         "text-size": STACK_TEXT_SIZE,

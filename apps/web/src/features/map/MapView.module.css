@@ -30,7 +30,7 @@
   top: calc(var(--pointer-y, 40px) - 9px);
   width: 14px;
   height: 18px;
-  background: var(--ink-900);
+  background: var(--edge-strong);
 }
 
 .popover[data-side="right"]::before {
@@ -56,6 +56,7 @@
   pointer-events: none;
   opacity: 0;
   animation: ping var(--motion-slow) var(--ease) 1;
+  color: var(--ink-inverse);
 }
 
 @keyframes ping {
@@ -100,7 +101,8 @@
 }
 
 .tilt[aria-pressed="true"] {
-  background: var(--tone), var(--sun);
+  background: var(--sun);
+  color: var(--ink-inverse);
 }
 
 .control {
@@ -157,7 +159,7 @@
 }
 
 .wrap :global(.maplibregl-ctrl-attrib) {
-  border: 1.5px solid var(--ink-900);
+  border: 1px solid var(--edge);
   border-radius: 0 !important;
   background: var(--paper) !important;
   color: var(--ink-500);

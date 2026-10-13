@@ -1,15 +1,15 @@
-/* Shared manga-page frame language (compose into component modules). Every rule is wrapped in
-   :where() (zero specificity), so a composing component's own rules always win, whatever
-   order the stylesheets load in.
+/* Shared game-HUD frame language for the "Twilight City" (compose into component modules).
+   Every rule is wrapped in :where() (zero specificity), so a composing component's own rules
+   always win, whatever order the stylesheets load in.
 
-   .panel   a manga panel: paper, heavy ink frame + thin inner rule, hard black drop
-   .bevel   one cut corner (top-right) on key panels only (search dock, detail, list)
-   .ribbon  a title band: spot colour + white speed-line stripes, ink rule underneath;
-            set --ribbon to recolour
-   .inkText white display lettering with an ink outline (titles on ribbons)
-   .caption a black narration box with white lettering (small section labels)
+   .panel   solid deep-navy panel, thin lavender outer line + faint inner line, soft shadow
+   .bevel   one cut corner (top-right) on key panels only (search dock, detail, list),
+            drawn as a diagonal line so it works in every browser
+   .ribbon  a title band: dusk gradient (violet -> sakura by default; set --ribbon) with fine
+            light hatching and a thin bright rule underneath
+   .inkText title lettering on a ribbon (display face, soft light glow)
    .control / .primary / .sunny / .ghost
-            stamp-like buttons: square, ink frame, hard drop, pressed = shifted onto its drop */
+            HUD buttons; .primary is the amber call to action */
 
 :where(.panel) {
   border: var(--line) solid var(--edge);
@@ -19,9 +19,9 @@
   color: var(--ink-700);
 }
 
-/* The cut corner is drawn as an ink triangle so it works in every browser. */
 :where(.bevel) {
   position: relative;
+  border-top-right-radius: 0;
 }
 
 :where(.bevel)::after {
@@ -32,14 +32,15 @@
   right: calc(-1 * var(--line));
   width: var(--bevel);
   height: var(--bevel);
-  background: linear-gradient(45deg, transparent 50%, var(--ink-900) 50%);
+  background: linear-gradient(45deg, transparent calc(50% - 0.9px), var(--edge-strong) calc(50% - 0.9px),
+      var(--edge-strong) calc(50% + 0.9px), var(--paper-3) calc(50% + 0.9px));
   pointer-events: none;
 }
 
 :where(.ribbon) {
   position: relative;
-  background: var(--stripes), var(--ribbon, var(--sky));
-  border-bottom: var(--line) solid var(--edge);
+  background: var(--stripes), var(--ribbon, linear-gradient(100deg, #3b3496, #7a4fd0 60%, #c25aa8));
+  border-bottom: 1px solid var(--edge-strong);
   color: #fff;
 }
 
@@ -47,20 +48,20 @@
   color: #fff;
   font-family: var(--font-display);
   font-weight: 400;
-  -webkit-text-stroke: 4px var(--ink-900);
-  paint-order: stroke fill;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.04em;
+  text-shadow: 0 0 12px rgb(255 207 115 / 0.45), 0 1px 0 rgb(13 16 48 / 0.6);
 }
 
 :where(.caption) {
   display: inline-block;
   padding: 0.15rem 0.5rem;
-  background: var(--ink-900);
-  color: #fff;
+  border: 1px solid var(--edge);
+  background: var(--paper-2);
+  color: var(--ink-900);
   font-family: var(--font-display);
   font-size: var(--fs-xs);
   font-weight: 400;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
@@ -76,20 +77,20 @@
   font-size: 1.3rem;
   font-weight: var(--fw-heavy);
   transition:
-    transform var(--motion-fast) var(--ease-snap),
-    box-shadow var(--motion-fast) var(--ease-snap),
-    background var(--motion-fast) var(--ease);
+    transform var(--motion-fast) var(--ease),
+    box-shadow var(--motion-fast) var(--ease),
+    background var(--motion-fast) var(--ease),
+    border-color var(--motion-fast) var(--ease);
 }
 
-:where(.control, .primary, .sunny, .ghost):hover {
-  background: #fff;
-  transform: translate(-1px, -1px);
-  box-shadow: 4px 4px 0 var(--ink-900);
+:where(.control, .ghost):hover {
+  border-color: var(--edge-strong);
+  background: var(--paper-2);
+  box-shadow: var(--shadow-cel), 0 0 14px rgb(156 149 255 / 0.25);
 }
 
 :where(.control, .primary, .sunny, .ghost):active {
-  transform: translate(3px, 3px);
-  box-shadow: 0 0 0 var(--ink-900);
+  transform: translateY(1px);
 }
 
 :where(.primary, .sunny) {
@@ -98,29 +99,20 @@
   justify-content: center;
   gap: var(--space-2);
   padding: 0 var(--space-4);
+  border-color: #ffe2a8;
+  background: linear-gradient(180deg, #ffd98c, #ffb35f);
+  box-shadow: var(--shadow-cel), 0 0 18px rgb(255 191 110 / 0.35);
+  color: var(--ink-inverse);
   font-family: var(--font-display);
   font-size: var(--fs-md);
   font-weight: 400;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.03em;
   text-decoration: none;
 }
 
-:where(.primary) {
-  background: var(--stripes), var(--blue);
-  color: #fff;
-  text-shadow: 1.5px 1.5px 0 var(--ink-900);
-}
-
-:where(.primary):hover {
-  background: var(--stripes), #2a7cf0;
-}
-
-:where(.sunny) {
-  background: var(--sun);
-}
-
-:where(.sunny):hover {
-  background: #ffdd5e;
+:where(.primary, .sunny):hover {
+  background: linear-gradient(180deg, #ffe4a8, #ffbe72);
+  box-shadow: var(--shadow-cel), 0 0 26px rgb(255 191 110 / 0.55);
 }
 
 :where(.ghost) {
@@ -131,25 +123,25 @@
   font-size: var(--fs-sm);
 }
 
-/* Section label inside panels: a small caption box. */
+/* Section label inside panels. */
 :where(.kicker) {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.4rem;
   margin: 0;
-  padding: 0.1rem 0.5rem;
-  background: var(--ink-900);
-  color: #fff;
+  color: var(--ink-500);
   font-family: var(--font-display);
   font-size: var(--fs-xs);
   font-weight: 400;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
 :where(.kicker)::before {
   content: "";
-  width: 0.65rem;
-  height: 0.65rem;
+  width: 0.6rem;
+  height: 0.6rem;
   background: var(--sun);
   clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%);
+  color: var(--ink-inverse);
 }
