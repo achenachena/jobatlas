@@ -50,8 +50,10 @@ interface Props {
 }
 
 const CLUSTER_MAX_ZOOM = 15;
-/** A manga page is drawn from one fixed angle: straight down, north up. No rotate, no tilt. */
-const START = { center: [-79.386, 43.6505] as [number, number], zoom: 13.6 };
+/** 2.5D manga map: one fixed oblique angle (tilted, street grid square to the screen). The
+ * reader can pan and zoom, never rotate or tilt. */
+const VIEW = { pitch: 52, bearing: -17 };
+const START = { center: [-79.386, 43.6475] as [number, number], zoom: 14 };
 const INTERACTIVE = ["job-clusters", "job-stacks", "job-points", "job-aggregated"];
 /** Space kept clear of the floating search dock and the bottom bar. */
 const SAFE = { top: 84, bottom: 76, side: 16 };
@@ -111,9 +113,10 @@ export function MapView({
         style: buildStyle(),
         center: START.center,
         zoom: START.zoom,
-        pitch: 0,
-        bearing: 0,
-        maxPitch: 0,
+        pitch: VIEW.pitch,
+        bearing: VIEW.bearing,
+        minPitch: VIEW.pitch,
+        maxPitch: VIEW.pitch,
         dragRotate: false,
         pitchWithRotate: false,
         touchPitch: false,
@@ -445,7 +448,7 @@ export function MapView({
   const locate = () => {
     const map = mapRef.current;
     if (!map) return;
-    const home = () => map.easeTo({ ...START, duration: 600 });
+    const home = () => map.easeTo({ ...START, ...VIEW, duration: 600 });
     if (!navigator.geolocation) return home();
     navigator.geolocation.getCurrentPosition(
       (pos) => map.easeTo({ center: [pos.coords.longitude, pos.coords.latitude], zoom: 13 }),

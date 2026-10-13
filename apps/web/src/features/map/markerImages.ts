@@ -588,9 +588,154 @@ function addCaption(map: MlMap) {
   });
 }
 
+// ------------------------------------------------------------------ 2.5D towers
+
+/** Height tiers for the standing tower drawings (metres of the real building → sprite). */
+export const TOWER_TIERS: Array<{ id: string; minHeight: number; h: number; w: number }> = [
+  { id: "t1", minHeight: 60, h: 50, w: 30 },
+  { id: "t2", minHeight: 100, h: 78, w: 32 },
+  { id: "t3", minHeight: 160, h: 112, w: 34 },
+  { id: "t4", minHeight: 240, h: 156, w: 36 },
+];
+export const TOWER_VARIANTS = 3;
+
+/** A tall building drawn the manga way and stood up on the map: front face with a window
+ * grid, a narrow side face in hatching (shadow), a roof in screentone, all in ink line. The
+ * bottom centre of the image is the building's footprint point. Variants: flat roof, stepped
+ * crown, mast. */
+function drawTower(tierId: string, variant: number): ImageData | null {
+  const tier = TOWER_TIERS.find((t) => t.id === tierId);
+  if (!tier) return null;
+  const { w, h } = tier;
+  const side = Math.round(w * 0.38); // visible right side face
+  const roof = 6; // roof depth (oblique)
+  const crown = variant === 1 ? 10 : variant === 2 ? 16 : 0;
+  const W = w + side + 6;
+  const H = h + roof + crown + 6;
+  const [c, ctx] = canvas(W, H);
+  const x0 = 3;
+  const base = H - 2; // ground line
+  const top = base - h;
+  ctx.lineWidth = 1.6;
+  ctx.strokeStyle = INK;
+
+  // side face (in shadow): hatching
+  const sidePath = new Path2D();
+  sidePath.moveTo(x0 + w, base);
+  sidePath.lineTo(x0 + w + side, base - roof);
+  sidePath.lineTo(x0 + w + side, top - roof);
+  sidePath.lineTo(x0 + w, top);
+  sidePath.closePath();
+  ctx.fillStyle = "#ffffff";
+  ctx.fill(sidePath);
+  ctx.save();
+  ctx.clip(sidePath);
+  ctx.strokeStyle = "rgba(23,21,31,0.75)";
+  ctx.lineWidth = 0.8;
+  for (let y = top - roof - 20; y < base + 20; y += 2.6) {
+    ctx.beginPath();
+    ctx.moveTo(x0 + w, y + 6);
+    ctx.lineTo(x0 + w + side, y);
+    ctx.stroke();
+  }
+  ctx.restore();
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 1.6;
+  ctx.stroke(sidePath);
+
+  // front face: white with a window grid (fewer rows for short towers)
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(x0, top, w, h);
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x0, top, w, h);
+  ctx.clip();
+  ctx.strokeStyle = "rgba(23,21,31,0.55)";
+  ctx.lineWidth = 0.7;
+  const cols = Math.max(3, Math.round(w / 7));
+  for (let i = 1; i < cols; i++) {
+    const x = x0 + (w * i) / cols;
+    ctx.beginPath();
+    ctx.moveTo(x, top + 3);
+    ctx.lineTo(x, base - 4);
+    ctx.stroke();
+  }
+  for (let y = top + 5; y < base - 4; y += 5) {
+    ctx.beginPath();
+    ctx.moveTo(x0, y);
+    ctx.lineTo(x0 + w, y);
+    ctx.stroke();
+  }
+  // a band of screentone down the left edge: a little shading for volume
+  screentone(ctx, x0, top, w * 0.18, h, 3, 0.6, "rgba(23,21,31,0.45)");
+  // reflected-light streak
+  ctx.fillStyle = "rgba(255,255,255,0.95)";
+  ctx.beginPath();
+  ctx.moveTo(x0 + w * 0.55, top);
+  ctx.lineTo(x0 + w * 0.7, top);
+  ctx.lineTo(x0 + w * 0.35, base);
+  ctx.lineTo(x0 + w * 0.2, base);
+  ctx.fill();
+  ctx.restore();
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 1.8;
+  ctx.strokeRect(x0, top, w, h);
+
+  // roof: parallelogram in screentone
+  const roofPath = new Path2D();
+  roofPath.moveTo(x0, top);
+  roofPath.lineTo(x0 + side, top - roof);
+  roofPath.lineTo(x0 + w + side, top - roof);
+  roofPath.lineTo(x0 + w, top);
+  roofPath.closePath();
+  ctx.fillStyle = "#ffffff";
+  ctx.fill(roofPath);
+  ctx.save();
+  ctx.clip(roofPath);
+  screentone(ctx, x0, top - roof, w + side, roof, 2.6, 0.75, "rgba(23,21,31,0.6)");
+  ctx.restore();
+  ctx.lineWidth = 1.6;
+  ctx.stroke(roofPath);
+
+  if (variant === 1) {
+    // stepped crown: a smaller box on top
+    const cw = w * 0.55;
+    const cx = x0 + (w - cw) / 2 + side * 0.4;
+    const ct = top - roof * 0.5 - crown;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(cx, ct, cw, crown);
+    screentone(ctx, cx + cw * 0.7, ct, cw * 0.3, crown, 2.6, 0.75, "rgba(23,21,31,0.6)");
+    ctx.strokeRect(cx, ct, cw, crown);
+  } else if (variant === 2) {
+    // mast with a red beacon
+    const mx = x0 + w / 2 + side * 0.5;
+    ctx.beginPath();
+    ctx.moveTo(mx, top - roof * 0.5);
+    ctx.lineTo(mx, top - roof * 0.5 - crown);
+    ctx.stroke();
+    ctx.fillStyle = C.red;
+    ctx.beginPath();
+    ctx.arc(mx, top - roof * 0.5 - crown, 2.2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // ground line
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(x0 - 2, base);
+  ctx.lineTo(x0 + w, base);
+  ctx.lineTo(x0 + w + side, base - roof);
+  ctx.stroke();
+  return imageOf(c);
+}
+
+export const TOWER_IMAGE_IDS = TOWER_TIERS.flatMap((t) =>
+  Array.from({ length: TOWER_VARIANTS }, (_, v) => `tower-${t.id}-${v}`),
+);
+
 const TEXTURES = ["tone-light", "tone-pink", "tone-lines", "tone-sun", "hatch-shadow", "tex-trees", "tex-water", "tone-band", "paper"];
 
 export const IMAGE_IDS: string[] = [
+  ...TOWER_IMAGE_IDS,
   ...MARKER_KINDS.flatMap((k) =>
     ["", "-inferred"].flatMap((v) => [`marker-${k}${v}`, `marker-${k}${v}-hover`, `marker-${k}${v}-selected`]),
   ),
@@ -616,6 +761,8 @@ export function imageFor(id: string): ImageData | null {
   const cl = /^cluster-(s|m|l)$/.exec(id);
   if (cl) return drawCluster(cl[1] as ClusterTier);
   if (id === "street-tree") return drawStreetTree();
+  const tw = /^tower-(t\d)-(\d)$/.exec(id);
+  if (tw) return drawTower(tw[1]!, Number(tw[2]));
   if (id.startsWith("lm-")) return drawLandmark(id.slice(3));
   return drawTexture(id);
 }

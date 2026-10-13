@@ -28,7 +28,7 @@ import { type Flavor, layers, namedFlavor } from "@protomaps/basemaps";
 import type { ExpressionSpecification, LayerSpecification, StyleSpecification } from "maplibre-gl";
 
 import { C, INK, PAPER } from "../../theme/palette";
-import { LANDMARKS } from "./markerImages";
+import { LANDMARKS, TOWER_TIERS, TOWER_VARIANTS } from "./markerImages";
 
 export const TILES_URL: string =
   (import.meta.env.VITE_MAP_TILES_URL as string | undefined) ?? "/tiles/gta.pmtiles";
@@ -343,7 +343,38 @@ const BUILDINGS: Layer[] = [
 ];
 
 /** Above the line work: real street trees and landmark stickers (low density). */
+const TOWER_HEIGHT: Exp = ["to-number", ["coalesce", ["get", "height"], 0]];
+const TOWER_TIER: Exp = [
+  "step", TOWER_HEIGHT, "t1",
+  ...TOWER_TIERS.slice(1).flatMap((t) => [t.minHeight, t.id]),
+] as unknown as Exp;
+
+/** 2.5D: tall buildings are stood up as manga drawings (markerImages.drawTower) on their real
+ * footprints — drawn, not modelled. Upright to the screen, painted back to front. */
+const TOWERS: Layer = {
+  id: "art-towers",
+  type: "symbol",
+  source: "protomaps",
+  "source-layer": "buildings",
+  minzoom: 12.5,
+  filter: [">=", TOWER_HEIGHT, TOWER_TIERS[0]!.minHeight],
+  layout: {
+    "icon-image": ["concat", "tower-", TOWER_TIER, "-",
+      ["to-string", ["%", ["round", TOWER_HEIGHT], TOWER_VARIANTS]]],
+    "icon-anchor": "bottom",
+    "icon-pitch-alignment": "viewport",
+    "icon-rotation-alignment": "viewport",
+    // density is controlled by the height threshold (TOWER_TIERS); towers never compete with
+    // job markers or labels for space, so the real skyline is always complete
+    "icon-allow-overlap": true,
+    "icon-ignore-placement": true,
+    "symbol-z-order": "viewport-y",
+    "icon-size": ["interpolate", ["linear"], ["zoom"], 12.5, 0.4, 14, 0.75, 15.5, 1.2, 17, 1.8],
+  },
+} as Layer;
+
 const ON_TOP: Layer[] = [
+  TOWERS,
   {
     id: "art-street-trees",
     type: "symbol",
