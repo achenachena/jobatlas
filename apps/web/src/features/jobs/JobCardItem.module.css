@@ -31,7 +31,7 @@
 
 .selected {
   background: var(--sun);
-  color: var(--ink-inverse);
+  color: var(--ink-900);
 }
 
 .title {

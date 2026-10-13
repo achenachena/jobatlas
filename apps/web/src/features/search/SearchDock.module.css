@@ -26,7 +26,7 @@
   box-shadow: var(--shadow-float);
 }
 
-/* Logo panel: black, with white speed lines radiating behind the mark. */
+/* Logo panel: a little patch of summer sky. */
 .brand {
   display: flex;
   flex: none;
@@ -35,17 +35,17 @@
   padding: 0 var(--space-3) 0 0.55rem;
   border-right: var(--line) solid var(--edge);
   background:
-    radial-gradient(circle at 18px 50%, rgb(255 207 115 / 0.35), transparent 60%),
-    linear-gradient(100deg, #0d1030, #2a2a7a);
+    radial-gradient(circle at 20px 30%, rgb(255 255 255 / 0.55), transparent 55%),
+    linear-gradient(160deg, #4aa8f0, #8fd3ff);
 }
 
 .wordmark {
   color: #fff;
   font-family: var(--font-display);
   font-size: 1.25rem;
-  font-weight: 400;
+  font-weight: var(--fw-heavy);
   letter-spacing: 0.01em;
-  text-shadow: 2px 2px 0 var(--sakura);
+  text-shadow: 0 1px 2px rgb(30 70 140 / 0.35);
 }
 
 .wordmark::first-letter {
@@ -128,7 +128,7 @@
   padding: 0 var(--space-3);
   font-family: var(--font-display);
   font-size: var(--fs-sm);
-  font-weight: 400;
+  font-weight: var(--fw-heavy);
   letter-spacing: 0.02em;
 }
 
@@ -140,7 +140,7 @@
 .pillOn,
 .pillOn svg {
   background: var(--sun);
-  color: var(--ink-inverse);
+  color: var(--ink-900);
 }
 
 .pillOn svg {
@@ -287,7 +287,7 @@
   font-weight: var(--fw-heavy);
   transform: none;
   box-shadow: none;
-  color: var(--ink-inverse);
+  color: var(--ink-900);
 }
 
 .workplace svg {
@@ -337,7 +337,7 @@
 }
 
 .areaPopover .popTitle {
-  --ribbon: linear-gradient(100deg, #2f3796, #2a8f8a);
+  --ribbon: linear-gradient(100deg, #2b9b84, #4fc3a6);
 }
 
 .areaInput {
@@ -424,5 +424,5 @@
 
 /* Selected option: the glyph follows the dark text on amber. */
 .optionOn svg {
-  color: var(--ink-inverse) !important;
+  color: var(--ink-900) !important;
 }

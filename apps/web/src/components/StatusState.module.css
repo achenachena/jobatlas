@@ -45,7 +45,7 @@
   color: var(--error);
   font-family: var(--font-display);
   font-size: 1.6rem;
-  font-weight: 400;
+  font-weight: var(--fw-heavy);
 }
 
 .error .art {

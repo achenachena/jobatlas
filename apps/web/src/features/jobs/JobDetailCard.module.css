@@ -6,19 +6,19 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   animation: pop var(--motion-base) var(--ease-pop);
-  --ribbon: linear-gradient(100deg, #3b3496, #7a4fd0 60%, #c25aa8);
+  --ribbon: linear-gradient(100deg, #3d8fe0, #5fb6f5 65%, #8fd3ff);
 }
 
 .card[data-workplace="on_site"] {
-  --ribbon: linear-gradient(100deg, #3b3496, #8a5ab8 55%, #d48a4a);
+  --ribbon: linear-gradient(100deg, #2f7fd6, #4fa3ef 65%, #7ec4fb);
 }
 
 .card[data-workplace="hybrid"] {
-  --ribbon: linear-gradient(100deg, #3b3496, #3a7fb0 55%, #2fa88a);
+  --ribbon: linear-gradient(100deg, #2b9b84, #4fc3a6 65%, #8fe0c8);
 }
 
 .card[data-workplace="remote"] {
-  --ribbon: linear-gradient(100deg, #3b3496, #8a4fc0 55%, #d2558f);
+  --ribbon: linear-gradient(100deg, #e46a95, #ff8fb1 65%, #ffb8cd);
 }
 
 .card:focus-visible {
@@ -90,7 +90,7 @@
 .close:hover,
 .back:hover {
   background: var(--sun);
-  color: var(--ink-inverse);
+  color: var(--ink-900);
 }
 
 .body {

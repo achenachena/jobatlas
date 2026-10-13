@@ -1,15 +1,13 @@
-/* Shared game-HUD frame language for the "Twilight City" (compose into component modules).
+/* Shared frame language for the "Painted Summer Town" (compose into component modules).
    Every rule is wrapped in :where() (zero specificity), so a composing component's own rules
    always win, whatever order the stylesheets load in.
 
-   .panel   solid deep-navy panel, thin lavender outer line + faint inner line, soft shadow
-   .bevel   one cut corner (top-right) on key panels only (search dock, detail, list),
-            drawn as a diagonal line so it works in every browser
-   .ribbon  a title band: dusk gradient (violet -> sakura by default; set --ribbon) with fine
-            light hatching and a thin bright rule underneath
-   .inkText title lettering on a ribbon (display face, soft light glow)
+   .panel   warm white paper panel, soft rounded, pale blue line, gentle blue shadow
+   .bevel   kept for compatibility: key panels get a slightly larger rounding instead
+   .ribbon  a title band: summer-sky gradient (set --ribbon to recolour)
+   .inkText white title lettering on a ribbon
    .control / .primary / .sunny / .ghost
-            HUD buttons; .primary is the amber call to action */
+            soft buttons; .primary is the sky-blue call to action */
 
 :where(.panel) {
   border: var(--line) solid var(--edge);
@@ -20,36 +18,23 @@
 }
 
 :where(.bevel) {
-  position: relative;
-  border-top-right-radius: 0;
-}
-
-:where(.bevel)::after {
-  content: "";
-  position: absolute;
-  z-index: 3;
-  top: calc(-1 * var(--line));
-  right: calc(-1 * var(--line));
-  width: var(--bevel);
-  height: var(--bevel);
-  background: linear-gradient(45deg, transparent calc(50% - 0.9px), var(--edge-strong) calc(50% - 0.9px),
-      var(--edge-strong) calc(50% + 0.9px), var(--paper-3) calc(50% + 0.9px));
-  pointer-events: none;
+  border-radius: calc(var(--radius-lg) + 4px);
 }
 
 :where(.ribbon) {
   position: relative;
-  background: var(--stripes), var(--ribbon, linear-gradient(100deg, #3b3496, #7a4fd0 60%, #c25aa8));
-  border-bottom: 1px solid var(--edge-strong);
+  background: var(--ribbon, linear-gradient(100deg, #3d8fe0, #5fb6f5 65%, #8fd3ff));
+  border-bottom: 1px solid var(--edge);
   color: #fff;
 }
 
 :where(.inkText) {
   color: #fff;
   font-family: var(--font-display);
-  font-weight: 400;
+  font-weight: var(--fw-heavy);
   letter-spacing: 0.04em;
-  text-shadow: 0 0 12px rgb(255 207 115 / 0.45), 0 1px 0 rgb(13 16 48 / 0.6);
+  font-weight: var(--fw-heavy);
+  text-shadow: 0 1px 2px rgb(30 70 140 / 0.35);
 }
 
 :where(.caption) {
@@ -60,7 +45,7 @@
   color: var(--ink-900);
   font-family: var(--font-display);
   font-size: var(--fs-xs);
-  font-weight: 400;
+  font-weight: var(--fw-heavy);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -86,7 +71,6 @@
 :where(.control, .ghost):hover {
   border-color: var(--edge-strong);
   background: var(--paper-2);
-  box-shadow: var(--shadow-cel), 0 0 14px rgb(156 149 255 / 0.25);
 }
 
 :where(.control, .primary, .sunny, .ghost):active {
@@ -99,20 +83,19 @@
   justify-content: center;
   gap: var(--space-2);
   padding: 0 var(--space-4);
-  border-color: #ffe2a8;
-  background: linear-gradient(180deg, #ffd98c, #ffb35f);
-  box-shadow: var(--shadow-cel), 0 0 18px rgb(255 191 110 / 0.35);
-  color: var(--ink-inverse);
+  border-color: #2f7fd6;
+  background: linear-gradient(180deg, #5aa9f2, #3d8fe0);
+  box-shadow: var(--shadow-cel);
+  color: #ffffff;
   font-family: var(--font-display);
   font-size: var(--fs-md);
-  font-weight: 400;
-  letter-spacing: 0.03em;
+  font-weight: var(--fw-heavy);
+  letter-spacing: 0.02em;
   text-decoration: none;
 }
 
 :where(.primary, .sunny):hover {
-  background: linear-gradient(180deg, #ffe4a8, #ffbe72);
-  box-shadow: var(--shadow-cel), 0 0 26px rgb(255 191 110 / 0.55);
+  background: linear-gradient(180deg, #6db5f5, #4a9be6);
 }
 
 :where(.ghost) {
@@ -132,7 +115,7 @@
   color: var(--ink-500);
   font-family: var(--font-display);
   font-size: var(--fs-xs);
-  font-weight: 400;
+  font-weight: var(--fw-heavy);
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
@@ -143,5 +126,5 @@
   height: 0.6rem;
   background: var(--sun);
   clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%);
-  color: var(--ink-inverse);
+  color: var(--ink-900);
 }
