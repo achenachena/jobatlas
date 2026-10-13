@@ -332,26 +332,24 @@ const EXTRAS: Record<string, Layer[]> = {
   ],
 };
 
-/** Buildings: white blocks, ink outline, hatched shadow (offset down-right). */
+/** Buildings below the 3D zoom: flat white blocks with an ink outline. From
+ * BUILDINGS_3D_MIN_ZOOM the manga 3D layer (buildings3d.ts) draws them instead. */
 const BUILDINGS: Layer[] = [
   {
-    id: "art-building-shadow",
+    // Invisible; lets the manga 3D layer query the footprints in view (buildings3d.ts).
+    id: "art-building-query",
     type: "fill",
     source: "protomaps",
     "source-layer": "buildings",
-    minzoom: 15,
-    paint: {
-      "fill-pattern": "hatch-shadow",
-      "fill-translate": [2.5, 3],
-      "fill-translate-anchor": "viewport",
-      "fill-opacity": ["interpolate", ["linear"], ["zoom"], 15, 0, 15.6, 1],
-    },
+    minzoom: 13.6,
+    paint: { "fill-color": "#000000", "fill-opacity": 0 },
   },
   {
     id: "art-building",
     type: "fill",
     source: "protomaps",
     "source-layer": "buildings",
+    maxzoom: 14.3,
     minzoom: 13,
     paint: { "fill-color": "#ffffff", "fill-opacity": ["interpolate", ["linear"], ["zoom"], 13, 0.5, 14, 1] },
   },
@@ -360,6 +358,7 @@ const BUILDINGS: Layer[] = [
     type: "line",
     source: "protomaps",
     "source-layer": "buildings",
+    maxzoom: 14.3,
     minzoom: 13.5,
     paint: {
       // light grey at district scale (keeps the page airy), full ink at street level

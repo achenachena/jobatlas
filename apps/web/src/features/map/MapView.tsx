@@ -18,6 +18,7 @@ import type { Bbox, SearchResponse } from "../../lib/api";
 import { t } from "../../lib/strings";
 import { INK } from "../../theme/palette";
 import { groupByLocation } from "./locations";
+import { MangaBuildingsLayer } from "./buildings3d";
 import { buildStyle, FONT_DISPLAY, FONT_HEAVY } from "./mapStyle";
 import { BADGE_CENTER_OFFSET, MARKER_ICON_OFFSET, provideImages } from "./markerImages";
 import styles from "./MapView.module.css";
@@ -51,7 +52,9 @@ interface Props {
 
 const CLUSTER_MAX_ZOOM = 15;
 /** Default "3D" camera: tilted, and turned so Toronto's street grid runs across the screen. */
-const TILT = { pitch: 35, bearing: -17 };
+const TILT = { pitch: 60, bearing: -28 };
+/** First view: downtown Toronto (where most located jobs are) as a 3D manga city. */
+const START = { center: [-79.3845, 43.6475] as [number, number], zoom: 15.1 };
 const INTERACTIVE = ["job-clusters", "job-stacks", "job-points", "job-aggregated"];
 /** Space kept clear of the floating search dock and the bottom bar. */
 const SAFE = { top: 84, bottom: 76, side: 16 };
@@ -109,12 +112,11 @@ export function MapView({
       map = new MapLibreMap({
         container: container.current,
         style: buildStyle(),
-        // Framed on the city (not the lake) at the tilted default.
-        center: [(initialBbox[0] + initialBbox[2]) / 2, initialBbox[3] - 0.1],
-        zoom: 10.5,
+        center: START.center,
+        zoom: START.zoom,
         pitch: TILT.pitch,
         bearing: TILT.bearing,
-        maxPitch: 70,
+        maxPitch: 75,
         maxZoom: 18,
         attributionControl: false,
       });
@@ -133,6 +135,12 @@ export function MapView({
 
     map.on("load", () => {
       window.clearTimeout(styleTimeout);
+      try {
+        const firstLabel = map.getStyle().layers.find((l) => l.type === "symbol")?.id;
+        map.addLayer(new MangaBuildingsLayer(), firstLabel);
+      } catch {
+        // No WebGL2 / shader failure: the flat ink buildings below z14.3 remain.
+      }
       const countText = {
         "text-font": [FONT_DISPLAY],
         "text-size": STACK_TEXT_SIZE,
@@ -438,7 +446,7 @@ export function MapView({
   const locate = () => {
     const map = mapRef.current;
     if (!map) return;
-    const home = () => map.fitBounds(initialBbox as LngLatBoundsLike, { padding: 24, pitch: map.getPitch(), bearing: map.getBearing() });
+    const home = () => map.easeTo({ ...START, pitch: TILT.pitch, bearing: TILT.bearing, duration: 600 });
     if (!navigator.geolocation) return home();
     navigator.geolocation.getCurrentPosition(
       (pos) => map.easeTo({ center: [pos.coords.longitude, pos.coords.latitude], zoom: 13 }),
