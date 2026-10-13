@@ -84,7 +84,7 @@ const save = (page, name) => page.screenshot({ path: `${OUT}/${name}.png` });
 
   shot(`${tag}-03-district`, async () => {
     const page = await open(DESKTOP, q);
-    await jump(page, -79.385, 43.65, 14.2);
+    await jump(page, -79.39, 43.66, 12.9);
     await save(page, `${tag}-03-district`);
     return page;
   });

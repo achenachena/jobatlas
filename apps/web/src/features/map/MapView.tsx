@@ -18,8 +18,8 @@ import type { Bbox, SearchResponse } from "../../lib/api";
 import { t } from "../../lib/strings";
 import { INK } from "../../theme/palette";
 import { groupByLocation } from "./locations";
-import { MangaBuildingsLayer } from "./buildings3d";
 import { buildStyle, FONT_DISPLAY, FONT_HEAVY } from "./mapStyle";
+import { ToyCityLayer } from "./toyCity";
 import { BADGE_CENTER_OFFSET, MARKER_ICON_OFFSET, provideImages } from "./markerImages";
 import styles from "./MapView.module.css";
 
@@ -52,9 +52,9 @@ interface Props {
 
 const CLUSTER_MAX_ZOOM = 15;
 /** Default "3D" camera: tilted, and turned so Toronto's street grid runs across the screen. */
-const TILT = { pitch: 60, bearing: -28 };
-/** First view: downtown Toronto (where most located jobs are) as a 3D manga city. */
-const START = { center: [-79.3845, 43.6475] as [number, number], zoom: 15.1 };
+const TILT = { pitch: 58, bearing: -20 };
+/** First view: the toy city skyline, downtown Toronto in front. */
+const START = { center: [-79.40, 43.685] as [number, number], zoom: 11.9 };
 const INTERACTIVE = ["job-clusters", "job-stacks", "job-points", "job-aggregated"];
 /** Space kept clear of the floating search dock and the bottom bar. */
 const SAFE = { top: 84, bottom: 76, side: 16 };
@@ -137,9 +137,9 @@ export function MapView({
       window.clearTimeout(styleTimeout);
       try {
         const firstLabel = map.getStyle().layers.find((l) => l.type === "symbol")?.id;
-        map.addLayer(new MangaBuildingsLayer(), firstLabel);
+        map.addLayer(new ToyCityLayer(), firstLabel);
       } catch {
-        // No WebGL2 / shader failure: the flat ink buildings below z14.3 remain.
+        // No WebGL2 / shader failure: the flat manga map remains.
       }
       const countText = {
         "text-font": [FONT_DISPLAY],

@@ -14,7 +14,7 @@
  *  - water as a spot colour with ink wave curls, a halftone band along the shore, a white
  *    foam line and an ink shoreline; parks as pale mint with inked bushes and an ink edge;
  *  - roads as white strips with ink edges (only thin grey lines at city scale), motorways
- *    with a sun-yellow spot colour; buildings as white blocks, ink outline, hatched shadow;
+ *    with a sun-yellow spot colour; no building footprints (the 3D toy city replaces them);
  *  - city names in narration boxes; landmarks and real street trees as small inked stickers.
  */
 import dela from "@fontsource/dela-gothic-one/files/dela-gothic-one-latin-400-normal.woff2?url";
@@ -332,42 +332,6 @@ const EXTRAS: Record<string, Layer[]> = {
   ],
 };
 
-/** Buildings below the 3D zoom: flat white blocks with an ink outline. From
- * BUILDINGS_3D_MIN_ZOOM the manga 3D layer (buildings3d.ts) draws them instead. */
-const BUILDINGS: Layer[] = [
-  {
-    // Invisible; lets the manga 3D layer query the footprints in view (buildings3d.ts).
-    id: "art-building-query",
-    type: "fill",
-    source: "protomaps",
-    "source-layer": "buildings",
-    minzoom: 13.6,
-    paint: { "fill-color": "#000000", "fill-opacity": 0 },
-  },
-  {
-    id: "art-building",
-    type: "fill",
-    source: "protomaps",
-    "source-layer": "buildings",
-    maxzoom: 14.3,
-    minzoom: 13,
-    paint: { "fill-color": "#ffffff", "fill-opacity": ["interpolate", ["linear"], ["zoom"], 13, 0.5, 14, 1] },
-  },
-  {
-    id: "art-building-edge",
-    type: "line",
-    source: "protomaps",
-    "source-layer": "buildings",
-    maxzoom: 14.3,
-    minzoom: 13.5,
-    paint: {
-      // light grey at district scale (keeps the page airy), full ink at street level
-      "line-color": ["step", ["zoom"], C.toneLight, 15, INK],
-      "line-width": ["interpolate", ["linear"], ["zoom"], 13.5, 0.4, 15, 0.8, 18, 1.6],
-    },
-  },
-];
-
 /** Above the line work: real street trees and landmark stickers (low density). */
 const ON_TOP: Layer[] = [
   {
@@ -418,10 +382,7 @@ const SKY = {
 export function buildStyle(): StyleSpecification {
   const out: Layer[] = [];
   for (const layer of layers("protomaps", flavor, { lang: "en" }) as Layer[]) {
-    if (layer.id === "buildings") {
-      out.push(...BUILDINGS);
-      continue;
-    }
+    if (layer.id === "buildings") continue; // the city is drawn as abstract toy blocks (toyCity.ts)
     const tuned = tune(layer);
     if (tuned) out.push(tuned);
     out.push(...(EXTRAS[layer.id] ?? []));
