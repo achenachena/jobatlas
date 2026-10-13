@@ -1,22 +1,6 @@
-/** "Manga Panel" basemap (docs/visual-redesign.md): a fixed top-down manga page printed in two
- * colours — black ink and one vermilion spot colour — on white paper.
- *
- * Tiles: a GTA extract of the Protomaps OpenStreetMap build served as one PMTiles file
- * (VITE_MAP_TILES_URL). Labels use bundled web fonts through the style's `font-faces` (drawn
- * client-side): Dela Gothic One for display lettering (city captions, counts), M PLUS Rounded
- * 1c for everything else. `glyphs` (self-hosted Noto Sans) is only a fallback outside Latin.
- * No third-party servers. Data © OpenStreetMap contributors (ODbL).
- *
- * Every road, shoreline, building and POI stays where OSM puts it. The manga look is in how
- * it is drawn:
- *  - paper and ink: off-white paper with grain, near-black line art, few spot colours;
- *  - screentones instead of flat fills: grey dots (residential), sakura dots (commercial),
- *    hatching (industrial), sun dots (campus);
- *  - water as a spot colour with ink wave curls, a halftone band along the shore, a white
- *    foam line and an ink shoreline; parks as pale mint with inked bushes and an ink edge;
- *  - roads as white strips with ink edges (only thin grey lines at city scale), motorways
- *    with a sun-yellow spot colour; buildings as white blocks, ink outline, hatched shadow;
- *  - city names in narration boxes; landmarks and real street trees as small inked stickers.
+/** Colour Manga: a north-up 2D illustrated city map.
+ * Pastel land-use colours, coloured screentones, inked captions and flat building footprints.
+ * Real coordinates and self-hosted Protomaps tiles remain unchanged.
  */
 import dela from "@fontsource/dela-gothic-one/files/dela-gothic-one-latin-400-normal.woff2?url";
 import delaExt from "@fontsource/dela-gothic-one/files/dela-gothic-one-latin-ext-400-normal.woff2?url";
@@ -27,8 +11,8 @@ import rounded800ext from "@fontsource/m-plus-rounded-1c/files/m-plus-rounded-1c
 import { type Flavor, layers, namedFlavor } from "@protomaps/basemaps";
 import type { ExpressionSpecification, LayerSpecification, StyleSpecification } from "maplibre-gl";
 
-import { C, INK, PAPER } from "../../theme/palette";
-import { LANDMARKS, TOWER_TIERS, TOWER_VARIANTS } from "./markerImages";
+import { C, INK } from "../../theme/palette";
+import { LANDMARKS } from "./markerImages";
 
 export const TILES_URL: string =
   (import.meta.env.VITE_MAP_TILES_URL as string | undefined) ?? "/tiles/gta.pmtiles";
@@ -54,21 +38,21 @@ const FONT_FACES = {
 
 const flavor: Flavor = {
   ...namedFlavor("light"),
-  background: "#efe9db",
-  earth: PAPER,
-  park_a: "#ffffff",
-  park_b: "#ffffff",
-  wood_a: "#ffffff",
-  wood_b: "#ffffff",
-  scrub_a: "#ffffff",
-  scrub_b: "#ffffff",
+  background: C.land,
+  earth: C.land,
+  park_a: "#c5ebae",
+  park_b: "#c5ebae",
+  wood_a: "#a8dca4",
+  wood_b: "#a8dca4",
+  scrub_a: "#c5ebae",
+  scrub_b: "#c5ebae",
   glacier: "#ffffff",
   sand: "#fbf1cf",
   beach: "#fbf1cf",
-  hospital: PAPER,
-  school: PAPER,
-  industrial: PAPER,
-  zoo: "#ffffff",
+  hospital: "#ffe1e8",
+  school: "#fff0b4",
+  industrial: "#e5dafa",
+  zoo: "#c5ebae",
   aerodrome: "#f3f0e7",
   runway: "#ffffff",
   pedestrian: "#ffffff",
@@ -113,13 +97,13 @@ const flavor: Flavor = {
   railway: INK,
   boundaries: C.tone,
   landcover: {
-    grassland: "rgba(255, 255, 255, 1)",
+    grassland: "#d6efbb",
     barren: "rgba(250, 247, 238, 1)",
-    urban_area: "rgba(253, 251, 245, 1)",
-    farmland: "rgba(255, 255, 255, 1)",
+    urban_area: "#fff0df",
+    farmland: "#e5efc9",
     glacier: "rgba(255, 255, 255, 1)",
-    scrub: "rgba(255, 255, 255, 1)",
-    forest: "rgba(255, 255, 255, 1)",
+    scrub: "#cce7b5",
+    forest: "#b7dfac",
   },
 };
 
@@ -151,7 +135,7 @@ function tune(layer: Layer): Layer | null {
 
   if (/^roads(_bridges|_tunnels)?_major$/.test(id)) {
     paint["line-width"] = W.major;
-    paint["line-color"] = ["step", ["zoom"], C.tone, 12, "#ffffff"];
+    paint["line-color"] = ["step", ["zoom"], "#a3acc5", 12, "#fffdf7"];
   }
   if (/^roads(_bridges|_tunnels)?_major_casing/.test(id)) {
     l.minzoom = Math.max(l.minzoom ?? 0, 12);
@@ -254,7 +238,12 @@ const EXTRAS: Record<string, Layer[]> = {
   ],
   landcover: [
     {
-      // Zoning as screentones: the city reads as a drawn page, not coloured blocks.
+      id: "art-zoning-colour", type: "fill", source: "protomaps", "source-layer": "landuse",
+      filter: ["in", ["get", "kind"], ["literal", ["residential", "commercial", "retail", "industrial", "university", "college", "school"]]],
+      paint: { "fill-color": ["match", ["get", "kind"], "residential", "#ffe6d1", ["commercial", "retail"], "#ffd9e7", "industrial", "#e4dcf8", "#fff0b4"] },
+    },
+    {
+      // Coloured screentones add printed texture over pastel land-use fills.
       id: "art-zoning-tone",
       type: "fill",
       source: "protomaps",
@@ -267,7 +256,7 @@ const EXTRAS: Record<string, Layer[]> = {
           ["commercial", "retail"], "tone-pink",
           "industrial", "tone-lines",
           "tone-sun"],
-        "fill-opacity": ["interpolate", ["linear"], ["zoom"], 10, 0.5, 12, 1],
+        "fill-opacity": ["interpolate", ["linear"], ["zoom"], 10, 0.2, 12, 0.45],
       },
     },
   ],
@@ -288,7 +277,7 @@ const EXTRAS: Record<string, Layer[]> = {
       "source-layer": "landuse",
       filter: ["in", ["get", "kind"], ["literal", PARKISH]],
       minzoom: 11,
-      paint: { "line-color": INK, "line-width": ["interpolate", ["linear"], ["zoom"], 11, 0.5, 15, 1.8] },
+      paint: { "line-color": C.parkInk, "line-width": ["interpolate", ["linear"], ["zoom"], 11, 0.5, 15, 1.8] },
     },
   ],
   // Water: speed-line hatching only. Outline-based effects would also trace the tile seams of
@@ -305,7 +294,7 @@ const EXTRAS: Record<string, Layer[]> = {
   ],
 };
 
-/** Buildings: white blocks, ink outline, hatched shadow (offset down-right). */
+/** Flat pastel building footprints with fine ink outlines and drawn shadows. */
 const BUILDINGS: Layer[] = [
   {
     id: "art-building-shadow",
@@ -326,7 +315,7 @@ const BUILDINGS: Layer[] = [
     source: "protomaps",
     "source-layer": "buildings",
     minzoom: 13,
-    paint: { "fill-color": "#ffffff", "fill-opacity": ["interpolate", ["linear"], ["zoom"], 13, 0.5, 14, 1] },
+    paint: { "fill-color": ["match", ["%", ["to-number", ["coalesce", ["get", "height"], 0]], 3], 0, "#f2d4b5", 1, "#c4dfea", "#e3cdef"], "fill-opacity": ["interpolate", ["linear"], ["zoom"], 13, 0.5, 14, 1] },
   },
   {
     id: "art-building-edge",
@@ -336,45 +325,14 @@ const BUILDINGS: Layer[] = [
     minzoom: 13,
     paint: {
       // ink outlines at every scale where buildings show
-      "line-color": INK,
+      "line-color": "#817292",
       "line-width": ["interpolate", ["linear"], ["zoom"], 13.5, 0.5, 15, 1, 18, 1.8],
     },
   },
 ];
 
 /** Above the line work: real street trees and landmark stickers (low density). */
-const TOWER_HEIGHT: Exp = ["to-number", ["coalesce", ["get", "height"], 0]];
-const TOWER_TIER: Exp = [
-  "step", TOWER_HEIGHT, "t1",
-  ...TOWER_TIERS.slice(1).flatMap((t) => [t.minHeight, t.id]),
-] as unknown as Exp;
-
-/** 2.5D: tall buildings are stood up as manga drawings (markerImages.drawTower) on their real
- * footprints — drawn, not modelled. Upright to the screen, painted back to front. */
-const TOWERS: Layer = {
-  id: "art-towers",
-  type: "symbol",
-  source: "protomaps",
-  "source-layer": "buildings",
-  minzoom: 12.5,
-  filter: [">=", TOWER_HEIGHT, TOWER_TIERS[0]!.minHeight],
-  layout: {
-    "icon-image": ["concat", "tower-", TOWER_TIER, "-",
-      ["to-string", ["%", ["round", TOWER_HEIGHT], TOWER_VARIANTS]]],
-    "icon-anchor": "bottom",
-    "icon-pitch-alignment": "viewport",
-    "icon-rotation-alignment": "viewport",
-    // density is controlled by the height threshold (TOWER_TIERS); towers never compete with
-    // job markers or labels for space, so the real skyline is always complete
-    "icon-allow-overlap": true,
-    "icon-ignore-placement": true,
-    "symbol-z-order": "viewport-y",
-    "icon-size": ["interpolate", ["linear"], ["zoom"], 12.5, 0.4, 14, 0.75, 15.5, 1.2, 17, 1.8],
-  },
-} as Layer;
-
 const ON_TOP: Layer[] = [
-  TOWERS,
   {
     id: "art-street-trees",
     type: "symbol",
@@ -409,17 +367,6 @@ const ON_TOP: Layer[] = [
   },
 ];
 
-/** Sky for the tilted camera (seen only at steep pitch): bright blue over a paper horizon. */
-const SKY = {
-  "sky-color": "#38b6ff",
-  "horizon-color": PAPER,
-  "sky-horizon-blend": 0.7,
-  "horizon-fog-blend": 0.6,
-  "fog-color": "#e6f6ff",
-  "fog-ground-blend": 0.5,
-  "atmosphere-blend": 0,
-};
-
 export function buildStyle(): StyleSpecification {
   const out: Layer[] = [];
   for (const layer of layers("protomaps", flavor, { lang: "en" }) as Layer[]) {
@@ -438,7 +385,6 @@ export function buildStyle(): StyleSpecification {
     version: 8,
     glyphs: GLYPHS_URL,
     "font-faces": FONT_FACES,
-    sky: SKY,
     sources: {
       protomaps: {
         type: "vector",

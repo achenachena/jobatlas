@@ -1,9 +1,10 @@
-/* JobAtlas design tokens — "Manga Panel" (docs/visual-redesign.md).
+/* JobAtlas design tokens — "Colour Manga Page" (docs/visual-redesign.md).
 
-   Printed like a two-colour manga: black ink, white paper, grey only as screentone, and one
-   vermilion spot colour for actions and the selection. Panels are square frames with heavy
-   ink borders and a hard black drop; titles are bold display lettering.
-   Map palette: src/theme/palette.ts (kept in step). */
+   The UI is drawn like a manga page laid over the map: panels are square-cornered frames
+   with heavy ink borders and a hard black drop (no soft shadows, no glass, no gradients),
+   section titles are black caption bars, emphasis comes from screentone dots, speed lines
+   and a bold display face (Dela Gothic One). Spot colours — sky, sakura, sun, mint — are
+   used sparingly for meaning. Map palette: src/theme/palette.ts (kept in step). */
 :root {
   color-scheme: light;
 
@@ -22,27 +23,27 @@
   --ink-inverse: #ffffff;
 
   /* colour */
-  --blue: #e63b2e;
-  --blue-strong: #a8231a;
-  --blue-soft: #ffe3df;
-  --sky: #e63b2e;
-  --sky-pale: #f1ede2;
-  --sun: #ffd9d3;
-  --sun-deep: #e63b2e;
-  --sakura: #e63b2e;
-  --mint: #17151f;
-  --coral: #e63b2e;
-  --coral-ink: #a8231a;
-  --coral-soft: #ffe3df;
-  --lavender: #17151f;
-  --gold: #e63b2e;
+  --blue: #1769e0;
+  --blue-strong: #0f4fae;
+  --blue-soft: #dcecff;
+  --sky: #38b6ff;
+  --sky-pale: #bfe3ff;
+  --sun: #ffd43b;
+  --sun-deep: #f5b800;
+  --sakura: #ff5c93;
+  --mint: #3ddc97;
+  --coral: #ff5c93;
+  --coral-ink: #c2185b;
+  --coral-soft: #ffe3ec;
+  --lavender: #9b7bff;
+  --gold: #ffd23f;
 
   /* workplace language (shape + glyph + word; colour only reinforces) */
-  --onsite: #e63b2e;
-  --onsite-shade: #a8231a;
-  --hybrid: #e63b2e;
-  --hybrid-shade: #a8231a;
-  --remote: #e63b2e;
+  --onsite: #1769e0;
+  --onsite-shade: #0f4fae;
+  --hybrid: #16b07a;
+  --hybrid-shade: #0e8a5e;
+  --remote: #ff5c93;
   --unknown: #5a5767;
 
   /* status */
@@ -108,7 +109,7 @@
 
   /* brand mark */
   --brand-ink: #17151f;
-  --brand-star: #e63b2e;
+  --brand-star: #ffd43b;
 }
 
 @media (prefers-reduced-motion: reduce) {

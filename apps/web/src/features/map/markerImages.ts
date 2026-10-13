@@ -411,7 +411,7 @@ function drawLandmark(kind: string): ImageData | null {
 }
 
 /** An inked bush: three overlapping white puffs with an ink outline and a few tone dots. */
-function bush(ctx: Ctx, x: number, y: number, r: number, fill = "#ffffff") {
+function bush(ctx: Ctx, x: number, y: number, r: number, fill = "#8fe0a3") {
   const puffs: Array<[number, number, number]> = [
     [x - r * 0.45, y + r * 0.1, r * 0.62],
     [x + r * 0.45, y + r * 0.12, r * 0.6],
@@ -448,9 +448,9 @@ function drawStreetTree(): ImageData {
 /** Horizontal speed lines with random gaps — the manga way to draw water. */
 function waterLines(ctx: Ctx, w: number, h: number, seed: number) {
   const r = rand(seed);
-  ctx.strokeStyle = "rgba(23,21,31,0.55)";
+  ctx.strokeStyle = "rgba(255,255,255,0.65)";
   ctx.lineCap = "round";
-  for (let y = 3; y < h; y += 5) {
+  for (let y = 3; y < h; y += 12) {
     let x = -r() * 20;
     while (x < w) {
       const len = 6 + r() * 22;
@@ -469,19 +469,19 @@ function drawTexture(id: string): ImageData | null {
     case "tone-light": {
       // fine 10% screentone (residential)
       const [c, ctx] = canvas(6, 6);
-      screentone(ctx, 0, 0, 6, 6, 6, 0.7, "rgba(23,21,31,0.45)");
+      screentone(ctx, 0, 0, 6, 6, 6, 0.7, "rgba(188,116,82,0.35)");
       return imageOf(c);
     }
     case "tone-pink": {
       // coarse 25% screentone (commercial / retail: the busy downtown reads darker)
       const [c, ctx] = canvas(6, 6);
-      screentone(ctx, 0, 0, 6, 6, 6, 1.25, "rgba(23,21,31,0.6)");
+      screentone(ctx, 0, 0, 6, 6, 6, 1.0, "rgba(204,91,139,0.38)");
       return imageOf(c);
     }
     case "tone-lines": {
       // diagonal hatching (industrial)
       const [c, ctx] = canvas(7, 7);
-      ctx.strokeStyle = "rgba(23,21,31,0.5)";
+      ctx.strokeStyle = "rgba(127,102,182,0.35)";
       ctx.lineWidth = 0.9;
       ctx.beginPath();
       ctx.moveTo(-1, 8);
@@ -941,7 +941,6 @@ export const TOWER_IMAGE_IDS = TOWER_TIERS.flatMap((t) =>
 const TEXTURES = ["tone-light", "tone-pink", "tone-lines", "tone-sun", "hatch-shadow", "tex-trees", "tex-water", "tone-band", "paper"];
 
 export const IMAGE_IDS: string[] = [
-  ...TOWER_IMAGE_IDS,
   ...MARKER_KINDS.flatMap((k) =>
     ["", "-inferred"].flatMap((v) => [`marker-${k}${v}`, `marker-${k}${v}-hover`, `marker-${k}${v}-selected`]),
   ),

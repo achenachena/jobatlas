@@ -50,9 +50,9 @@ interface Props {
 }
 
 const CLUSTER_MAX_ZOOM = 15;
-/** 2.5D manga map: one fixed oblique angle (tilted, street grid square to the screen). The
+/** 2D colour manga map: a fixed north-up, top-down view. The
  * reader can pan and zoom, never rotate or tilt. */
-const VIEW = { pitch: 52, bearing: -17 };
+const VIEW = { pitch: 0, bearing: 0 };
 const START = { center: [-79.386, 43.6475] as [number, number], zoom: 14 };
 const INTERACTIVE = ["job-clusters", "job-stacks", "job-points", "job-aggregated"];
 /** Space kept clear of the floating search dock and the bottom bar. */
@@ -135,7 +135,7 @@ export function MapView({
     // The camera (and so the viewport) is known before any tile loads: search right away.
     handlers.current.onViewportChange(boundsOf(map), map.getZoom());
     // "Couldn't load" only when the map really fails: a style/tile-source error before the
-    // first load, or no load at all within 45 s (slow machines can take a while for 3D).
+    // first load, or no load at all within 45 s (slow machines can take a while to load tiles).
     let loaded = false;
     const fail = () => !loaded && setFailed(true);
     map.on("error", (e) => {
