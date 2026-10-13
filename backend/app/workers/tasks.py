@@ -139,8 +139,20 @@ def resolve_sites_task() -> dict:
     resolver = build_site_resolver()
     if resolver is None:
         return {"skipped": "GEOCODER_POI_URL not configured"}
+    from app.services.locations import find_osm_offices
+
     with sync_session() as session:
-        return resolve_sites(session, resolver).__dict__
+        sites = resolve_sites(session, resolver).__dict__
+        offices = find_osm_offices(session, resolver).__dict__
+    return {"sites": sites, "osm_offices": offices}
+
+
+@celery_app.task(name="jobatlas.resolve_branches")
+def resolve_branches_task() -> dict:
+    from app.services.branches import resolve_branches
+
+    with sync_session() as session, SafeHttpClient() as client:
+        return resolve_branches(session, client).__dict__
 
 
 @celery_app.task(name="jobatlas.verify_candidates", bind=True)

@@ -208,6 +208,41 @@ class SiteResolver:
         return Resolution(pts[0][0], pts[0][1], _display(r), f"{r['osm_type']}/{r['osm_id']}",
                           r.get("name") or "", method)  # fmt: skip
 
+    def company_offices(self, brands: list[str], municipality: str) -> list[Resolution]:
+        """The employer's offices in one municipality as mapped in OSM: office objects whose
+        name contains a brand word, one Resolution per distinct site (150 m). The caller
+        decides what a single or several sites mean."""
+        city = municipality.replace("-", " ").title()
+        found: list[dict] = []
+        for brand in brands:
+            found += [
+                r for r in self._search(f"{brand}, {city}", limit=40)
+                if r.get("category", r.get("class")) == "office"
+                and re.search(rf"\b{re.escape(brand)}\b", _norm(r.get("name") or ""))
+                and _in_municipality(r, municipality)
+            ]  # fmt: skip
+        sites: list[list[dict]] = []
+        for r in found:
+            p = (float(r["lon"]), float(r["lat"]))
+            for site in sites:
+                q = (float(site[0]["lon"]), float(site[0]["lat"]))
+                if _distance_m(p, q) <= SAME_SITE_METRES:
+                    site.append(r)
+                    break
+            else:
+                sites.append([r])
+        return [
+            Resolution(
+                float(s[0]["lon"]),
+                float(s[0]["lat"]),
+                _display(s[0]),
+                f"{s[0]['osm_type']}/{s[0]['osm_id']}",
+                s[0].get("name") or "",
+                "osm_company_office",
+            )  # fmt: skip
+            for s in sites
+        ]
+
     def resolve(self, desc: SiteDescriptor, brands: list[str]) -> Resolution | None:
         if not desc.resolvable:
             return None

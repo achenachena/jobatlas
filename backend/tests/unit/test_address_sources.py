@@ -215,3 +215,38 @@ def test_ordinal_floor_and_ont_abbreviation():
 
     assert "floor" not in normalize_address("55 York Street, 12th Floor, Toronto")
     assert parse_address("2190 Derry Rd E Mississauga Ont. L5S 1E2").city == "mississauga"
+
+
+@pytest.mark.parametrize(
+    "markup,expected",
+    [
+        # Webflow-style footer: suite prefix, zero-width joiner, empty separators.
+        ("<div>‍1000-119 Spadina Avenue</div><div></div><div>Toronto, ON M5V 2L1</div>",
+         "119 Spadina Avenue, Toronto, ON, M5V 2L1"),
+        ("<p>Mississauga</p><p>5570 Explorer Drive, Mississauga, ON, L4W 0C4</p>",
+         "5570 Explorer Drive, Mississauga, ON, L4W 0C4"),
+    ],
+)  # fmt: skip
+def test_office_text_layouts(markup, expected):
+    from app.services.company_sites import _from_text
+
+    assert [f.address.one_line() for f in _from_text(markup, "https://x.test/")] == [expected]
+
+
+@pytest.mark.parametrize(
+    "label,display",
+    [
+        ("180 WELLINGTON ST W:TORONTO, Canada", "180 Wellington St W, Toronto, ON"),
+        ("ROYAL BANK PLAZA, 200 BAY ST:TORONTO, Canada", "200 Bay St, Toronto, ON"),
+        ("CAN: Toronto (111 Richmond Street West)", "111 Richmond Street West, Toronto, ON"),
+        ("CAN, Ontario, Burlington, 5045 South Service Rd, Suite 101",
+         "5045 South Service Rd, Burlington, ON"),
+        ("1966 Yonge Street", None),  # no city in the label: never guessed
+        ("Toronto, Ontario, Canada", None),
+    ],
+)  # fmt: skip
+def test_label_street_addresses(label, display):
+    from app.services.locations import label_street_addresses
+
+    got = label_street_addresses([label])
+    assert (got[0][0] if got else None) == display

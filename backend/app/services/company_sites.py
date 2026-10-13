@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from urllib.parse import quote, urljoin, urlsplit
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -50,10 +50,27 @@ from app.services.locations import (
 from app.services.region_match import match_location_text
 
 ATS_HOST_SUFFIXES = (
-    "greenhouse.io", "ashbyhq.com", "lever.co", "workday.com", "myworkdayjobs.com",
-    "myworkdaysite.com", "smartrecruiters.com", "icims.com", "bamboohr.com", "jobvite.com",
-    "workable.com", "successfactors.com", "sapsf.com", "taleo.net",
+    "greenhouse.io", "greenhouse.com", "ashbyhq.com", "lever.co", "workday.com",
+    "myworkdayjobs.com", "myworkdaysite.com", "smartrecruiters.com", "icims.com",
+    "bamboohr.com", "jobvite.com", "workable.com", "successfactors.com", "sapsf.com",
+    "taleo.net", "oraclecloud.com", "oracle.com", "careerpuck.com", "dayforcehcm.com",
+    "ultipro.com", "adp.com", "paylocity.com", "applytojob.com", "recruitee.com",
+    "breezy.hr", "rippling.com", "indeed.com", "ziprecruiter.com", "jobs2web.com",
 )  # fmt: skip
+# Words that say what kind of organisation it is, not which one; never enough to tie a
+# domain to a company on their own.
+NAME_STOPWORDS = {
+    "the", "of", "and", "inc", "ltd", "llc", "lp", "llp", "plc", "corp", "corporation",
+    "company", "co", "limited", "canada", "canadian", "group", "holdings", "international",
+    "global", "na", "sa", "ag", "gmbh", "ulc", "us", "usa", "technologies", "technology",
+    "tech", "services", "solutions", "systems", "bank", "life", "financial", "insurance",
+    "health", "energy", "foods", "stores", "store", "corporate", "agency", "trust", "west",
+    "east", "north", "south", "la", "de", "du", "et", "com", "ca", "academic", "labs",
+}  # fmt: skip
+DESC_DOMAIN_RE = re.compile(
+    r"(?:https?://|\bwww\.)([a-z0-9][a-z0-9.-]*\.[a-z]{2,})|[\w.+-]+@([a-z0-9][a-z0-9.-]*\.[a-z]{2,})",
+    re.I,
+)
 NOISE_HOST_RE = re.compile(
     r"(google|gstatic|googleapis|cloudflare|cloudfront|akamai|fonts\.|cdn|linkedin|twitter|"
     r"x\.com|facebook|instagram|youtube|glassdoor|tiktok|apple\.com|w3\.org|schema\.org|"
@@ -65,12 +82,21 @@ PAGE_HINT_RE = re.compile(r"contact|about|office|location|privacy|legal|terms|im
 ORG_TYPES = {"Organization", "Corporation", "LocalBusiness", "ProfessionalService", "NGO", "Place"}
 HQ_RE = re.compile(r"head\s*quarters|headquartered|head office|\bHQ\b", re.I)
 POBOX_RE = re.compile(r"\bP\.?\s?O\.?\s?Box\b|\bc/o\b", re.I)
+_SEP = r"(?:\s*,)*\s*"  # page layouts leave runs of empty separators between address lines
 TEXT_ADDRESS_RE = re.compile(
+    r"(?:(?<![\w-])\d{1,5}\s*-\s*(?=\d))?"  # "1000-119 Spadina Avenue": suite before number
     rf"(?P<street>{STREET_RE})"
-    r"(?P<unit>,?\s*(?:Suite|Ste\.?|Unit|Floor|Fl\.?|#)\s*[\w-]+)?"
-    r",?\s*(?P<city>[A-Z][a-z]+(?:[ -][A-Z][a-z]+){0,2})"
-    rf"(?P<tail>(?:,?\s*(?:ON|Ontario))?(?:,?\s*Canada)?(?:,?\s*{CA_POSTAL_RE})?)"
+    rf"(?P<unit>{_SEP}(?:Suite|Ste\.?|Unit|Floor|Fl\.?|#)\s*[\w-]+)?"
+    rf"{_SEP}(?P<city>[A-Z][a-z]+(?:[ -][A-Z][a-z]+){{0,2}})"
+    rf"(?P<tail>(?:{_SEP}(?:ON|Ontario))?(?:{_SEP}Canada)?(?:{_SEP}{CA_POSTAL_RE})?)"
 )
+# Address pages first: contact and locations, then about, then legal pages.
+PAGE_PRIORITY = (
+    re.compile(r"contact|location|office", re.I),
+    re.compile(r"about|company", re.I),
+    re.compile(r"privacy|legal|terms|imprint", re.I),
+)
+COMMON_PATHS = ("contact", "contact-us", "locations", "offices", "about", "about-us")
 MAX_PAGES = 12
 RECHECK_DAYS = 30
 
@@ -85,6 +111,23 @@ def registrable_domain(host: str) -> str:
 def is_ats_host(host: str) -> bool:
     host = host.lower()
     return any(host == s or host.endswith("." + s) for s in ATS_HOST_SUFFIXES)
+
+
+def name_matches_domain(name: str, domain: str) -> bool:
+    """Does the registrable domain plausibly belong to this company name? "td.com" for The
+    Toronto-Dominion Bank (initials), "sunlife.ca" for Sun Life, "getjobber.com" for Jobber;
+    never on generic words alone ("bank", "life")."""
+    label = domain.split(".")[0].lower()
+    words = [w for w in re.findall(r"[a-z0-9]+", name.lower()) if not w.isdigit()]
+    core = [w for w in words if w not in NAME_STOPWORDS]
+    if not core or len(label) < 2:
+        return False
+    if label == "".join(core) or any(len(w) >= 3 and w in label for w in core):
+        return True
+    initials = "".join(w[0] for w in words if w not in {"the", "of", "and", "de", "du", "la"})
+    if len(initials) >= 2 and label == initials[: len(label)]:
+        return True  # "td" for The Toronto-Dominion Bank, "cibc"
+    return any(label.startswith(initials[:k]) for k in range(len(initials), 2, -1))  # "cclgroup"
 
 
 def _candidate_hosts(markup: str) -> list[str]:
@@ -129,6 +172,21 @@ def discover_website(
             for h in _candidate_hosts(resp.text):
                 votes[h] += 1
             evidence = f"company's own job board {page} links to its website"
+    # The company's own postings name its domain: links and contact e-mails in descriptions.
+    descriptions = session.scalars(
+        select(Job.description_text)
+        .where(Job.company_id == company.id, Job.description_text.is_not(None))
+        .limit(30)
+    ).all()
+    for text in descriptions:
+        found = set()
+        for m in DESC_DOMAIN_RE.finditer(text or ""):
+            host = (m.group(1) or m.group(2) or "").lower().rstrip(".")
+            if host and not is_ats_host(host) and not NOISE_HOST_RE.search(host):
+                found.add(registrable_domain(host))
+        for d in found:
+            votes[d] += 1
+            evidence = evidence or "the company's own job postings link to or e-mail from it"
     urls = session.scalars(
         select(JobSourceRecord.canonical_url)
         .join(Source, Source.id == JobSourceRecord.source_id)
@@ -140,6 +198,14 @@ def discover_website(
         if host and not is_ats_host(host):
             votes[registrable_domain(host)] += 2
             evidence = evidence or "company's ATS board sends applicants to job pages on it"
+    # The employer's declared name may carry its domain ("salesforce.com Canada Corporation").
+    named = re.search(r"\b([a-z0-9-]+\.(?:com|ca|io|ai|co|net|org))\b", company.name.lower())
+    if named and not is_ats_host(named.group(1)):
+        votes[registrable_domain(named.group(1))] += 3
+        evidence = evidence or "the employer name declared in its postings contains the domain"
+    # Only domains that plausibly belong to this company take part (a board footer's vendor
+    # link or a government link in a description never wins).
+    votes = Counter({d: n for d, n in votes.items() if name_matches_domain(company.name, d)})
     if not votes:
         return None
     ranked = votes.most_common(2)
@@ -195,6 +261,7 @@ def _from_text(markup: str, page: str) -> list[FoundAddress]:
     text = re.sub(r"(?s)<script.*?</script>|<style.*?</style>", " ", markup)
     text = re.sub(r"<br\s*/?>|</p>|</div>|</li>", ", ", text, flags=re.I)
     text = htmllib.unescape(re.sub(r"<[^>]+>", " ", text))
+    text = re.sub(r"[\u200b-\u200d\ufeff]", "", text)
     text = re.sub(r"\s+", " ", text)
     out = []
     for m in TEXT_ADDRESS_RE.finditer(text):
@@ -266,8 +333,19 @@ def _crawl(client: SafeHttpClient, domain: str, stats: OfficeStats) -> list[Foun
         return []
     stats.pages_fetched += 1
     found = _from_jsonld(parse_html(home.text)[0], home.url) + _from_text(home.text, home.url)
-    links = [urljoin(home.url, h) for h in re.findall(r'href="([^"#]+)"', home.text)]
+    links = [urljoin(str(home.url), h) for h in re.findall(r'href="([^"#]+)"', home.text)]
     links = [u for u in dict.fromkeys(links) if _same_site(u, domain) and PAGE_HINT_RE.search(u)]
+
+    def rank(url: str) -> int:
+        path = urlsplit(url).path
+        return next(
+            (i for i, rx in enumerate(PAGE_PRIORITY) if rx.search(path)), len(PAGE_PRIORITY)
+        )
+
+    links.sort(key=rank)  # stable: document order within a rank
+    if not any(rank(u) == 0 for u in links):
+        root = f"{urlsplit(str(home.url)).scheme}://{urlsplit(str(home.url)).netloc}/"
+        links = [urljoin(root, p) for p in COMMON_PATHS] + links
     for url in links[: MAX_PAGES - 1]:
         if not robots.allowed(url):
             stats.robots_blocked += 1
@@ -336,20 +414,21 @@ def enrich_company(
 
 
 def enrich_companies(session: Session, client: SafeHttpClient, *, limit: int = 20) -> OfficeStats:
-    """Companies with active jobs that still lack a verified location, not checked recently."""
+    """Companies with active jobs that still lack a verified location, not checked recently,
+    most such jobs first (one office page can place dozens of jobs)."""
     stats = OfficeStats()
     cutoff = utcnow() - timedelta(days=RECHECK_DAYS)
+    unlocated = (
+        select(Job.company_id, func.count().label("n"))
+        .where(Job.status == "active", Job.location_status == "unverified")
+        .group_by(Job.company_id)
+        .subquery()
+    )
     companies = session.scalars(
         select(Company)
-        .where(
-            Company.id.in_(
-                select(Job.company_id).where(
-                    Job.status == "active", Job.location_status == "unverified"
-                )
-            )
-        )
+        .join(unlocated, unlocated.c.company_id == Company.id)
         .where((Company.offices_checked_at.is_(None)) | (Company.offices_checked_at < cutoff))
-        .order_by(Company.offices_checked_at.nulls_first())
+        .order_by(unlocated.c.n.desc(), Company.id)
         .limit(limit)
     ).all()
     for company in companies:

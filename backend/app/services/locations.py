@@ -16,22 +16,34 @@ Everything else is `unverified` and gets no map point (rules 1–4).
 
 from __future__ import annotations
 
+import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from geoalchemy2.elements import WKTElement
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, tuple_
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.timeutil import utcnow
-from app.models import CompanyLocation, Evidence, Job, JobLocation, Location
+from app.models import Company, CompanyLocation, Evidence, Job, JobLocation, Location
 from app.providers.base import NormalizedJob, StructuredAddress
-from app.services.addresses import extract_explicit_addresses, normalize_address
-from app.services.geocode import POSTAL_RE, PRECISE, Geocoder, distance_m
-from app.services.region_match import MUNICIPALITIES
+from app.services.addresses import (
+    DIRECTIONS,
+    STREET_RE,
+    SUFFIXES,
+    extract_explicit_addresses,
+    normalize_address,
+)
+from app.services.geocode import POSTAL_RE, PRECISE, Geocoder, distance_m, parse_address
+from app.services.region_match import (
+    GTA_ALIASES,
+    MUNICIPALITIES,
+    MUNICIPALITY_ALIASES_UNAMBIGUOUS,
+    PROVINCES,
+)
 
 # Evidence methods that come from the job's own data; these links are rebuilt on every
 # content change. Company-derived links (headquarters) are managed separately.
@@ -42,6 +54,7 @@ JOB_METHODS = {
     "description_explicit_address",
     "workday_jsonld_address",
     "oracle_work_location",
+    "label_street_address",
     "successfactors_microdata",
 }
 COMPANY_LINK_METHOD = "company_verified_location"
@@ -110,6 +123,31 @@ def _municipality_name(region_id: str | None) -> str | None:
     return None
 
 
+def label_street_addresses(labels: list[str]) -> list[tuple[str, str]]:
+    """(display, label) for location labels that state a street address themselves:
+    "180 WELLINGTON ST W:TORONTO", "CAN: Toronto (111 Richmond Street West)",
+    "CAN, Ontario, Burlington, 5045 South Service Rd, Suite 101". The city must come from
+    the same label (a GTA municipality); a bare street never gets a guessed city."""
+    from app.services.region_match import match_location_text
+
+    out = []
+    for label in labels:
+        if not label:
+            continue
+        text = re.sub(r"[:()]", ", ", label)
+        if sum(ch.isupper() for ch in text) > sum(ch.islower() for ch in text):
+            text = text.title()  # "WELLINGTON ST W" -> "Wellington St W"
+        m = re.search(STREET_RE, text)
+        if not m:
+            continue
+        rest = text[: m.start()] + " " + text[m.end() :]
+        region = match_location_text(rest)
+        city = _municipality_name(region.region_id if region else None)
+        if city:
+            out.append((f"{m.group(0)}, {city}, ON", label))
+    return out
+
+
 def _country_code(country: str | None) -> str | None:
     if not country:
         return None
@@ -143,6 +181,9 @@ def sync_job_addresses(
     # The job's own structured postal code (e.g. SuccessFactors microdata) disambiguates
     # same-named streets when the address text omits it.
     postal_hint = next((a.postal_code for a in n.structured_addresses if a.postal_code), None)
+    for display, label in label_street_addresses([n.location_text or "", *n.extra_location_labels]):
+        hint = StructuredAddress(None, None, "ON", postal_hint, None, None, "hint")
+        wanted.append(_Wanted(display, hint, "label_street_address", f"location: {label}", "high"))
     for e in extract_explicit_addresses(n.description_text):
         display = e.display
         if not e.has_city:
@@ -197,7 +238,62 @@ def sync_job_addresses(
 COMPANY_METHODS = {COMPANY_LINK_METHOD, "company_single_city_office"}
 # Employer-named sites resolved via OSM (services/site_resolver.py). Job-derived, so they
 # outrank company-derived links.
-SITE_METHODS = {"employer_on_street_osm", "named_place_osm"}
+SITE_METHODS = {"employer_on_street_osm", "named_place_osm", "employer_branch_directory"}
+
+
+# Whole place names are removed from a label before looking for site words, so "York" in
+# "One York" (a building) survives while "North York" (a district) does not.
+_PLACE_PHRASES = sorted(
+    {*MUNICIPALITIES, *MUNICIPALITY_ALIASES_UNAMBIGUOUS, *GTA_ALIASES}
+    | {a for aliases in PROVINCES.values() for a in aliases},
+    key=len,
+    reverse=True,
+)
+_GENERIC_WORDS = {
+    "canada", "can", "ca", "usa", "us", "gta", "greater", "area", "region", "amer",
+    "americas", "noram", "na", "hq", "office", "offices", "remote", "hybrid", "onsite",
+    "location", "locations", "headquarters", "head", "corporate", "main", "the", "of", "and",
+}  # fmt: skip
+_NUMBER_WORDS = {"one": "1", "two": "2", "three": "3", "four": "4", "five": "5", "six": "6",
+                 "seven": "7", "eight": "8", "nine": "9", "ten": "10"}  # fmt: skip
+
+
+def site_words(label: str | None, company_name: str | None) -> set[str]:
+    """Words in a job's location label that name a particular site, beyond city/province/
+    country and the employer's own name: "Sun Life Toronto Atria" -> {"atria"}."""
+    if not label:
+        return set()
+    company = set(re.findall(r"[a-z0-9]+", (company_name or "").lower()))
+    text = label.lower()
+    for phrase in _PLACE_PHRASES:
+        text = re.sub(rf"(?<![a-z]){re.escape(phrase.replace('-', ' '))}(?![a-z])", " ", text)
+    out = set()
+    for w in re.findall(r"[a-z0-9]+", text):
+        if w in _GENERIC_WORDS or w in company or re.fullmatch(r"[a-z]\d[a-z]|\d[a-z]\d", w):
+            continue
+        out.add(_NUMBER_WORDS.get(w, SUFFIXES.get(w, DIRECTIONS.get(w, w))))
+    return out
+
+
+def _office_has_site(session: Session, c: CompanyLocation, words: set[str]) -> bool:
+    loc = session.get(Location, c.location_id)
+    text = normalize_address((loc.display_address or loc.normalized_address) if loc else "")
+    return words <= set(text.split())
+
+
+def _by_building(session: Session, locs: list[CompanyLocation]) -> dict:
+    """Company addresses grouped by building: "80 Spadina Ave., Toronto" (office) and
+    "80 Spadina Ave, Toronto, M5V 2J4" (headquarters) are one place, not two offices.
+    Per building, prefer the address that already has a precise point."""
+    out: dict = {}
+    for c in locs:
+        loc = session.get(Location, c.location_id)
+        parts = parse_address((loc.display_address or loc.normalized_address) if loc else "")
+        key = (parts.house, parts.street) if parts.house and parts.street else c.location_id
+        best = out.get(key)
+        if best is None or (loc is not None and loc.point is not None):
+            out[key] = c
+    return out
 
 
 def link_job_to_company_locations(session: Session, job: Job, now: datetime) -> None:
@@ -222,6 +318,7 @@ def link_job_to_company_locations(session: Session, job: Job, now: datetime) -> 
         .limit(1)
     )
     remote = job.workplace_type == "remote"
+    company = session.get(Company, job.company_id)
     target: tuple[CompanyLocation, str, str] | None = None
     if not own:
         company_locs = session.scalars(
@@ -231,7 +328,18 @@ def link_job_to_company_locations(session: Session, job: Job, now: datetime) -> 
             )
         ).all()
         if job.location_region_id in MUNICIPALITIES:
-            in_city = {c.location_id: c for c in company_locs if c.label == job.location_region_id}
+            # A label naming a particular site ("Sun Life Toronto Atria") only takes an
+            # office whose address states that site ("One York" -> "1 York Street").
+            words = site_words(job.location_text, company.name if company else None)
+            in_city = _by_building(
+                session,
+                [
+                    c
+                    for c in company_locs
+                    if c.label == job.location_region_id
+                    and (not words or _office_has_site(session, c, words))
+                ],
+            )
             if len(in_city) == 1:
                 target = (
                     next(iter(in_city.values())),
@@ -265,8 +373,13 @@ def link_job_to_company_locations(session: Session, job: Job, now: datetime) -> 
         return
     source = session.get(Evidence, cl.evidence_id) if cl.evidence_id else None
     if method == "company_single_city_office":
+        where = (
+            "only office mapped in OpenStreetMap"
+            if source is not None and source.method == "osm_company_office"
+            else "only published address"
+        )
         excerpt = (
-            f"job location '{job.location_text}' -> company's only published address in "
+            f"job location '{job.location_text}' -> company's {where} in "
             f"{job.location_region_id}: {source.excerpt if source else ''}"
         )
     else:
@@ -588,4 +701,102 @@ def resolve_sites(session: Session, resolver, *, limit: int = 300) -> SiteStats:
         if refresh_location_status(session, job) == "exact_work_location":
             stats.linked += 1
         session.commit()
+    return stats
+
+
+@dataclass
+class OsmOfficeStats:
+    pairs: int = 0
+    cache_hits: int = 0
+    queried: int = 0
+    offices: int = 0
+    errors: int = 0
+    jobs_linked: int = 0
+
+
+def find_osm_offices(session: Session, resolver, *, limit: int = 200) -> OsmOfficeStats:
+    """For (company, municipality) pairs with unlocated on-site/hybrid/unknown jobs and no
+    known company address in that municipality, look up the company's offices there in
+    OpenStreetMap (user decision 2026-10-12). Every distinct site found becomes a
+    company_location (evidence: the OSM object); the single-office rule then links jobs only
+    when the municipality has exactly one building for that company."""
+    from app.models import SiteResolution, Source
+    from app.services.site_resolver import brand_tokens
+
+    stats = OsmOfficeStats()
+    now = utcnow()
+    retry_before = now - timedelta(days=get_settings().geocoder_retry_days * 7)
+    known = select(CompanyLocation.company_id, CompanyLocation.label).where(
+        CompanyLocation.invalidated_at.is_(None)
+    )
+    pairs = session.execute(
+        select(Job.company_id, Job.location_region_id, func.count().label("n"))
+        .where(Job.status == "active", Job.is_publishable, Job.workplace_type != "remote")
+        .where(Job.location_status == "unverified", Job.location_region_id.in_(MUNICIPALITIES))
+        .where(tuple_(Job.company_id, Job.location_region_id).not_in(known))
+        .group_by(Job.company_id, Job.location_region_id)
+        .order_by(func.count().desc())
+        .limit(limit)
+    ).all()
+    touched: set[uuid.UUID] = set()
+    for company_id, municipality, _n in pairs:
+        stats.pairs += 1
+        key = f"company:{company_id}|{municipality}"
+        cached = session.scalar(select(SiteResolution).where(SiteResolution.key == key))
+        if cached is not None and cached.resolved_at > retry_before:
+            stats.cache_hits += 1
+            continue
+        company = session.get(Company, company_id)
+        source = session.scalar(select(Source).where(Source.company_id == company_id).limit(1))
+        brands = brand_tokens(company.name if company else None,
+                              source.tenant_key if source else None)  # fmt: skip
+        if not brands:
+            continue
+        stats.queried += 1
+        try:
+            sites = resolver.company_offices(brands, municipality)
+        except Exception:  # noqa: BLE001 - geocoder hiccup: try again next run
+            stats.errors += 1
+            continue
+        if cached is None:
+            cached = SiteResolution(key=key, status="unresolved", resolved_at=now)
+            session.add(cached)
+        cached.resolved_at = now
+        cached.status = "resolved" if sites else "unresolved"
+        cached.detail = f"{len(sites)} OSM office site(s) for {brands}"
+        for site in sites:
+            loc = session.scalar(
+                select(Location).where(Location.normalized_address == f"osm:{site.osm_ref}")
+            )
+            if loc is None:
+                loc = Location(
+                    normalized_address=f"osm:{site.osm_ref}", display_address=site.display,
+                    point=WKTElement(f"POINT({site.lon} {site.lat})", srid=4326),
+                    precision="rooftop", geocoder="osm-site", geocoded_at=now,
+                )  # fmt: skip
+                session.add(loc)
+                session.flush()
+            osm_type, osm_id = site.osm_ref.split("/", 1)
+            ev = add_evidence(
+                session, "company", company_id, "office",
+                method="osm_company_office", confidence="medium",
+                excerpt=f"OSM office '{site.name}' ({site.display}) for {brands}",
+                source_url=f"https://www.openstreetmap.org/{osm_type}/{osm_id}", now=now,
+            )  # fmt: skip
+            session.execute(
+                insert(CompanyLocation)
+                .values(company_id=company_id, location_id=loc.id, role="office",
+                        label=municipality, evidence_id=ev.id)
+                .on_conflict_do_nothing(constraint="uq_company_locations")
+            )  # fmt: skip
+            stats.offices += 1
+        touched.add(company_id)
+        session.commit()
+    for job in session.scalars(
+        select(Job).where(Job.status == "active", Job.company_id.in_(touched))
+    ):
+        link_job_to_company_locations(session, job, now)
+        if refresh_location_status(session, job) in ("inferred_office", "exact_work_location"):
+            stats.jobs_linked += 1
+    session.commit()
     return stats

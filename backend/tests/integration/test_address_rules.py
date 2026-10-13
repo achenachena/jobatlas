@@ -193,3 +193,104 @@ def test_date_only_postings_in_rolling_window(session):
     j.posted_precision, j.posted_date, j.posted_basis = "date", date.today(), "original"
     session.commit()
     assert session.get(Job, j.id).posted_precision == "date"
+
+
+def test_same_building_twice_is_still_one_office(session):
+    # The official site lists 80 Spadina as both "office" and "headquarters", written two ways.
+    c = f.company(session)
+    _office(session, c, "80 Spadina Ave.", "toronto")
+    _office(session, c, "80 Spadina Ave, Suite 400", "toronto", role="headquarters")
+    job = f.job(session, c, workplace="hybrid", region="toronto")
+    link_job_to_company_locations(session, job, utcnow())
+    assert refresh_location_status(session, job) == "inferred_office"
+
+
+def test_website_from_own_postings_must_match_the_name(session, make_client, fake_web):
+    from app.services.company_sites import discover_website
+
+    c = f.company(session, "The Toronto-Dominion Bank (Canada)")
+    f.source(session, c, "workday")
+    for text in ("Apply at td.com/careers or e-mail accommodations@td.com.",
+                 "Pay equity: see https://www.canada.ca/en/pay-equity.html",
+                 "Questions: talent@td.com"):  # fmt: skip
+        j = f.job(session, c)
+        j.description_text = text
+    session.flush()
+    domain, evidence = discover_website(session, make_client(), c)
+    assert domain == "td.com" and "postings" in evidence
+
+
+def test_label_naming_another_site_does_not_take_the_single_office(session):
+    c = f.company(session, "Sun Life of Canada - Corporate")
+    _office(session, c, "1 York Street", "toronto")
+    one_york = f.job(session, c, workplace="hybrid", region="toronto")
+    one_york.location_text = "Sun Life Toronto One York, Canada"
+    atria = f.job(session, c, workplace="hybrid", region="toronto")
+    atria.location_text = "Sun Life Toronto Atria, Canada"
+    plain = f.job(session, c, workplace="hybrid", region="toronto")
+    plain.location_text = "Toronto, Ontario, Canada"
+    session.flush()
+    for j in (one_york, atria, plain):
+        link_job_to_company_locations(session, j, utcnow())
+    assert refresh_location_status(session, one_york) == "inferred_office"
+    assert refresh_location_status(session, atria) == "unverified"  # Atria is another site
+    assert refresh_location_status(session, plain) == "inferred_office"
+
+
+def test_site_words():
+    from app.services.locations import site_words
+
+    assert site_words("Sun Life Toronto One York, Canada", "Sun Life") == {"1", "york"}
+    assert site_words("North York, ON M3B 1V5", "X") == set()
+    assert site_words("AMER - Canada - Ontario - Toronto - University Ave", "Autodesk") == {
+        "university",
+        "ave",
+    }
+
+
+class _FakeOsm:
+    def __init__(self, sites):
+        self.sites = sites
+        self.calls = []
+
+    def company_offices(self, brands, municipality):
+        from app.services.site_resolver import Resolution
+
+        self.calls.append((tuple(brands), municipality))
+        return [Resolution(lon, lat, f"{n} King St W, Toronto", f"way/{n}", f"Acme {n}",
+                           "osm_company_office") for n, lon, lat in self.sites]  # fmt: skip
+
+
+def test_single_osm_office_is_an_inferred_location(session):
+    from app.services.locations import find_osm_offices
+
+    c = f.company(session, "Acmeworks Inc.")
+    f.source(session, c, "greenhouse", tenant="acmeworks")
+    job = f.job(session, c, workplace="hybrid", region="toronto")
+    session.commit()
+    stats = find_osm_offices(session, _FakeOsm([(100, -79.39, 43.645)]))
+    assert stats.offices == 1 and stats.jobs_linked == 1
+    session.refresh(job)
+    assert job.location_status == "inferred_office"
+    ev = session.scalar(
+        select(Evidence).where(
+            Evidence.entity_id == job.id, Evidence.method == "company_single_city_office"
+        )
+    )
+    assert "OpenStreetMap" in ev.excerpt
+    # Cached: a second run does not query again.
+    fake = _FakeOsm([])
+    find_osm_offices(session, fake)
+    assert fake.calls == []
+
+
+def test_two_osm_offices_in_city_link_nothing(session):
+    from app.services.locations import find_osm_offices
+
+    c = f.company(session, "Acmeworks Inc.")
+    f.source(session, c, "greenhouse", tenant="acmeworks")
+    job = f.job(session, c, workplace="on_site", region="toronto")
+    session.commit()
+    find_osm_offices(session, _FakeOsm([(100, -79.39, 43.645), (200, -79.30, 43.70)]))
+    session.refresh(job)
+    assert job.location_status == "unverified"

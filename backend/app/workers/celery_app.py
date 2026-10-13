@@ -19,6 +19,7 @@ MAINTENANCE_TASKS = (
     "jobatlas.geocode_pending",
     "jobatlas.resolve_sites",
     "jobatlas.enrich_company_offices",
+    "jobatlas.resolve_branches",
 )
 
 
@@ -47,6 +48,7 @@ celery_app.conf.update(
         "verify-candidates": _every("jobatlas.verify_candidates", 7200.0),
         "freshness-sweep": _every("jobatlas.freshness_sweep", 3600.0),
         "geocode-pending": _every("jobatlas.geocode_pending", 3600.0),
+        "resolve-branches": _every("jobatlas.resolve_branches", 6 * 3600.0),
         "resolve-sites": _every("jobatlas.resolve_sites", 86400.0),
         "enrich-company-offices": _every("jobatlas.enrich_company_offices", 86400.0),
         "discover-commoncrawl": _every(

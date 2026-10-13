@@ -232,6 +232,28 @@ def resolve_sites_cmd(limit: int = typer.Option(300)) -> None:
         _echo(resolve_sites(session, resolver, limit=limit).__dict__)
 
 
+@app.command("resolve-branches")
+def resolve_branches_cmd(limit: int = typer.Option(300)) -> None:
+    """Link jobs naming a branch/store to the address the employer publishes for it."""
+    from app.services.branches import resolve_branches
+
+    with sync_session() as session, SafeHttpClient() as client:
+        _echo(resolve_branches(session, client, limit=limit).__dict__)
+
+
+@app.command("osm-offices")
+def osm_offices_cmd(limit: int = typer.Option(200)) -> None:
+    """Look up employers' offices per GTA municipality in self-hosted OSM (geocoder-full)."""
+    from app.services.locations import find_osm_offices
+    from app.services.site_resolver import build_site_resolver
+
+    resolver = build_site_resolver()
+    if resolver is None:
+        raise typer.BadParameter("GEOCODER_POI_URL is not configured")
+    with sync_session() as session:
+        _echo(find_osm_offices(session, resolver, limit=limit).__dict__)
+
+
 @app.command("enrich-offices")
 def enrich_offices(limit: int = typer.Option(20)) -> None:
     """Find official HQ/office addresses on company websites (for remote jobs)."""
@@ -239,6 +261,31 @@ def enrich_offices(limit: int = typer.Option(20)) -> None:
 
     with sync_session() as session, SafeHttpClient() as client:
         _echo(enrich_companies(session, client, limit=limit).__dict__)
+
+
+@app.command("relink-offices")
+def relink_offices() -> None:
+    """Re-apply the company-office rules to every active job of companies with known offices
+    (after a rule change); no network access."""
+    from app.core.timeutil import utcnow
+    from app.models import CompanyLocation
+    from app.services.locations import link_job_to_company_locations, refresh_location_status
+
+    counts: dict[str, int] = {}
+    with sync_session() as session:
+        now = utcnow()
+        jobs = session.scalars(
+            select(Job).where(
+                Job.status == "active",
+                Job.company_id.in_(select(CompanyLocation.company_id)),
+            )
+        ).all()
+        for job in jobs:
+            link_job_to_company_locations(session, job, now)
+            status = refresh_location_status(session, job)
+            counts[status] = counts.get(status, 0) + 1
+        session.commit()
+    _echo(counts)
 
 
 @app.command()
