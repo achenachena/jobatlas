@@ -26,7 +26,7 @@
   box-shadow: var(--shadow-float);
 }
 
-/* Logo panel: a little patch of summer sky. */
+/* Logo panel: black, with white speed lines radiating behind the mark. */
 .brand {
   display: flex;
   flex: none;
@@ -35,17 +35,17 @@
   padding: 0 var(--space-3) 0 0.55rem;
   border-right: var(--line) solid var(--edge);
   background:
-    radial-gradient(circle at 20px 30%, rgb(255 255 255 / 0.55), transparent 55%),
-    linear-gradient(160deg, #4aa8f0, #8fd3ff);
+    repeating-conic-gradient(from 0deg at 18px 50%, rgb(255 255 255 / 0.16) 0 3deg, transparent 3deg 11deg),
+    var(--ink-900);
 }
 
 .wordmark {
   color: #fff;
   font-family: var(--font-display);
   font-size: 1.25rem;
-  font-weight: var(--fw-heavy);
+  font-weight: 400;
   letter-spacing: 0.01em;
-  text-shadow: 0 1px 2px rgb(30 70 140 / 0.35);
+  text-shadow: 2px 2px 0 var(--sakura);
 }
 
 .wordmark::first-letter {
@@ -93,7 +93,7 @@
 
 .input:focus-visible {
   border-color: var(--sky);
-  background: var(--paper-2);
+  background: #fff;
   box-shadow: none;
 }
 
@@ -104,7 +104,7 @@
   place-items: center;
   width: 32px;
   height: 32px;
-  border: 1px solid var(--edge);
+  border: 2px solid var(--ink-900);
   border-radius: var(--radius-sm);
   background: var(--paper-2);
   color: var(--ink-900);
@@ -128,7 +128,7 @@
   padding: 0 var(--space-3);
   font-family: var(--font-display);
   font-size: var(--fs-sm);
-  font-weight: var(--fw-heavy);
+  font-weight: 400;
   letter-spacing: 0.02em;
 }
 
@@ -137,14 +137,8 @@
   color: var(--blue);
 }
 
-.pillOn,
-.pillOn svg {
-  background: var(--sun);
-  color: var(--ink-900);
-}
-
-.pillOn svg {
-  background: none;
+.pillOn {
+  background: var(--tone), var(--sun);
 }
 
 .pillOn:hover {
@@ -164,10 +158,10 @@
   min-width: 1.5rem;
   height: 1.5rem;
   padding: 0 0.3rem;
-  border: 1px solid var(--edge);
+  border: 2px solid var(--ink-900);
   border-radius: 0;
   background: var(--sakura);
-  color: var(--ink-inverse);
+  color: #fff;
   font-size: var(--fs-xs);
   font-weight: var(--fw-heavy);
 }
@@ -178,10 +172,10 @@
   gap: 0.3rem;
   height: 38px;
   padding: 0 0.2rem 0 0.75rem;
-  border: 1px solid var(--edge);
+  border: 2px solid var(--ink-900);
   border-radius: 0;
-  background: var(--sky-pale);
-  box-shadow: var(--shadow-cel);
+  background: var(--tone), var(--sky-pale);
+  box-shadow: 2px 2px 0 var(--ink-900);
   color: var(--ink-900);
   font-size: var(--fs-sm);
   font-weight: var(--fw-heavy);
@@ -260,10 +254,10 @@
   gap: 0.35rem;
   min-height: 40px;
   padding: 0 var(--space-3);
-  border: 1px solid var(--edge);
+  border: 2px solid var(--ink-900);
   border-radius: 0;
-  background: var(--paper-2);
-  box-shadow: var(--shadow-cel);
+  background: #fff;
+  box-shadow: 2px 2px 0 var(--ink-900);
   color: var(--ink-900);
   font-size: var(--fs-sm);
   font-weight: var(--fw-medium);
@@ -282,12 +276,10 @@
 }
 
 .optionOn {
-  border-color: #ffe2a8;
-  background: var(--sun);
+  background: var(--tone), var(--sun);
   font-weight: var(--fw-heavy);
-  transform: none;
-  box-shadow: none;
-  color: var(--ink-900);
+  transform: translate(2px, 2px);
+  box-shadow: 0 0 0 var(--ink-900);
 }
 
 .workplace svg {
@@ -337,15 +329,15 @@
 }
 
 .areaPopover .popTitle {
-  --ribbon: linear-gradient(100deg, #2b9b84, #4fc3a6);
+  --ribbon: var(--mint);
 }
 
 .areaInput {
   height: 46px;
   padding: 0 var(--space-3);
-  border: 1px solid var(--edge);
+  border: 2px solid var(--ink-900);
   border-radius: var(--radius-md);
-  background: var(--paper-2);
+  background: #fff;
   color: var(--ink-900);
   font-weight: var(--fw-medium);
 }
@@ -420,9 +412,4 @@
     translate: 0 24px;
     opacity: 0;
   }
-}
-
-/* Selected option: the glyph follows the dark text on amber. */
-.optionOn svg {
-  color: var(--ink-900) !important;
 }

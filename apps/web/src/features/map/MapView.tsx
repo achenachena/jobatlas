@@ -19,8 +19,7 @@ import { t } from "../../lib/strings";
 import { INK } from "../../theme/palette";
 import { groupByLocation } from "./locations";
 import { buildStyle, FONT_DISPLAY, FONT_HEAVY } from "./mapStyle";
-import { PaintedSky } from "./PaintedSky";
-import { BADGE_CENTER_OFFSET, centerOffset, MARKER_ICON_OFFSET, provideImages } from "./markerImages";
+import { BADGE_CENTER_OFFSET, MARKER_ICON_OFFSET, provideImages } from "./markerImages";
 import styles from "./MapView.module.css";
 
 export type FlyTarget =
@@ -51,10 +50,8 @@ interface Props {
 }
 
 const CLUSTER_MAX_ZOOM = 15;
-/** Default "3D" camera: tilted, and turned so Toronto's street grid runs across the screen. */
-const TILT = { pitch: 81, bearing: -20 };
-/** First view: downtown Toronto's skyline seen from the lake, summer sky above. */
-const START = { center: [-79.383, 43.6425] as [number, number], zoom: 14.9 };
+/** A manga page is drawn from one fixed angle: straight down, north up. No rotate, no tilt. */
+const START = { center: [-79.386, 43.6505] as [number, number], zoom: 13.6 };
 const INTERACTIVE = ["job-clusters", "job-stacks", "job-points", "job-aggregated"];
 /** Space kept clear of the floating search dock and the bottom bar. */
 const SAFE = { top: 84, bottom: 76, side: 16 };
@@ -77,9 +74,9 @@ function boundsOf(map: MapLibreMap): Bbox {
 const pointOf = (f: MapGeoJSONFeature) => (f.geometry as GeoJSON.Point).coordinates as [number, number];
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
-/** Text sitting on the stack badge, whose centre floats centerOffset(scale) px above the point. */
+/** Text sitting on the stack badge, whose centre is BADGE_CENTER_OFFSET × scale px above the point. */
 const STACK_TEXT_SIZE = 13;
-const stackTextOffset = (scale: number): [number, number] => [0, -centerOffset(scale) / STACK_TEXT_SIZE];
+const stackTextOffset = (scale: number): [number, number] => [0, (-BADGE_CENTER_OFFSET * scale) / STACK_TEXT_SIZE];
 
 const emptyFc = (): GeoJSON.FeatureCollection => ({ type: "FeatureCollection", features: [] });
 
@@ -98,7 +95,6 @@ export function MapView({
   const popRef = useRef<HTMLDivElement>(null);
   const pingRef = useRef<HTMLSpanElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
-  const skyRef = useRef<HTMLCanvasElement | null>(null);
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
   // Keep the latest callbacks without re-creating the map.
@@ -115,9 +111,12 @@ export function MapView({
         style: buildStyle(),
         center: START.center,
         zoom: START.zoom,
-        pitch: TILT.pitch,
-        bearing: TILT.bearing,
-        maxPitch: 85,
+        pitch: 0,
+        bearing: 0,
+        maxPitch: 0,
+        dragRotate: false,
+        pitchWithRotate: false,
+        touchPitch: false,
         maxZoom: 18,
         attributionControl: false,
       });
@@ -184,7 +183,7 @@ export function MapView({
           "text-allow-overlap": true,
           "text-ignore-placement": true,
         },
-        paint: { "text-color": INK },
+        paint: { "text-color": "#ffffff" },
       });
       // Server-side aggregation (very large result sets) uses the same emblem.
       map.addLayer({
@@ -200,7 +199,7 @@ export function MapView({
           "text-size": 14,
           "text-allow-overlap": true,
         },
-        paint: { "text-color": INK },
+        paint: { "text-color": "#ffffff" },
       });
       // Same address: stacked badges with the count, tip on the real point.
       map.addLayer({
@@ -281,31 +280,8 @@ export function MapView({
       handlers.current.onViewportChange(boundsOf(map), map.getZoom());
     });
 
-    // The painted sky sits behind the map: its bottom edge follows the horizon (found by
-    // bisecting for the highest screen row that still maps onto the ground) and it slides a
-    // little sideways as the map rotates (parallax).
-    const placeSky = () => {
-      const el = skyRef.current;
-      if (!el) return;
-      const W = map.getContainer().clientWidth;
-      const H = map.getContainer().clientHeight;
-      let lo = 0;
-      let hi = H;
-      for (let i = 0; i < 14; i++) {
-        const mid = (lo + hi) / 2;
-        const back = map.project(map.unproject([W / 2, mid]));
-        if (Math.abs(back.y - mid) < 2) hi = mid;
-        else lo = mid;
-      }
-      const horizon = hi;
-      const b = ((map.getBearing() % 360) + 540) % 360 - 180;
-      // painted once at a fixed height; only moved so its hazy bottom meets the horizon
-      el.style.transform = `translate(${(-b * 1.5).toFixed(1)}px, ${Math.round(horizon + 30 - el.clientHeight)}px)`;
-      el.style.opacity = horizon > 4 ? "1" : "0";
-    };
-    map.on("move", placeSky);
-    map.on("resize", placeSky);
-    placeSky();
+    map.touchZoomRotate.disableRotation();
+    map.keyboard.disableRotation();
 
     map.on("moveend", () => handlers.current.onViewportChange(boundsOf(map), map.getZoom()));
 
@@ -398,7 +374,7 @@ export function MapView({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready || !flyTo) return;
-    if (flyTo.kind === "bbox") map.fitBounds(flyTo.bbox as LngLatBoundsLike, { padding: 40, pitch: map.getPitch(), bearing: map.getBearing() });
+    if (flyTo.kind === "bbox") map.fitBounds(flyTo.bbox as LngLatBoundsLike, { padding: 40 });
     else map.easeTo({ center: [flyTo.lon, flyTo.lat], zoom: flyTo.zoom ?? Math.max(map.getZoom(), 14) });
   }, [flyTo, ready]);
 
@@ -465,18 +441,11 @@ export function MapView({
     }
   }, [ready, showPopover, selLon, selLat]);
 
-  const [tilted, setTilted] = useState(true);
-  const toggleTilt = () => {
-    const next = !tilted;
-    setTilted(next);
-    mapRef.current?.easeTo({ pitch: next ? TILT.pitch : 0, bearing: next ? TILT.bearing : 0, duration: 400 });
-  };
-
   const zoomBy = (d: number) => mapRef.current?.easeTo({ zoom: mapRef.current.getZoom() + d, duration: 200 });
   const locate = () => {
     const map = mapRef.current;
     if (!map) return;
-    const home = () => map.easeTo({ ...START, pitch: TILT.pitch, bearing: TILT.bearing, duration: 600 });
+    const home = () => map.easeTo({ ...START, duration: 600 });
     if (!navigator.geolocation) return home();
     navigator.geolocation.getCurrentPosition(
       (pos) => map.easeTo({ center: [pos.coords.longitude, pos.coords.latitude], zoom: 13 }),
@@ -487,9 +456,8 @@ export function MapView({
 
   return (
     <div className={styles.wrap}>
-      <PaintedSky className={styles.sky} canvasRef={skyRef} />
       <div ref={container} className={styles.map} aria-label={t.mapAreaTitle} role="region" />
-      <div className={styles.paper} aria-hidden="true" />
+      <div className={styles.frame} aria-hidden="true" />
       {showPopover && (
         <>
           <span ref={pingRef} key={`${selLon},${selLat}`} className={styles.ping} aria-hidden="true" />
@@ -499,16 +467,6 @@ export function MapView({
         </>
       )}
       <div className={styles.controls}>
-        <button
-          type="button"
-          className={`${styles.control} ${styles.tilt}`}
-          onClick={toggleTilt}
-          aria-pressed={tilted}
-          aria-label={t.tilt}
-          title={t.tilt}
-        >
-          <span aria-hidden="true">{tilted ? "3D" : "2D"}</span>
-        </button>
         <button type="button" className={styles.control} onClick={locate} aria-label={t.locate} title={t.locate}>
           <Icon name="locate" />
         </button>

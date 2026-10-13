@@ -60,7 +60,7 @@
   color: #fff;
   font-size: var(--fs-xs);
   font-weight: var(--fw-medium);
-  text-shadow: 0 1px 2px rgb(13 16 48 / 0.7);
+  text-shadow: 0 1px 0 var(--ink-900), 1px 0 0 var(--ink-900), -1px 0 0 var(--ink-900), 0 -1px 0 var(--ink-900);
 }
 
 .iconButton {
@@ -68,17 +68,16 @@
   place-items: center;
   width: 42px;
   height: 42px;
-  border: 1px solid var(--edge);
+  border: 2px solid var(--ink-900);
   border-radius: 0;
-  background: var(--paper-2);
-  box-shadow: var(--shadow-cel);
+  background: #fff;
+  box-shadow: 2px 2px 0 var(--ink-900);
   color: var(--ink-900);
   font-size: 1.15rem;
 }
 
 .iconButton:hover {
   background: var(--sun);
-  color: var(--ink-900);
 }
 
 .body {
@@ -113,7 +112,7 @@
     height: 0.3rem;
     translate: -50% 0;
     border-radius: var(--radius-pill);
-    background: var(--paper-2);
+    background: #fff;
   }
 }
 

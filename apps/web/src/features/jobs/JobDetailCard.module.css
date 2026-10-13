@@ -6,19 +6,19 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   animation: pop var(--motion-base) var(--ease-pop);
-  --ribbon: linear-gradient(100deg, #3d8fe0, #5fb6f5 65%, #8fd3ff);
+  --ribbon: var(--sky);
 }
 
 .card[data-workplace="on_site"] {
-  --ribbon: linear-gradient(100deg, #2f7fd6, #4fa3ef 65%, #7ec4fb);
+  --ribbon: var(--onsite);
 }
 
 .card[data-workplace="hybrid"] {
-  --ribbon: linear-gradient(100deg, #2b9b84, #4fc3a6 65%, #8fe0c8);
+  --ribbon: var(--hybrid);
 }
 
 .card[data-workplace="remote"] {
-  --ribbon: linear-gradient(100deg, #e46a95, #ff8fb1 65%, #ffb8cd);
+  --ribbon: var(--remote);
 }
 
 .card:focus-visible {
@@ -56,9 +56,9 @@
   align-items: center;
   min-height: 34px;
   padding: 0 var(--space-3) 0 0.3rem;
-  border: 1px solid var(--edge);
-  background: var(--paper-2);
-  box-shadow: var(--shadow-cel);
+  border: 2px solid var(--ink-900);
+  background: #fff;
+  box-shadow: 2px 2px 0 var(--ink-900);
 }
 
 .close,
@@ -69,10 +69,10 @@
   gap: 0.25rem;
   min-width: 40px;
   min-height: 40px;
-  border: 1px solid var(--edge);
+  border: 2px solid var(--ink-900);
   border-radius: 0;
-  background: var(--paper-2);
-  box-shadow: var(--shadow-cel);
+  background: #fff;
+  box-shadow: 2px 2px 0 var(--ink-900);
   color: var(--ink-900);
   font-size: var(--fs-sm);
   font-weight: var(--fw-heavy);
@@ -90,7 +90,6 @@
 .close:hover,
 .back:hover {
   background: var(--sun);
-  color: var(--ink-900);
 }
 
 .body {
@@ -122,9 +121,9 @@
   gap: var(--space-2);
   margin: 0;
   padding: var(--space-3);
-  border: 1px solid var(--edge);
+  border: 2px solid var(--ink-900);
   border-radius: 0;
-  background: var(--paper-2);
+  background: #fff;
   box-shadow: inset 0 -10px 0 -6px transparent;
   list-style: none;
   font-size: var(--fs-sm);
@@ -150,9 +149,9 @@
 .note {
   margin: 0;
   padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--edge);
+  border: 2px solid var(--ink-900);
   border-radius: 0;
-  background: var(--coral-soft);
+  background: var(--tone-light), var(--coral-soft);
   color: var(--coral-ink);
   font-size: var(--fs-sm);
   font-weight: var(--fw-heavy);
@@ -179,7 +178,7 @@
 .closed {
   margin: 0;
   padding: var(--space-3);
-  border: 1px solid var(--edge);
+  border: 2px solid var(--ink-900);
   border-radius: 0;
   background: var(--warn-soft);
   color: var(--warn);
@@ -187,7 +186,7 @@
 }
 
 .more {
-  border-top: 1px solid var(--edge-inner);
+  border-top: 2px solid var(--ink-900);
   padding-top: var(--space-2);
   font-size: var(--fs-sm);
 }

@@ -1,3 +1,4 @@
+@import "@fontsource/dela-gothic-one/latin-400.css";
 @import "@fontsource/m-plus-rounded-1c/latin-500.css";
 @import "@fontsource/m-plus-rounded-1c/latin-700.css";
 @import "@fontsource/m-plus-rounded-1c/latin-800.css";
@@ -18,6 +19,11 @@ body,
   height: 100%;
 }
 
+html {
+  /* Dela Gothic One ships one (already heavy) weight: never fake-bold it. */
+  font-synthesis-weight: none;
+}
+
 body {
   background: var(--paper-3);
   color: var(--ink-700);
@@ -31,7 +37,7 @@ body {
 
 :where(h1, h2, h3) {
   font-family: var(--font-display);
-  font-weight: var(--fw-heavy);
+  font-weight: 400; /* Dela Gothic One has one (very heavy) weight */
   color: var(--ink-900);
   letter-spacing: 0.01em;
 }
