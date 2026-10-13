@@ -7,7 +7,7 @@ SUPERCENTER") is linked to the address the employer itself publishes for that br
   - the branch's city is the city the job label names.
 The label names the site and the employer's own page gives its address, so the link counts
 as the job's work site (like a resolved site name). Each directory is listed below with how
-it was checked; see docs/SOURCES.md §4.13.
+it was checked; see docs/SOURCES.md §4.14.
 """
 
 from __future__ import annotations
