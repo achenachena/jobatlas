@@ -32,3 +32,4 @@ celerybeat-schedule*
 .codex/
 .cursor/
 .DS_Store
+.vercel/

@@ -15,6 +15,9 @@ x-backend: &backend
     redis:
       condition: service_healthy
   restart: unless-stopped
+  # The server is IPv4-only; skip AAAA lookups so outbound requests do not stall.
+  dns_opt:
+    - no-aaaa
 
 services:
   db:
