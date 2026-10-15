@@ -2,10 +2,11 @@ import uuid
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api import errors
-from app.api.routes import catalog, health, search
+from app.api.routes import atlas, health
 from app.core.config import get_settings
 from app.core.logging import configure_logging, get_logger
 
@@ -15,13 +16,14 @@ log = get_logger(__name__)
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    app = FastAPI(title="JobAtlas API", version="0.1.0", openapi_url="/api/v1/openapi.json")
+    app = FastAPI(title="JobAtlas API", version="2.0.0", openapi_url="/api/v2/openapi.json")
+    app.add_middleware(GZipMiddleware, minimum_size=2000)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origin_list,
         allow_methods=["GET"],
         allow_headers=["*"],
-        expose_headers=["X-Request-ID"],
+        expose_headers=["X-Request-ID", "ETag"],
     )
 
     @app.middleware("http")
@@ -47,9 +49,8 @@ def create_app() -> FastAPI:
         return response
 
     errors.install(app)
-    app.include_router(health.router, prefix="/api/v1")
-    app.include_router(search.router, prefix="/api/v1")
-    app.include_router(catalog.router, prefix="/api/v1")
+    app.include_router(health.router, prefix="/api/v2")
+    app.include_router(atlas.router, prefix="/api/v2")
     return app
 
 

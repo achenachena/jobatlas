@@ -11,8 +11,6 @@ from redis.exceptions import RedisError
 from sqlalchemy.exc import OperationalError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.services.search import SearchError
-
 
 def _rid() -> str | None:
     return structlog.contextvars.get_contextvars().get("request_id")
@@ -26,10 +24,6 @@ def envelope(status: int, code: str, message: str, details=None) -> JSONResponse
 
 
 def install(app: FastAPI) -> None:
-    @app.exception_handler(SearchError)
-    async def _search(_: Request, exc: SearchError):
-        return envelope(exc.status, exc.code, exc.message)
-
     @app.exception_handler(RequestValidationError)
     async def _validation(_: Request, exc: RequestValidationError):
         details = [{"loc": list(e["loc"]), "msg": e["msg"]} for e in exc.errors()]
@@ -46,7 +40,7 @@ def install(app: FastAPI) -> None:
 
     @app.exception_handler(RedisError)
     async def _redis(_: Request, exc: RedisError):
-        return envelope(503, "DEPENDENCY_UNAVAILABLE", "snapshot store unavailable")
+        return envelope(503, "DEPENDENCY_UNAVAILABLE", "message broker unavailable")
 
     @app.exception_handler(OperationalError)
     async def _db(_: Request, exc: OperationalError):

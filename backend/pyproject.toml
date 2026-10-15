@@ -8,8 +8,9 @@ dependencies = [
     "uvicorn[standard]>=0.54,<0.55",
     "sqlalchemy[asyncio]>=2.1,<2.2",
     "alembic>=1.20,<1.21",
-    "psycopg[binary,pool]>=3.3,<3.4",
+    # Required only to replay historical schema migrations on a fresh database.
     "geoalchemy2>=0.20,<0.21",
+    "psycopg[binary,pool]>=3.3,<3.4",
     "celery[redis]>=5.6,<5.7",
     "redis>=6,<9",
     "httpx>=0.28,<0.29",

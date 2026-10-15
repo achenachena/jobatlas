@@ -1,0 +1,613 @@
+.app {
+  --ink: #30304b;
+  --ink-soft: #5d6084;
+  --cream: #fffdf7;
+  --paper: #f5eee2;
+  --teal: #1f9fac;
+  --coral: #ff6b5b;
+  --sun: #ffcf5a;
+  --sky: #fff6e9;
+  --shadow: 3px 4px 0 #30304b, 0 8px 24px #30304b0d;
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: var(--sky);
+  color: var(--ink);
+  font-family: "M PLUS Rounded 1c", system-ui, sans-serif;
+  font-weight: 500;
+}
+
+.stage {
+  position: absolute;
+  inset: 0;
+  outline: none;
+}
+.stage:focus-visible {
+  box-shadow: inset 0 0 0 3px var(--coral);
+}
+
+.panel {
+  background: var(--cream);
+  border: 2px solid var(--ink);
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+}
+
+/* ---------------------------------------------------------------- top bar */
+.top {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 330px; /* the corner panel owns the top-right */
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-start;
+  pointer-events: none;
+}
+.top > * {
+  pointer-events: auto;
+}
+.brand {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 14px 9px;
+  max-width: 330px;
+}
+.brandName {
+  font-family: "Dela Gothic One", "M PLUS Rounded 1c", sans-serif;
+  font-size: 22px;
+  line-height: 1.1;
+  letter-spacing: 0.02em;
+}
+.brandName span {
+  color: var(--coral);
+}
+.brandNote {
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--ink-soft);
+}
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 7px;
+  align-items: center;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+.chip {
+  position: relative;
+  font: inherit;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--paper);
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  padding: 4px 11px;
+  cursor: pointer;
+}
+.chip[aria-checked="true"],
+.chip[aria-pressed="true"] {
+  background: var(--ink);
+  color: var(--cream);
+}
+.chip:focus-visible,
+.btn:focus-visible,
+.slider:focus-visible {
+  outline: 3px solid var(--coral);
+  outline-offset: 2px;
+}
+.segment {
+  display: inline-flex;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.segment .chip {
+  border: 0;
+  border-radius: 0;
+}
+.badge {
+  margin-top: 7px;
+  font-family: "Dela Gothic One", "PingFang SC", "Noto Sans CJK SC", sans-serif;
+  font-size: 13px;
+  padding: 6px 12px;
+  border: 2px solid var(--ink);
+  border-radius: 10px;
+  background: repeating-linear-gradient(-45deg, var(--sun) 0 10px, #ffe399 10px 20px);
+  box-shadow: var(--shadow);
+}
+
+/* ---------------------------------------------------------------- corner */
+.corner {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  max-width: 300px;
+}
+.meta {
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: right;
+}
+.meta strong {
+  font-weight: 800;
+}
+.btn {
+  font: inherit;
+  font-weight: 800;
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--cream);
+  border: 2px solid var(--ink);
+  border-radius: 10px;
+  padding: 6px 12px;
+  box-shadow: 2px 2px 0 var(--ink);
+  cursor: pointer;
+}
+.btn:active {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0 var(--ink);
+}
+.btnPrimary {
+  background: var(--coral);
+  color: #fff;
+}
+.row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* ---------------------------------------------------------------- legend */
+.legend {
+  padding: 10px 12px;
+  font-size: 12px;
+  width: 230px;
+}
+.legend h2,
+.card h2,
+.list h2,
+.dialog h2 {
+  font-family: "Dela Gothic One", sans-serif;
+  font-weight: 400;
+  font-size: 14px;
+  margin: 0 0 6px;
+}
+.ticks {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  height: 64px;
+  margin: 4px 0 6px;
+}
+.tick {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  font-weight: 800;
+}
+.tickBar {
+  width: 12px;
+  background-image: linear-gradient(90deg, #ffffff55, transparent 40%, #30304b33 41%, transparent 75%);
+  border: 2px solid var(--ink);
+  clip-path: polygon(25% 0, 75% 0, 100% 8px, 100% 100%, 0 100%, 0 8px);
+}
+.keyRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+.padSolid,
+.padRing {
+  width: 16px;
+  height: 9px;
+  border-radius: 50%;
+  border: 2px solid var(--ink);
+  background: var(--cream);
+  flex: none;
+}
+.padRing {
+  background: transparent;
+  border-style: dashed;
+}
+
+/* ---------------------------------------------------------------- timeline */
+.timeline {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  width: min(880px, calc(100% - 24px));
+  padding: 9px 12px 10px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-areas: "play label right" "play slider right";
+  column-gap: 12px;
+  row-gap: 4px;
+  align-items: center;
+}
+.play {
+  grid-area: play;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  font-size: 18px;
+  padding: 0;
+}
+.timeLabel {
+  grid-area: label;
+  font-weight: 800;
+  font-size: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: baseline;
+}
+.timeLabel small {
+  font-weight: 500;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+.sliderWrap {
+  grid-area: slider;
+  position: relative;
+  height: 22px;
+}
+.slider {
+  width: 100%;
+  margin: 0;
+  accent-color: var(--coral);
+  position: relative;
+  z-index: 1;
+}
+.gapMark {
+  position: absolute;
+  top: 4px;
+  height: 12px;
+  background: repeating-linear-gradient(45deg, var(--ink) 0 2px, transparent 2px 5px);
+  border-radius: 2px;
+  opacity: 0.6;
+}
+.right {
+  grid-area: right;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.speed {
+  font: inherit;
+  font-weight: 800;
+  border: 2px solid var(--ink);
+  border-radius: 8px;
+  background: var(--paper);
+  padding: 4px;
+}
+
+/* ---------------------------------------------------------------- city card */
+.card {
+  position: absolute;
+  left: 12px;
+  bottom: 110px;
+  width: 300px;
+  padding: 12px 14px;
+}
+.cardClose {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  padding: 2px 8px;
+}
+.bigCount {
+  font-family: "Dela Gothic One", sans-serif;
+  font-size: 34px;
+  line-height: 1;
+}
+.small {
+  font-size: 12px;
+  color: var(--ink-soft);
+  line-height: 1.45;
+}
+.spark {
+  display: block;
+  width: 100%;
+  height: 54px;
+  margin-top: 8px;
+}
+
+/* ---------------------------------------------------------------- list */
+.list {
+  position: absolute;
+  right: 12px;
+  bottom: 110px;
+  width: 260px;
+  max-height: min(48vh, 420px);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+}
+.list ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow: auto;
+}
+.list li button {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  color: var(--ink);
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  padding: 3px 4px;
+  cursor: pointer;
+}
+.list li button:hover,
+.list li button:focus-visible,
+.list li button[aria-current="true"] {
+  background: #ffe8a8;
+  outline: none;
+}
+
+/* ---------------------------------------------------------------- labels */
+.labels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.label {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 2px 8px;
+  border: 2px solid var(--ink);
+  border-radius: 4px 4px 4px 0;
+  background: var(--cream);
+  box-shadow: 2px 2px 0 var(--ink);
+}
+.label b {
+  color: var(--coral);
+  margin-left: 5px;
+}
+.labelSelected {
+  background: var(--sun);
+}
+
+/* ---------------------------------------------------------------- banners */
+.banner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(460px, calc(100% - 32px));
+  padding: 18px 20px;
+  text-align: center;
+}
+.banner h2 {
+  font-family: "Dela Gothic One", sans-serif;
+  font-weight: 400;
+  font-size: 20px;
+  margin: 0 0 8px;
+}
+.notice {
+  position: absolute;
+  left: 50%;
+  bottom: 96px;
+  transform: translateX(-50%);
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  max-width: calc(100% - 24px);
+}
+.toast {
+  background: var(--sun);
+}
+.dialogBackdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(38, 40, 74, 0.35);
+  display: grid;
+  place-items: center;
+  z-index: 10;
+}
+.dialog {
+  width: min(640px, calc(100% - 24px));
+  max-height: calc(100% - 40px);
+  overflow: auto;
+  padding: 16px 18px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.dialog dl {
+  margin: 0;
+}
+.dialog dt {
+  font-weight: 800;
+  margin-top: 8px;
+}
+.dialog dd {
+  margin: 0;
+}
+.status {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 1px 6px;
+  border-radius: 6px;
+  border: 1.5px solid var(--ink);
+}
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- fallback */
+.fallback {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+.fallback svg {
+  width: min(96vw, 1100px);
+  height: auto;
+}
+
+@media (max-width: 760px) {
+  .top {
+    flex-direction: column;
+    right: 8px;
+    left: 8px;
+    top: 8px;
+    gap: 6px;
+  }
+  .brand {
+    max-width: none;
+    padding: 5px 10px;
+  }
+  .brandName {
+    font-size: 17px;
+  }
+  .brandNote,
+  .meta,
+  .legend {
+    display: none;
+  }
+  .badge {
+    font-size: 11px;
+    padding: 3px 8px;
+    margin-top: 4px;
+  }
+  .controls {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    max-width: 100%;
+    padding: 5px;
+    scrollbar-width: none;
+  }
+  .chips {
+    flex-wrap: nowrap;
+  }
+  .chip {
+    font-size: 12px;
+    padding: 3px 9px;
+    white-space: nowrap;
+  }
+  .corner {
+    top: 104px;
+    bottom: auto;
+    right: 8px;
+    max-width: none;
+  }
+  .tz {
+    display: none;
+  }
+  .btn {
+    font-size: 12px;
+    padding: 4px 9px;
+  }
+  .timeline {
+    grid-template-columns: auto 1fr;
+    grid-template-areas: "play label" "slider slider" "right right";
+    bottom: 8px;
+    padding: 7px 10px;
+    width: calc(100% - 16px);
+  }
+  .play {
+    width: 38px;
+    height: 38px;
+  }
+  .timeLabel {
+    font-size: 13px;
+  }
+  .card,
+  .list {
+    left: 8px;
+    right: 8px;
+    width: auto;
+    bottom: 166px;
+    max-height: 40vh;
+  }
+  .label {
+    font-size: 10.5px;
+    padding: 1px 6px;
+  }
+  .notice {
+    bottom: 166px;
+    font-size: 12px;
+  }
+}
+
+/* Demo identity: always visible, also in screenshots and recordings (spec §3.4). */
+.watermark {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  z-index: 1;
+}
+.watermark span {
+  font-family: "Dela Gothic One", sans-serif;
+  font-size: clamp(48px, 10vw, 150px);
+  color: rgba(38, 40, 74, 0.08);
+  transform: rotate(-14deg);
+  white-space: nowrap;
+  letter-spacing: 0.08em;
+}
+@media (max-width: 760px) {
+  .top {
+    right: 12px;
+  }
+}
+
+.mapTools { position: absolute; left: 12px; top: 182px; display: grid; gap: 8px; }
+.mapTools > span { font-size: 11px; font-weight: 800; background: var(--cream); padding: 3px 8px; border-left: 3px solid var(--coral); }
+.mapTools .row { justify-content: flex-start; }
+.mapTools .btn { min-width: 38px; min-height: 38px; }
+@media (max-width: 760px) {
+  .mapTools { top: 155px; left: 8px; }
+  .mapTools > span { display: none; }
+  .mapTools .row { gap: 5px; }
+}
+
+.legendLead { margin: 0 0 10px; font-weight: 800; font-size: 12px; }
+.colorRamp { height: 9px; border-radius: 3px; border: 1px solid var(--ink); }
+.colorEndpoints { display: flex; justify-content: space-between; margin: 3px 0 10px; font-size: 10px; color: var(--ink-soft); }
+.mobileKey { display: none; }
+.label::after { content: ""; position: absolute; left: 50%; bottom: -7px; width: 2px; height: 5px; background: var(--ink); }
+@media (max-width: 760px) {
+  .mobileKey { display: block; font-size: 10px; padding: 3px 6px; background: var(--cream); border-left: 3px solid var(--coral); width: fit-content; }
+}

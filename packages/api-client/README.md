@@ -1,8 +1,5 @@
-# @jobatlas/api-client
+# JobAtlas API types
 
-Generated TypeScript types for the public API, produced from FastAPI's OpenAPI document
-(`/api/v1/openapi.json`). Generation is wired up in stage 2, once the `/search`, `/jobs` and
-`/regions` contracts exist; stage 1 exposes only health endpoints, so nothing is generated yet.
-Planned command (run against a running API):
+Generated from the atlas-only `/api/v2/openapi.json`.
 
-    npx openapi-typescript http://localhost:8010/api/v1/openapi.json -o packages/api-client/schema.d.ts
+Run `npm run generate` with the API running, or set `API_OPENAPI_URL` to an exported OpenAPI JSON file.

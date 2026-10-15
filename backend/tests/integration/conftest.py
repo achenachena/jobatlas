@@ -16,6 +16,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
+import app.atlas.models  # noqa: F401 - register v2 tables for truncation
 from app.models import Base
 
 BACKEND = Path(__file__).resolve().parents[2]
@@ -55,7 +56,7 @@ def engine():
 
 @pytest.fixture
 def session(engine) -> Session:
-    tables = [t.name for t in Base.metadata.sorted_tables if t.name != "regions"]
+    tables = [t.name for t in Base.metadata.sorted_tables]
     with engine.begin() as conn:
         conn.execute(text(f"TRUNCATE {', '.join(tables)} RESTART IDENTITY CASCADE"))
     s = sessionmaker(engine, expire_on_commit=False)()

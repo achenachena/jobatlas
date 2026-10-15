@@ -10,6 +10,6 @@ __pycache__/
 node_modules/
 dist/
 .DS_Store
-infra/osm-data/
-infra/tiles-data/
-apps/web/public/tiles
+
+# Local generated assets and scratch state
+.local/

@@ -52,8 +52,7 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npx vite build
-      # E2E uses fixture API routes (deterministic). Tiles are not in git, so the map shows its
-      # designed "couldn't load" state in CI; the tests cover the UI flows, not tile rendering.
+      # Atlas E2E uses deterministic API fixtures.
       - run: npx playwright install --with-deps chromium
       - run: npm run e2e
 

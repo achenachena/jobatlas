@@ -1,0 +1,357 @@
+"""Daily base counts, atomic releases and window queries (spec §4, §5, §8, §10).
+
+A release is built from admitted sources only, over months whose coverage is `complete`.
+Its daily rows are inserted while the release is `building`; publishing flips one row, so a
+client always reads one consistent version. Playback is bound to a release id; the last few
+releases are kept so a client in history mode is not moved.
+"""
+
+from __future__ import annotations
+
+import uuid
+from collections import defaultdict
+from dataclasses import dataclass, field
+from datetime import date, timedelta
+
+from sqlalchemy import delete, select, text, update
+from sqlalchemy.orm import Session
+
+from app.atlas.models import AtlasCity, AtlasCoverage, AtlasDailyMetric, AtlasRelease
+from app.atlas.occupations import CLASSIFICATION_VERSION
+from app.atlas.permissions import admitted, source
+from app.atlas.windows import WINDOWS, window
+from app.core.timeutil import utcnow
+
+METRIC = "new_postings"
+KEEP_RELEASES = 3
+REAL_DATASET = "jobbank"
+
+
+class ReleaseError(Exception):
+    pass
+
+
+def _months_between(first: date, last: date) -> list[date]:
+    out, d = [], date(first.year, first.month, 1)
+    while d <= last:
+        out.append(d)
+        d = date(d.year + (d.month == 12), d.month % 12 + 1, 1)
+    return out
+
+
+def _month_end(start: date) -> date:
+    return date(start.year + (start.month == 12), start.month % 12 + 1, 1) - timedelta(days=1)
+
+
+def coverage_summary(session: Session, keys: list[str]) -> dict:
+    rows = session.scalars(
+        select(AtlasCoverage)
+        .where(AtlasCoverage.source_key.in_(keys))
+        .order_by(AtlasCoverage.period_start)
+    ).all()
+    complete = [r for r in rows if r.status == "complete"]
+    if not complete:
+        return {"history_start": None, "data_through": None, "gaps": [], "periods": 0}
+    first, last = complete[0].period_start, complete[-1].period_end
+    have = {r.period_start for r in complete}
+    gaps = [
+        {"start": m.isoformat(), "end": _month_end(m).isoformat(),
+         "reason": "month not imported or failed"}
+        for m in _months_between(first, last) if m not in have
+    ]  # fmt: skip
+    return {
+        "history_start": first.isoformat(),
+        "data_through": last.isoformat(),
+        "gaps": gaps,
+        "periods": len(complete),
+    }
+
+
+INSERT_SQL = """
+INSERT INTO atlas_daily_metrics (release_id, metric, occupation_id, scope, city_id, day, count)
+SELECT :rid, 'new_postings', occ, scope, city, day, count(*)
+FROM (
+  SELECT p.posted_on AS day, p.occupation_id, p.geo_status, coalesce(p.city_id, '') AS city_id
+  FROM atlas_postings p
+  JOIN atlas_coverage c ON c.source_key = p.source_key AND c.status = 'complete'
+   AND p.posted_on BETWEEN c.period_start AND c.period_end
+  WHERE p.source_key = ANY(:keys) AND p.posted_on IS NOT NULL
+    AND (CAST(:full AS boolean) OR EXISTS (
+      SELECT 1 FROM unnest(CAST(:starts AS date[]), CAST(:ends AS date[])) r(s, e)
+      WHERE p.posted_on BETWEEN r.s AND r.e))
+) p
+CROSS JOIN LATERAL (VALUES (p.occupation_id), ('all')) o(occ)
+CROSS JOIN LATERAL (
+  VALUES ('national', ''),
+         (p.geo_status, CASE WHEN p.geo_status = 'city' THEN p.city_id ELSE '' END)
+) s(scope, city)
+WHERE NOT (s.scope = 'city' AND s.city = '')
+GROUP BY occ, scope, city, day
+"""
+
+# Incremental release: days outside the changed periods are copied from the previous release
+# (only where coverage is still complete); the changed periods are recomputed.
+COPY_SQL = """
+INSERT INTO atlas_daily_metrics (release_id, metric, occupation_id, scope, city_id, day, count)
+SELECT :rid, m.metric, m.occupation_id, m.scope, m.city_id, m.day, m.count
+FROM atlas_daily_metrics m
+WHERE m.release_id = :prev
+  AND NOT EXISTS (SELECT 1 FROM unnest(CAST(:starts AS date[]), CAST(:ends AS date[])) r(s, e)
+                  WHERE m.day BETWEEN r.s AND r.e)
+  AND EXISTS (SELECT 1 FROM atlas_coverage c WHERE c.source_key = ANY(:keys)
+              AND c.status = 'complete' AND m.day BETWEEN c.period_start AND c.period_end)
+"""
+
+QUALITY_SQL = """
+SELECT count(*) AS records,
+       count(*) FILTER (WHERE p.posted_on IS NULL) AS no_trusted_date,
+       count(*) FILTER (WHERE p.geo_status = 'unconfirmed') AS city_unconfirmed,
+       count(*) FILTER (WHERE p.geo_status = 'remote') AS remote_national,
+       count(*) FILTER (WHERE p.occupation_id = 'unclassified') AS unclassified
+FROM atlas_postings p WHERE p.source_key = ANY(:keys)
+"""
+
+
+def build_release(
+    session: Session,
+    dataset_id: str,
+    keys: list[str],
+    *,
+    change_kind: str = "update",
+    changed: list[tuple[date, date]] | None = None,
+) -> AtlasRelease:
+    """`changed`: periods whose records changed since the published release. When given (and
+    the previous release used the same sources and classification), only those periods are
+    recomputed and the rest is copied; otherwise everything is recomputed."""
+    for key in keys:
+        ok, why = admitted(source(session, key))
+        if not ok:
+            raise ReleaseError(f"{key}: {why}")
+    cov = coverage_summary(session, keys)
+    if cov["data_through"] is None:
+        raise ReleaseError("no complete coverage period")
+    now = utcnow()
+    source_set = "+".join(sorted(keys))
+    rid = f"{dataset_id}-{now:%Y%m%dT%H%M%S}-{uuid.uuid4().hex[:6]}"
+    release = AtlasRelease(
+        id=rid, dataset_id=dataset_id, status="building",
+        data_through=date.fromisoformat(cov["data_through"]),
+        history_start=date.fromisoformat(cov["history_start"]),
+        source_set_id=source_set, classification_version=CLASSIFICATION_VERSION,
+        coverage=cov, quality={}, change_kind=change_kind,
+    )  # fmt: skip
+    prev = current_release(session, dataset_id)
+    incremental = (
+        changed is not None
+        and prev is not None
+        and prev.source_set_id == source_set
+        and prev.classification_version == CLASSIFICATION_VERSION
+    )
+    session.add(release)
+    session.flush()
+    starts = [a for a, _ in changed or []]
+    ends = [b for _, b in changed or []]
+    if incremental:
+        session.execute(text(COPY_SQL), {"rid": rid, "prev": prev.id, "keys": keys,
+                                         "starts": starts, "ends": ends})  # fmt: skip
+    session.execute(text(INSERT_SQL), {"rid": rid, "keys": keys, "full": not incremental,
+                                       "starts": starts, "ends": ends})  # fmt: skip
+    q = session.execute(text(QUALITY_SQL), {"keys": keys}).mappings().one()
+    release.quality = {
+        **dict(q), "scale_max": scale_maxima(session, rid),
+        "build": "incremental" if incremental else "full",
+        "recomputed": [f"{a}..{b}" for a, b in zip(starts, ends, strict=True)] if incremental
+        else "all",
+    }  # fmt: skip
+    session.commit()
+    return release
+
+
+SCALE_SQL = """
+SELECT occupation_id, max(total) FROM (
+  SELECT occupation_id,
+         sum(count) OVER (PARTITION BY occupation_id, city_id ORDER BY day
+                          RANGE BETWEEN CAST(:span AS interval) PRECEDING AND CURRENT ROW) AS total
+  FROM atlas_daily_metrics
+  WHERE release_id = :rid AND metric = 'new_postings' AND scope = 'city'
+) t GROUP BY occupation_id
+"""
+
+
+def scale_maxima(session: Session, rid: str) -> dict[str, dict[str, int]]:
+    """Largest city count per occupation and window over the whole release: the fixed scale a
+    playback uses (computed once, never per frame)."""
+    out: dict[str, dict[str, int]] = {}
+    for key, n in WINDOWS.items():
+        for occ, best in session.execute(text(SCALE_SQL), {"rid": rid, "span": f"{n - 1} days"}):
+            out.setdefault(occ, {})[key] = int(best or 0)
+    return out
+
+
+def publish(session: Session, release: AtlasRelease) -> None:
+    """Atomic switch: the previous published release becomes superseded in the same commit."""
+    session.execute(
+        update(AtlasRelease)
+        .where(AtlasRelease.dataset_id == release.dataset_id, AtlasRelease.status == "published")
+        .values(status="superseded")
+    )
+    release.status = "published"
+    release.published_at = utcnow()
+    session.commit()
+    old = session.scalars(
+        select(AtlasRelease.id)
+        .where(AtlasRelease.dataset_id == release.dataset_id)
+        .order_by(AtlasRelease.created_at.desc())
+        .offset(KEEP_RELEASES)
+    ).all()
+    if old:
+        session.execute(delete(AtlasRelease).where(AtlasRelease.id.in_(old)))
+        session.commit()
+
+
+def current_release(session: Session, dataset_id: str) -> AtlasRelease | None:
+    return session.scalar(
+        select(AtlasRelease).where(
+            AtlasRelease.dataset_id == dataset_id, AtlasRelease.status == "published"
+        )
+    )
+
+
+def release_by_id(session: Session, dataset_id: str, rid: str) -> AtlasRelease | None:
+    r = session.get(AtlasRelease, rid)
+    return r if r is not None and r.dataset_id == dataset_id and r.status != "building" else None
+
+
+# ---------------------------------------------------------------- queries
+
+
+@dataclass
+class Frame:
+    day: date
+    cities: dict[str, int | None]
+    national: int | None
+    unconfirmed: int | None
+    remote: int | None
+    quality: str  # complete | partial | missing
+    days_available: int
+    notes: list[str] = field(default_factory=list)
+
+
+def gap_days(release: AtlasRelease) -> set[date]:
+    out: set[date] = set()
+    for g in (release.coverage or {}).get("gaps", []):
+        d, end = date.fromisoformat(g["start"]), date.fromisoformat(g["end"])
+        while d <= end:
+            out.add(d)
+            d += timedelta(days=1)
+    return out
+
+
+def release_cities(session: Session, release: AtlasRelease) -> list[AtlasCity]:
+    ids = (
+        select(AtlasDailyMetric.city_id)
+        .where(
+            AtlasDailyMetric.release_id == release.id,
+            AtlasDailyMetric.scope == "city",
+            AtlasDailyMetric.occupation_id == "all",
+        )
+        .distinct()
+    )
+    return list(session.scalars(select(AtlasCity).where(AtlasCity.id.in_(ids))))
+
+
+def _daily(
+    session: Session, release: AtlasRelease, occupation: str, first: date, last: date,
+    city_id: str | None = None,
+) -> dict[tuple[str, str, date], int]:  # fmt: skip
+    q = select(
+        AtlasDailyMetric.scope, AtlasDailyMetric.city_id, AtlasDailyMetric.day,
+        AtlasDailyMetric.count,
+    ).where(
+        AtlasDailyMetric.release_id == release.id, AtlasDailyMetric.metric == METRIC,
+        AtlasDailyMetric.occupation_id == occupation,
+        AtlasDailyMetric.day.between(first, last),
+    )  # fmt: skip
+    if city_id is not None:
+        q = q.where(AtlasDailyMetric.scope == "city", AtlasDailyMetric.city_id == city_id)
+    return {(s, c, d): n for s, c, d, n in session.execute(q)}
+
+
+def rolling_frames(
+    first_day: date,
+    last_day: date,
+    window_key: str,
+    history_start: date,
+    gaps: set[date],
+    daily: dict[date, dict[tuple[str, str], int]],
+    city_ids: list[str],
+    *,
+    not_covered: set[str] = frozenset(),
+    partial_on: date | None = None,
+) -> list[Frame]:
+    """One frame per day, each summing its own trailing window (playing a year never
+    accumulates a year). Running totals make a full history O(days × cities). A window that
+    touches a coverage gap is `missing` (counts null, never zero); a window starting before
+    the history is `partial`."""
+    n = WINDOWS[window_key]
+    running: dict[tuple[str, str], int] = defaultdict(int)
+    d = first_day - timedelta(days=n - 1)
+    while d < first_day:
+        for key, count in daily.get(d, {}).items():
+            running[key] += count
+        d += timedelta(days=1)
+    out = []
+    d = first_day
+    while d <= last_day:
+        for key, count in daily.get(d, {}).items():
+            running[key] += count
+        w = window(window_key, d, history_start=history_start)
+        missing = sum(1 for i in range(n) if (d - timedelta(days=i)) in gaps)
+        notes = []
+        if missing:
+            quality = "missing"
+            notes.append(f"{missing} day(s) of this window are not covered")
+        elif w.days_available < n:
+            quality = "partial"
+            notes.append(f"only {w.days_available} of {n} days have data (history starts "
+                         f"{history_start})")  # fmt: skip
+        else:
+            quality = "complete"
+        if partial_on is not None and d == partial_on:
+            notes.append("today is not over")
+            if quality == "complete":
+                quality = "partial"
+        if quality == "missing":
+            out.append(Frame(d, dict.fromkeys(city_ids), None, None, None, quality,
+                             w.days_available, notes))  # fmt: skip
+        else:
+            cities = {
+                c: (None if c in not_covered else running.get(("city", c), 0)) for c in city_ids
+            }
+            out.append(Frame(
+                d, cities, running.get(("national", ""), 0), running.get(("unconfirmed", ""), 0),
+                running.get(("remote", ""), 0), quality, w.days_available, notes,
+            ))  # fmt: skip
+        old = d - timedelta(days=n - 1)
+        for key, count in daily.get(old, {}).items():
+            running[key] -= count
+        d += timedelta(days=1)
+    return out
+
+
+def frames(
+    session: Session,
+    release: AtlasRelease,
+    occupation: str,
+    window_key: str,
+    first_day: date,
+    last_day: date,
+    city_ids: list[str],
+) -> list[Frame]:
+    n = WINDOWS[window_key]
+    rows = _daily(session, release, occupation, first_day - timedelta(days=n - 1), last_day)
+    daily: dict[date, dict[tuple[str, str], int]] = defaultdict(dict)
+    for (scope, city, day), count in rows.items():
+        daily[day][(scope, city)] = count
+    return rolling_frames(first_day, last_day, window_key, release.history_start,
+                          gap_days(release), daily, city_ids)  # fmt: skip

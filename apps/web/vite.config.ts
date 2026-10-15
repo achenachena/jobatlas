@@ -8,7 +8,7 @@ export default defineConfig({
   resolve: {
     alias: { "@api": fileURLToPath(new URL("../../packages/api-client", import.meta.url)) },
   },
-  server: { port: 5173, fs: { allow: ["..", "../../packages", "../../infra/tiles-data"] } },
+  server: { port: 5173, fs: { allow: ["..", "../../packages"] } },
   test: {
     environment: "jsdom",
     globals: true,

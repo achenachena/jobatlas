@@ -9,8 +9,6 @@ x-backend: &backend
   environment:
     DATABASE_URL: postgresql+psycopg://jobatlas:jobatlas@db:5432/jobatlas
     REDIS_URL: redis://redis:6379/0
-    # GEOCODER_* come from ../.env (env_file above); listing them here would override it.
-    # Self-hosted geocoders start with --profile geocoder / geocoder-full; off by default.
   depends_on:
     db:
       condition: service_healthy
@@ -35,7 +33,6 @@ services:
       interval: 3s
       timeout: 3s
       retries: 20
-
   redis:
     image: redis:7.4.6-alpine
     ports:
@@ -45,13 +42,10 @@ services:
       interval: 3s
       timeout: 3s
       retries: 20
-
-  # Migrations run once, from this dedicated step only; workers never migrate.
   migrate:
     <<: *backend
     command: ["alembic", "upgrade", "head"]
     restart: "no"
-
   api:
     <<: *backend
     command: ["uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
@@ -60,41 +54,14 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
-
   worker:
     <<: *backend
-    # Default queue: API boards, discovery, geocoding. Threads: syncs mostly wait on the
-    # network. Memory is bounded so a laptop stays usable.
-    command: ["celery", "-A", "app.workers.celery_app", "worker", "--loglevel=INFO", "--pool=threads", "--concurrency=4", "-Q", "celery", "-n", "default@%h"]
-    mem_limit: 1g
-    stop_grace_period: 60s
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-
-  # Page-by-page career sites (Workday, SuccessFactors, Oracle, ...) share a few IPs and are
-  # throttled per IP, so they run apart and never hold up the API boards.
-  worker-careersite:
-    <<: *backend
-    command: ["celery", "-A", "app.workers.celery_app", "worker", "--loglevel=INFO", "--pool=threads", "--concurrency=3", "-Q", "careersite", "-n", "careersite@%h"]
+    command: ["celery", "-A", "app.workers.celery_app", "worker", "--loglevel=INFO", "--pool=prefork", "--concurrency=1", "-Q", "atlas", "-n", "atlas@%h"]
     mem_limit: 768m
     stop_grace_period: 60s
     depends_on:
       migrate:
         condition: service_completed_successfully
-
-  # Candidate verification, discovery, geocoding: one at a time, in one process so Celery's
-  # time limits apply (the thread pools above do not enforce them).
-  worker-maintenance:
-    <<: *backend
-    command: ["celery", "-A", "app.workers.celery_app", "worker", "--loglevel=INFO", "--pool=prefork", "--concurrency=1", "-Q", "maintenance", "-n", "maintenance@%h"]
-    mem_limit: 768m
-    stop_grace_period: 60s
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-
-  # Exactly one scheduler. It only enqueues; schedule state lives in PostgreSQL.
   scheduler:
     <<: *backend
     command: ["celery", "-A", "app.workers.celery_app", "beat", "--loglevel=INFO", "--schedule=/tmp/celerybeat-schedule"]
@@ -103,7 +70,6 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
-
   web:
     build:
       context: ..
@@ -112,56 +78,8 @@ services:
       VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8010}
     ports:
       - "${JOBATLAS_WEB_PORT:-5173}:5173"
-    volumes:
-      # Self-hosted GTA vector tiles + glyphs (see README "Map tiles"). Not in git.
-      - ./tiles-data:/app/apps/web/public/tiles:ro
     depends_on:
       - api
 
-  # Self-hosted geocoder (opt-in: `--profile geocoder`). OSM data © OpenStreetMap
-  # contributors, ODbL. First start downloads the Ontario extract (~1 GB) and imports it;
-  # this takes a while. Point the app at it with GEOCODER_PROVIDER=nominatim and
-  # GEOCODER_BASE_URL=http://geocoder:8080 (or http://localhost:8088 from the host).
-  geocoder:
-    image: mediagis/nominatim:5.3.2-2026-06-23T09-03
-    profiles: ["geocoder"]
-    environment:
-      PBF_URL: https://download.geofabrik.de/north-america/canada/ontario-latest.osm.pbf
-      IMPORT_STYLE: address
-      REPLICATION_URL: ""
-      THREADS: "6"
-      NOMINATIM_PASSWORD: nominatim-local
-    shm_size: 1g
-    ports:
-      - "${JOBATLAS_GEOCODER_PORT:-8088}:8080"
-    volumes:
-      - nominatim-data:/var/lib/postgresql/16/main
-    restart: unless-stopped
-
-  # Same, with the full import style: also indexes named places (offices, malls,
-  # buildings) so employer site names like "Sherway Gardens" can be resolved. Larger and
-  # slower to import than the address-only instance above.
-  geocoder-full:
-    image: mediagis/nominatim:5.3.2-2026-06-23T09-03
-    profiles: ["geocoder-full"]
-    environment:
-      # Pre-downloaded extract (Geofabrik throttles repeated downloads per IP). Fetch with:
-      # curl -o infra/osm-data/ontario-latest.osm.pbf \
-      #   http://download.openstreetmap.fr/extracts/north-america/canada/ontario-latest.osm.pbf
-      PBF_PATH: /osm-data/ontario-latest.osm.pbf
-      IMPORT_STYLE: full
-      REPLICATION_URL: ""
-      THREADS: "6"
-      NOMINATIM_PASSWORD: nominatim-local
-    shm_size: 1g
-    ports:
-      - "${JOBATLAS_GEOCODER_FULL_PORT:-8089}:8080"
-    volumes:
-      - nominatim-full-data:/var/lib/postgresql/16/main
-      - ./osm-data:/osm-data:ro
-    restart: unless-stopped
-
 volumes:
   pgdata:
-  nominatim-data:
-  nominatim-full-data:

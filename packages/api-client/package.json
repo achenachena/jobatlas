@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "description": "TypeScript types generated from the JobAtlas FastAPI OpenAPI document",
   "scripts": {
-    "generate": "openapi-typescript ${API_OPENAPI_URL:-http://localhost:8010/api/v1/openapi.json} -o schema.d.ts"
+    "generate": "openapi-typescript ${API_OPENAPI_URL:-http://localhost:8010/api/v2/openapi.json} -o schema.d.ts"
   },
   "devDependencies": {
     "openapi-typescript": "7.13.0",

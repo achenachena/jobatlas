@@ -4,7 +4,7 @@
  */
 
 export interface paths {
-    "/api/v1/health/live": {
+    "/api/v2/health/live": {
         parameters: {
             query?: never;
             header?: never;
@@ -12,7 +12,7 @@ export interface paths {
             cookie?: never;
         };
         /** Live */
-        get: operations["live_api_v1_health_live_get"];
+        get: operations["live_api_v2_health_live_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -21,7 +21,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/health/ready": {
+    "/api/v2/health/ready": {
         parameters: {
             query?: never;
             header?: never;
@@ -29,7 +29,7 @@ export interface paths {
             cookie?: never;
         };
         /** Ready */
-        get: operations["ready_api_v1_health_ready_get"];
+        get: operations["ready_api_v2_health_ready_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -38,15 +38,15 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/search": {
+    "/api/v2/atlas/capabilities": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Search */
-        get: operations["search_api_v1_search_get"];
+        /** Capabilities */
+        get: operations["capabilities_api_v2_atlas_capabilities_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -55,15 +55,15 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/search/{search_id}/jobs": {
+    "/api/v2/atlas/cities": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Search Page */
-        get: operations["search_page_api_v1_search__search_id__jobs_get"];
+        /** Cities */
+        get: operations["cities_api_v2_atlas_cities_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -72,15 +72,15 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/jobs/{job_id}": {
+    "/api/v2/atlas/frame": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Job Detail */
-        get: operations["job_detail_api_v1_jobs__job_id__get"];
+        /** Frame */
+        get: operations["frame_api_v2_atlas_frame_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -89,15 +89,15 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/regions": {
+    "/api/v2/atlas/timeline": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Regions */
-        get: operations["regions_api_v1_regions_get"];
+        /** Timeline */
+        get: operations["timeline_api_v2_atlas_timeline_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -106,15 +106,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/coverage": {
+    "/api/v2/atlas/cities/{city_id}/series": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Coverage */
-        get: operations["coverage_api_v1_coverage_get"];
+        /** Series */
+        get: operations["series_api_v2_atlas_cities__city_id__series_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/atlas/version": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Version */
+        get: operations["version_api_v2_atlas_version_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/atlas/sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Sources */
+        get: operations["sources_api_v2_atlas_sources_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -127,396 +161,352 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /** CompanyRef */
-        CompanyRef: {
-            /** Name */
-            name: string | null;
-            /** Website */
-            website: string | null;
-        };
-        /** Counts */
-        Counts: {
-            /** Total */
-            total: number;
-            /** In View */
-            in_view: number;
-            /** Remote Elsewhere */
-            remote_elsewhere: number;
-            /** Location Unverified */
-            location_unverified: number;
-        };
-        /** Coverage */
-        Coverage: {
-            /** As Of */
-            as_of: string;
-            /** Sources */
-            sources: {
-                [key: string]: components["schemas"]["ProviderCoverage"];
+        /** Capabilities */
+        Capabilities: {
+            /** Dataset Id */
+            dataset_id: string;
+            /**
+             * Data Mode
+             * @enum {string}
+             */
+            data_mode: "real" | "demo" | "not_configured";
+            /** Release Id */
+            release_id: string | null;
+            /**
+             * Reason
+             * @description why real data is not available
+             */
+            reason?: string | null;
+            /** Metrics */
+            metrics: string[];
+            /** Occupations */
+            occupations: components["schemas"]["OccupationInfo"][];
+            /** Windows */
+            windows: string[];
+            /** Default Window */
+            default_window: string;
+            /** Geo Levels */
+            geo_levels: string[];
+            /** History Start */
+            history_start: string | null;
+            /** Data Through */
+            data_through: string | null;
+            /** Partial Latest Day */
+            partial_latest_day: boolean;
+            /** Gaps */
+            gaps: components["schemas"]["Gap"][];
+            /** Playback */
+            playback: boolean;
+            /** Playback Reason */
+            playback_reason: string | null;
+            /** Stale */
+            stale: boolean;
+            /** Publication */
+            publication: string;
+            /**
+             * Reporting Timezone
+             * @default America/Toronto
+             */
+            reporting_timezone: string;
+            /** Quality */
+            quality: {
+                [key: string]: unknown;
             };
-            /** Failing Sources */
-            failing_sources: number;
-            /** Last Successful Sync At */
-            last_successful_sync_at: string | null;
-            jobs: components["schemas"]["JobCounts"];
-            last_discovery_run: components["schemas"]["DiscoveryRunRef"] | null;
-            /** Limitations */
-            limitations: string[];
         };
-        /** DetailLocation */
-        DetailLocation: {
+        /** CitiesResponse */
+        CitiesResponse: {
+            /** Dataset Id */
+            dataset_id: string;
             /**
-             * Role
+             * Data Mode
              * @enum {string}
              */
-            role: "work_site" | "company_office" | "headquarters";
-            /** Address */
-            address: string | null;
-            /** Coordinates */
-            coordinates: number[] | null;
-            /** Precision */
-            precision: string;
-            evidence: components["schemas"]["Evidence"];
+            data_mode: "real" | "demo" | "not_configured";
+            /** Release Id */
+            release_id: string;
+            /** Cities */
+            cities: components["schemas"]["City"][];
+            /** Attribution */
+            attribution: string;
         };
-        /** DiscoveryRunRef */
-        DiscoveryRunRef: {
-            /** Finished At */
-            finished_at: string | null;
-            /** Status */
-            status: string;
-        };
-        /** Eligibility */
-        Eligibility: {
-            /**
-             * Status
-             * @enum {string}
-             */
-            status: "not_applicable" | "unknown" | "known";
-            /** Text */
-            text: string | null;
-            /** Regions */
-            regions: components["schemas"]["EligibilityRegion"][];
-            /** Note */
-            note: string | null;
-        };
-        /** EligibilityRegion */
-        EligibilityRegion: {
-            /** Id */
-            id: string;
+        /** City */
+        City: {
+            /** City Id */
+            city_id: string;
             /** Name */
             name: string;
+            /** Province */
+            province: string;
+            /** Country */
+            country: string;
+            /** Lat */
+            lat: number;
+            /** Lon */
+            lon: number;
+            /** Population */
+            population: number;
+            /** Aliases */
+            aliases: string[];
+            /** Kind */
+            kind: string;
+            /** Evidence */
+            evidence: string;
+        };
+        /** CityCount */
+        CityCount: {
+            /** City Id */
+            city_id: string;
             /**
-             * Include Or Exclude
+             * Count
+             * @description null when unknown (not covered, gap); 0 is a real zero
+             */
+            count: number | null;
+            /**
+             * Quality
              * @enum {string}
              */
-            include_or_exclude: "include" | "exclude";
+            quality: "complete" | "partial" | "missing" | "not_covered" | "stale";
         };
-        /** Evidence */
-        Evidence: {
-            /** Method */
-            method: string | null;
-            /** Excerpt */
-            excerpt: string | null;
-            /** Source Url */
-            source_url: string | null;
-            /** Observed At */
-            observed_at: string | null;
-        };
-        /** FeatureCollection */
-        FeatureCollection: {
+        /** FrameResponse */
+        FrameResponse: {
+            /** Dataset Id */
+            dataset_id: string;
             /**
-             * Type
-             * @default FeatureCollection
+             * Data Mode
+             * @enum {string}
+             */
+            data_mode: "real" | "demo" | "not_configured";
+            /** Release Id */
+            release_id: string;
+            /**
+             * Metric
+             * @default new_postings
              * @constant
              */
-            type: "FeatureCollection";
-            /** Features */
-            features: {
-                [key: string]: unknown;
-            }[];
+            metric: "new_postings";
+            /**
+             * Unit
+             * @default job postings first published in the window (not hires, not total vacancies)
+             */
+            unit: string;
+            /**
+             * Reporting Timezone
+             * @default America/Toronto
+             */
+            reporting_timezone: string;
+            /**
+             * Window
+             * @enum {string}
+             */
+            window: "1d" | "7d" | "30d";
+            /** Window Start */
+            window_start: string;
+            /**
+             * Window End
+             * @description exclusive upper bound
+             */
+            window_end: string;
+            /** Data Through */
+            data_through: string;
+            /** Generated At */
+            generated_at: string;
+            /** Source Set Id */
+            source_set_id: string;
+            /** Classification Version */
+            classification_version: string;
+            /**
+             * Completeness
+             * @enum {string}
+             */
+            completeness: "complete" | "partial" | "missing" | "not_covered" | "stale";
+            /** Stale */
+            stale: boolean;
+            /**
+             * Partial Day
+             * @description the last day of the window is not over yet
+             */
+            partial_day: boolean;
+            /** Date */
+            date: string;
+            /** Occupation */
+            occupation: string;
+            /** Cities */
+            cities: components["schemas"]["CityCount"][];
+            national: components["schemas"]["NationalSummary"];
+            /** Notes */
+            notes: string[];
         };
-        /** Filters */
-        Filters: {
-            /** Q */
-            q: string | null;
-            /** Region Id */
-            region_id: string;
-            /** Bbox */
-            bbox: number[];
-            /** Time Window */
-            time_window: string;
-            /** Workplace */
-            workplace: string;
-        };
-        /** GroupPage */
-        GroupPage: {
-            /** Items */
-            items: components["schemas"]["JobCard"][];
-            /** Next Cursor */
-            next_cursor: string | null;
-        };
-        /** Groups */
-        Groups: {
-            in_view: components["schemas"]["GroupPage"];
-            remote_elsewhere: components["schemas"]["GroupPage"];
-            location_unverified: components["schemas"]["GroupPage"];
+        /** Gap */
+        Gap: {
+            /** Start */
+            start: string;
+            /** End */
+            end: string;
+            /** Reason */
+            reason: string;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
-        /** JobCard */
-        JobCard: {
+        /** NationalSummary */
+        NationalSummary: {
+            /**
+             * Total Unique
+             * @description distinct postings in the window, nationally (cities + unconfirmed + remote); null when it cannot be computed
+             */
+            total_unique: number | null;
+            /** Total Reason */
+            total_reason?: string | null;
+            /** City Unconfirmed */
+            city_unconfirmed: number | null;
+            /** Remote Canada */
+            remote_canada: number | null;
+        };
+        /** OccupationInfo */
+        OccupationInfo: {
             /** Id */
             id: string;
-            /** Title */
-            title: string | null;
-            /** Company */
-            company: string | null;
-            /**
-             * Workplace Type
-             * @enum {string}
-             */
-            workplace_type: "on_site" | "hybrid" | "remote" | "unknown";
-            /**
-             * Location Status
-             * @enum {string}
-             */
-            location_status: "exact_work_location" | "inferred_office" | "company_location" | "unverified";
-            /** Location Label */
-            location_label: string | null;
-            /** Markers */
-            markers: components["schemas"]["Marker"][];
-            /** Remote Eligibility Text */
-            remote_eligibility_text: string | null;
-            /** Posted At */
-            posted_at: string | null;
-            /** Posted Date */
-            posted_date: string | null;
-            /**
-             * Posted Precision
-             * @enum {string}
-             */
-            posted_precision: "datetime" | "date" | "none";
-            /**
-             * Posted Basis
-             * @enum {string}
-             */
-            posted_basis: "original" | "republished_only" | "unknown";
-            /** First Seen At */
-            first_seen_at: string;
-            /**
-             * Listed After
-             * @description The posting was absent from the source's complete listing fetched at this time, so it first appeared after it. Not a posting time.
-             */
-            listed_after: string | null;
-            /** Last Verified At */
-            last_verified_at: string;
-            /** Employment Type */
-            employment_type: string | null;
-            salary: components["schemas"]["Salary"] | null;
-            /** Apply Url */
-            apply_url: string | null;
+            /** Label */
+            label: string;
+            /** Note */
+            note: string;
         };
-        /** JobCounts */
-        JobCounts: {
-            /** Open Jobs */
-            open_jobs: number;
-            /** Pending */
-            pending: number;
-            /** Closed */
-            closed: number;
-            /** Located */
-            located: number;
-        };
-        /** JobDetail */
-        JobDetail: {
-            /** Id */
-            id: string;
-            /** Title */
-            title: string | null;
-            company: components["schemas"]["CompanyRef"];
+        /** SeriesPoint */
+        SeriesPoint: {
+            /** Date */
+            date: string;
+            /** Count */
+            count: number | null;
             /**
-             * Workplace Type
+             * Quality
              * @enum {string}
              */
-            workplace_type: "on_site" | "hybrid" | "remote" | "unknown";
+            quality: "complete" | "partial" | "missing" | "not_covered" | "stale";
+        };
+        /** SeriesResponse */
+        SeriesResponse: {
+            /** Dataset Id */
+            dataset_id: string;
             /**
-             * Status
+             * Data Mode
              * @enum {string}
              */
-            status: "active" | "pending_verification" | "closed";
+            data_mode: "real" | "demo" | "not_configured";
+            /** Release Id */
+            release_id: string;
+            /** City Id */
+            city_id: string;
+            /** Occupation */
+            occupation: string;
             /**
-             * Is Open Opportunity
-             * @description False for Closed/Pending/stale jobs; they are never shown as open
-             */
-            is_open_opportunity: boolean;
-            /** Posted At */
-            posted_at: string | null;
-            /** Posted Date */
-            posted_date: string | null;
-            /**
-             * Posted Precision
+             * Window
              * @enum {string}
              */
-            posted_precision: "datetime" | "date" | "none";
-            /**
-             * Posted Basis
-             * @enum {string}
-             */
-            posted_basis: "original" | "republished_only" | "unknown";
-            /** First Seen At */
-            first_seen_at: string | null;
-            /**
-             * Listed After
-             * @description The posting was absent from the source's complete listing fetched at this time, so it first appeared after it. Not a posting time.
-             */
-            listed_after: string | null;
-            /** Last Verified At */
-            last_verified_at: string | null;
-            /** Closed At */
-            closed_at: string | null;
-            /** Close Reason */
-            close_reason: string | null;
-            /**
-             * Location Status
-             * @enum {string}
-             */
-            location_status: "exact_work_location" | "inferred_office" | "company_location" | "unverified";
-            /** Location Label */
-            location_label: string | null;
-            /** Locations */
-            locations: components["schemas"]["DetailLocation"][];
-            eligibility: components["schemas"]["Eligibility"];
-            /** Employment Type */
-            employment_type: string | null;
-            salary: components["schemas"]["Salary"] | null;
-            /** Description Text */
-            description_text: string | null;
-            source: components["schemas"]["SourceRef"] | null;
-            /** Sources */
-            sources: components["schemas"]["SourceRef"][];
-            /** Apply Url */
-            apply_url: string | null;
+            window: "1d" | "7d" | "30d";
+            /** Points */
+            points: components["schemas"]["SeriesPoint"][];
         };
-        /** MapMeta */
-        MapMeta: {
-            /** Complete */
-            complete: boolean;
-            /**
-             * Mode
-             * @enum {string}
-             */
-            mode: "points" | "clusters";
-            /** Unique Job Count */
-            unique_job_count: number;
-            /** Marker Count */
-            marker_count: number;
-        };
-        /** Marker */
-        Marker: {
-            /** Lon */
-            lon: number;
-            /** Lat */
-            lat: number;
-            /**
-             * Role
-             * @enum {string}
-             */
-            role: "work_site" | "company_office" | "headquarters";
-            /** Address */
-            address: string | null;
-        };
-        /** ProviderCoverage */
-        ProviderCoverage: {
-            /** Sources */
-            sources: number;
-            /** By Status */
-            by_status: {
-                [key: string]: number;
-            };
-        };
-        /** Region */
-        Region: {
-            /** Region Id */
-            region_id: string;
-            /** Name */
-            name: string;
-            /** Parent Id */
-            parent_id: string | null;
-            /** Kind */
-            kind: string;
-            /** Bbox */
-            bbox: number[];
-            /** Approximate */
-            approximate: boolean;
-            /** Dataset Version */
-            dataset_version: string | null;
-        };
-        /** RegionList */
-        RegionList: {
-            /** Items */
-            items: components["schemas"]["Region"][];
-        };
-        /** Salary */
-        Salary: {
-            /** Min */
-            min: number | null;
-            /** Max */
-            max: number | null;
-            /** Currency */
-            currency: string | null;
-            /** Period */
-            period: string | null;
-            /** Raw Text */
-            raw_text: string | null;
-        };
-        /** SearchPage */
-        SearchPage: {
-            /** Search Id */
-            search_id: string;
-            /**
-             * Group
-             * @enum {string}
-             */
-            group: "in_view" | "remote_elsewhere" | "location_unverified";
-            /** As Of */
-            as_of: string;
-            /** Items */
-            items: components["schemas"]["JobCard"][];
-            /** Next Cursor */
-            next_cursor: string | null;
-        };
-        /** SearchResponse */
-        SearchResponse: {
-            /** Search Id */
-            search_id: string;
-            /** As Of */
-            as_of: string;
-            /** Expires At */
-            expires_at: string;
-            filters: components["schemas"]["Filters"];
-            counts: components["schemas"]["Counts"];
-            groups: components["schemas"]["Groups"];
-            map: components["schemas"]["FeatureCollection"];
-            map_meta: components["schemas"]["MapMeta"];
-            /** Warnings */
-            warnings: components["schemas"]["Warning"][];
-        };
-        /** SourceRef */
-        SourceRef: {
+        /** SourceInfo */
+        SourceInfo: {
+            /** Key */
+            key: string;
             /** Provider */
             provider: string;
-            /** Board Url */
-            board_url: string | null;
-            /** Job Url */
-            job_url: string | null;
-            /** Source Updated At */
-            source_updated_at: string | null;
-            /** Source Republished At */
-            source_republished_at: string | null;
-            /** Last Seen At */
-            last_seen_at: string | null;
+            /** Status */
+            status: string;
+            /** Admitted */
+            admitted: boolean;
+            /** Reason */
+            reason: string;
+            /** Licence */
+            licence: string | null;
+            /** Terms Url */
+            terms_url: string | null;
+            /** Attribution */
+            attribution: string | null;
+            /** Capabilities */
+            capabilities: {
+                [key: string]: unknown;
+            };
+            /** Verified On */
+            verified_on: string | null;
+        };
+        /** SourcesResponse */
+        SourcesResponse: {
+            /** Sources */
+            sources: components["schemas"]["SourceInfo"][];
+            /** Definitions */
+            definitions: {
+                [key: string]: string;
+            };
+            /** Attributions */
+            attributions: string[];
+        };
+        /** TimelineFrame */
+        TimelineFrame: {
+            /** Date */
+            date: string;
+            /**
+             * Quality
+             * @enum {string}
+             */
+            quality: "complete" | "partial" | "missing" | "not_covered" | "stale";
+            /** Days Available */
+            days_available: number;
+            /**
+             * Counts
+             * @description aligned with TimelineResponse.city_ids
+             */
+            counts: (number | null)[];
+            /** National */
+            national: number | null;
+            /** Notes */
+            notes: string[];
+        };
+        /** TimelineResponse */
+        TimelineResponse: {
+            /** Dataset Id */
+            dataset_id: string;
+            /**
+             * Data Mode
+             * @enum {string}
+             */
+            data_mode: "real" | "demo" | "not_configured";
+            /** Release Id */
+            release_id: string;
+            /**
+             * Metric
+             * @default new_postings
+             * @constant
+             */
+            metric: "new_postings";
+            /** Occupation */
+            occupation: string;
+            /**
+             * Window
+             * @enum {string}
+             */
+            window: "1d" | "7d" | "30d";
+            /**
+             * Reporting Timezone
+             * @default America/Toronto
+             */
+            reporting_timezone: string;
+            /** Start */
+            start: string;
+            /** End */
+            end: string;
+            /** City Ids */
+            city_ids: string[];
+            /** Frames */
+            frames: components["schemas"]["TimelineFrame"][];
+            /**
+             * Max Count
+             * @description largest count in this range, for a fixed scale
+             */
+            max_count: number;
         };
         /** ValidationError */
         ValidationError: {
@@ -531,14 +521,23 @@ export interface components {
             /** Context */
             ctx?: Record<string, never>;
         };
-        /** Warning */
-        Warning: {
-            /** Code */
-            code: string;
-            /** Message */
-            message: string;
-            /** Count */
-            count?: number | null;
+        /** VersionResponse */
+        VersionResponse: {
+            /** Dataset Id */
+            dataset_id: string;
+            /**
+             * Data Mode
+             * @enum {string}
+             */
+            data_mode: "real" | "demo" | "not_configured";
+            /** Release Id */
+            release_id: string | null;
+            /** Data Through */
+            data_through: string | null;
+            /** Published At */
+            published_at: string | null;
+            /** Change Kind */
+            change_kind: string | null;
         };
     };
     responses: never;
@@ -549,7 +548,7 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    live_api_v1_health_live_get: {
+    live_api_v2_health_live_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -571,7 +570,7 @@ export interface operations {
             };
         };
     };
-    ready_api_v1_health_ready_get: {
+    ready_api_v2_health_ready_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -591,17 +590,10 @@ export interface operations {
             };
         };
     };
-    search_api_v1_search_get: {
+    capabilities_api_v2_atlas_capabilities_get: {
         parameters: {
             query?: {
-                q?: string | null;
-                region_id?: string;
-                /** @description west,south,east,north (WGS84) */
-                bbox?: string | null;
-                time_window?: "today" | "24h" | "2d" | "3d" | "7d" | "30d" | "all";
-                workplace?: "all" | "on_site" | "hybrid" | "remote";
-                zoom?: number | null;
-                limit?: number;
+                dataset?: "real" | "demo";
             };
             header?: never;
             path?: never;
@@ -615,7 +607,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SearchResponse"];
+                    "application/json": components["schemas"]["Capabilities"];
                 };
             };
             /** @description Validation Error */
@@ -629,15 +621,122 @@ export interface operations {
             };
         };
     };
-    search_page_api_v1_search__search_id__jobs_get: {
+    cities_api_v2_atlas_cities_get: {
         parameters: {
-            query: {
-                cursor: string;
-                limit?: number;
+            query?: {
+                dataset?: "real" | "demo";
+                release?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CitiesResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    frame_api_v2_atlas_frame_get: {
+        parameters: {
+            query?: {
+                dataset?: "real" | "demo";
+                occupation?: "all" | "software_development" | "human_resources" | "bartender" | "barista" | "registered_nurse" | "cook";
+                window?: "1d" | "7d" | "30d";
+                date?: string | null;
+                release?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FrameResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    timeline_api_v2_atlas_timeline_get: {
+        parameters: {
+            query?: {
+                dataset?: "real" | "demo";
+                occupation?: "all" | "software_development" | "human_resources" | "bartender" | "barista" | "registered_nurse" | "cook";
+                window?: "1d" | "7d" | "30d";
+                start?: string | null;
+                end?: string | null;
+                release?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimelineResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    series_api_v2_atlas_cities__city_id__series_get: {
+        parameters: {
+            query?: {
+                dataset?: "real" | "demo";
+                occupation?: "all" | "software_development" | "human_resources" | "bartender" | "barista" | "registered_nurse" | "cook";
+                window?: "1d" | "7d" | "30d";
+                end?: string | null;
+                days?: number;
+                release?: string | null;
             };
             header?: never;
             path: {
-                search_id: string;
+                city_id: string;
             };
             cookie?: never;
         };
@@ -649,7 +748,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SearchPage"];
+                    "application/json": components["schemas"]["SeriesResponse"];
                 };
             };
             /** @description Validation Error */
@@ -663,41 +762,10 @@ export interface operations {
             };
         };
     };
-    job_detail_api_v1_jobs__job_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                job_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["JobDetail"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    regions_api_v1_regions_get: {
+    version_api_v2_atlas_version_get: {
         parameters: {
             query?: {
-                q?: string | null;
+                dataset?: "real" | "demo";
             };
             header?: never;
             path?: never;
@@ -711,7 +779,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RegionList"];
+                    "application/json": components["schemas"]["VersionResponse"];
                 };
             };
             /** @description Validation Error */
@@ -725,7 +793,7 @@ export interface operations {
             };
         };
     };
-    coverage_api_v1_coverage_get: {
+    sources_api_v2_atlas_sources_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -740,7 +808,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Coverage"];
+                    "application/json": components["schemas"]["SourcesResponse"];
                 };
             };
         };
