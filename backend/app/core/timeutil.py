@@ -1,4 +1,4 @@
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 TORONTO = ZoneInfo("America/Toronto")
@@ -26,7 +26,3 @@ def from_epoch_millis(value: int | float | None) -> datetime | None:
     if value is None:
         return None
     return datetime.fromtimestamp(value / 1000, tz=UTC)
-
-
-def toronto_date(dt: datetime) -> date:
-    return dt.astimezone(TORONTO).date()
