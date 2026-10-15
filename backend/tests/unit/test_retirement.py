@@ -7,9 +7,14 @@ from app.atlas.permissions import REGISTRY
 from app.workers.celery_app import celery_app
 
 
-def test_only_jobbank_is_registered_and_scheduled():
-    assert {r["key"] for r in REGISTRY} == {"jobbank-open-data"}
-    assert {r["task"] for r in celery_app.conf.beat_schedule.values()} == {"jobatlas.atlas_sync"}
+def test_only_licensed_and_public_api_sources_are_registered_and_scheduled():
+    keys = {r["key"] for r in REGISTRY}
+    assert keys == {"jobbank-open-data", "ats-greenhouse", "ats-lever", "ats-ashby"}
+    assert {r["task"] for r in celery_app.conf.beat_schedule.values()} == {
+        "jobatlas.atlas_sync",
+        "jobatlas.ats_sweep",
+        "jobatlas.ats_discover",
+    }
     assert celery_app.conf.task_default_queue == "atlas"
 
 

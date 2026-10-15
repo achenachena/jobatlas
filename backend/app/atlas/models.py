@@ -1,4 +1,4 @@
-"""JobAtlas v2 statistics layer (docs/JOBATLAS_V2_DEVELOPMENT_SPEC.zh-CN.md §8).
+"""JobAtlas v2 statistics layer.
 
 Kept apart from the v1 street-level job tables: v1 `jobs.is_publishable` is a job-detail rule;
 v2 counts come only from sources whose permission record is approved (atlas/permissions.py).
@@ -34,6 +34,7 @@ GEO_STATUSES = ("city", "unconfirmed", "remote")
 RELEASE_STATUSES = ("building", "published", "superseded", "failed")
 COVERAGE_STATUSES = ("complete", "partial", "missing")
 SCOPES = ("city", "national", "unconfirmed", "remote")
+BOARD_STATUSES = ("new", "active", "foreign", "gone")
 
 
 def _in(column: str, values: tuple[str, ...], name: str) -> CheckConstraint:
@@ -142,6 +143,34 @@ class AtlasCoverage(Base):
     imported_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class AtlasBoard(Base):
+    """An employer job board on a public ATS posting API (atlas/ats.py). `new` boards are
+    candidates not yet fetched; `active` ones list Canadian postings and are polled hourly;
+    `foreign` (no Canadian postings) and `gone` (404) are rechecked monthly."""
+
+    __tablename__ = "atlas_boards"
+    __table_args__ = (
+        _in("status", BOARD_STATUSES, "ck_atlas_boards_status"),
+        Index("ix_atlas_boards_due", "next_check_at"),
+    )
+
+    platform: Mapped[str] = mapped_column(String(16), primary_key=True)
+    slug: Mapped[str] = mapped_column(String(128), primary_key=True)
+    company: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="new")
+    canada_jobs: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    found_via: Mapped[str] = mapped_column(Text, nullable=False)
+    added_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    baseline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    ok_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    next_check_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    error: Mapped[str | None] = mapped_column(Text)
 
 
 class AtlasRelease(Base):

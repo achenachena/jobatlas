@@ -1,0 +1,45 @@
+name: deploy
+
+# Vercel deploys the web app through its GitHub integration.
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  backend:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Deploy tested commit to EC2
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id
+          chmod 600 ~/.ssh/id
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          ssh -i ~/.ssh/id -o BatchMode=yes -o StrictHostKeyChecking=yes "$DEPLOY_USER@$DEPLOY_HOST" "bash -s -- '$DEPLOY_SHA'" <<'REMOTE'
+          set -euo pipefail
+          cd ~/jobatlas
+          git fetch origin main
+          # A slow or rerun CI must not roll production back to an older commit.
+          if [ "$1" != "$(git rev-parse origin/main)" ]; then
+            echo "Skipping superseded commit $1"
+            exit 0
+          fi
+          git reset --hard "$1"
+          docker compose --env-file .env -f infra/compose.prod.yaml up -d --build --remove-orphans
+          REMOTE

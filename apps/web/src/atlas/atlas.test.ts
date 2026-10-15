@@ -1,6 +1,7 @@
 import { project } from "./projection";
-import { heightFor, legendTicks, MAX_HEIGHT, colorFor, POSTING_COLORS } from "./scale";
+import { heightFor, legendTicks, MAX_HEIGHT } from "./scale";
 import { addDays, daysBetween, DEFAULT_SELECTION, parseSelection, serializeSelection } from "./state";
+import { windowLabel } from "./ui/parts";
 import { chunkFor, CHUNK_DAYS } from "./useAtlasData";
 
 test("height is monotonic, square-root, and fixed by the playback scale", () => {
@@ -61,11 +62,20 @@ test("projection keeps relative city positions", () => {
   expect(my).toBeGreaterThan(ty);
 });
 
-test("colour uses the same fixed count scale across cities and frames", () => {
-  expect(colorFor(0, 400)).toBe(POSTING_COLORS[0]);
-  expect(colorFor(null, 400)).toBe(POSTING_COLORS[0]);
-  expect(colorFor(100, 400)).toBe(POSTING_COLORS[1]);
-  expect(colorFor(400, 400)).toBe(POSTING_COLORS[2]);
-  expect(colorFor(800, 400)).toBe(POSTING_COLORS[2]);
-  expect(colorFor(25, 100)).toBe(colorFor(100, 400));
+test("counts above the playback scale grow taller instead of being clamped", () => {
+  expect(MAX_HEIGHT).toBe(1350);
+  expect(heightFor(400, 400)).toBeCloseTo(MAX_HEIGHT);
+  expect(heightFor(1600, 400)).toBeCloseTo(MAX_HEIGHT * 2);
+});
+
+test("the same count has the same height on any date or occupation under one scale", () => {
+  expect(heightFor(37, 545)).toBe(heightFor(37, 545));
+  expect(heightFor(37, 545)).not.toBe(heightFor(37, 600)); // only a new scale changes it
+});
+
+test("date range labels are compact and keep day granularity", () => {
+  expect(windowLabel("2026-09-30", "7d")).toBe("Sep 24–30, 2026");
+  expect(windowLabel("2026-09-06", "7d")).toBe("Aug 31 – Sep 6, 2026");
+  expect(windowLabel("2026-01-03", "7d")).toBe("Dec 28, 2025 – Jan 3, 2026");
+  expect(windowLabel("2026-09-30", "1d")).toBe("Sep 30, 2026");
 });

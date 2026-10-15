@@ -1,6 +1,6 @@
 # JobAtlas v2 数据源决策记录
 
-> 2026-10-15 更新：旧版数据和运行链路已执行退役清理。本文中旧版状态、迁移兼容或候选来源描述属于历史记录；当前运行与清理结果见 [清理记录](LEGACY_CLEANUP_2026-10-15.zh-CN.md) 和仓库 README。
+> 2026-10-15 再次更新：负责人决定新增独立数据集 Employer boards（`dataset=ats`），只用 Greenhouse、Lever、Ashby 的公开职位接口（已登记为 `approved`，依据见 `backend/app/atlas/permissions.py`）；SmartRecruiters（API 的 robots 只允许 LinkedInBot）、Workday、BambooHR、Oracle、SuccessFactors 不用。与 Job Bank 并列、不相加；只存事实字段，不存职位描述。下表 ATS 一行为当时记录。
 
 核查日期：2026-10-14。执行人：开发 agent。本文件不是法律意见；许可结论以官方原文为准，变化后重新核查。
 
@@ -21,7 +21,7 @@
 | --- | --- | --- | --- | --- | --- |
 | Job Bank 开放数据 | [数据集页面](https://open.canada.ca/data/en/dataset/ea639e28-c0fc-48bf-b5dd-b8899bd43072)；[OGL-Canada 2.0](https://open.canada.ca/en/open-government-licence-canada)（2026-10-14 访问） | 允许复制、修改、发布、翻译、分发、商业使用；须署名 "Contains information licensed under the Open Government Licence – Canada."；不得暗示官方地位或背书；不含个人信息与商标 | 逐条；`First Posting Date`（日期）、`City`、`Province/Territory`、`Work Location Postal Code`、`NOC21 Code`、`Job Title`、`External Indicator`、`Employment Term Telework`、`Vacancy Count` | 见 §3 | **采用**（approved） |
 | 现有 ATS 来源（Greenhouse、Ashby、Lever、Workday、Oracle 等） | [Greenhouse Job Board API](https://docs.greenhouse.io/job-board.html)、[Ashby 公开职位接口](https://developers.ashbyhq.com/docs/public-job-posting-api) | 接口面向雇主自建招聘页；文档未明确允许第三方聚合、再发布和保存历史统计。robots 允许或无需登录**不等于**本作品用途获准 | 逐条；发布时间语义各异；只有 GTA 相关子集 | v1 已运行，约 1.1 万条在招职位 | `pending`，不进入 v2 统计 |
-| Adzuna API | [条款](https://developer.adzuna.com/docs/terms_of_service)、[概览](https://developer.adzuna.com/overview) | 条款：试用外，商业/政府/学术机构的其他用途需另行约定；“may not be used … in aggregation” without written consent；默认限额 25 次/分、250 次/日、2,500 次/月；须展示 Adzuna 标识 | 职位查询、类别、地区统计；历史接口主要是薪资 | 无凭证，**未实测** | `pending`：需要书面同意，见 `data-license-request.md` |
+| Adzuna API | [条款](https://developer.adzuna.com/docs/terms_of_service)、[概览](https://developer.adzuna.com/overview) | 条款：试用外，商业/政府/学术机构的其他用途需另行约定；“may not be used … in aggregation” without written consent；默认限额 25 次/分、250 次/日、2,500 次/月；须展示 Adzuna 标识 | 职位查询、类别、地区统计；历史接口主要是薪资 | 无凭证，**未实测** | `pending`：需要书面同意 |
 | Statistics Canada 职位空缺 | [开放许可](https://www.statcan.gc.ca/en/terms-conditions/open-licence)、[表 14-10-0444-01](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1410044401) | 开放许可 | 季度、经济区域 | 未接入 | `approved`，但不能响应 `7d` 城市模式；**不替换进**最近七天模式 |
 | LinkedIn 及类似平台的页面采集 | [LinkedIn 禁止抓取](https://www.linkedin.com/help/linkedin/answer/a1341387/prohibition-of-scraping-software) | 条款禁止自动采集 | — | 仓库中的实验入口（`collect-job-leads.mjs`、`intake_watch.py`）已停止运行（2026-10-14） | `blocked` |
 | Lightcast 等商业数据 | 供应商文档 | 需购买 | 城市、职业、月度 | 未询价 | 未评估；不购买（需用户预算） |

@@ -93,8 +93,10 @@ test("default view: all jobs, 7 days, latest date; no WebGL -> 2D map, not a bla
   renderApp();
   expect(await screen.findByRole("img", { name: /2D view/ })).toBeInTheDocument();
   await waitFor(() => expect(calls.some((c) => c.includes("/timeline") && c.includes("occupation=all") && c.includes("window=7d"))).toBe(true));
-  expect(screen.getByText("Sep 24 – Sep 30, 2026")).toBeInTheDocument();
-  expect(screen.getByRole("radio", { name: "All jobs" })).toHaveAttribute("aria-checked", "true");
+  expect(screen.getByText("2D view: WebGL is not available in this browser.")).toBeInTheDocument();
+  expect(screen.getByText("Sep 24–30, 2026")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Occupation: All jobs" })).toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: /Sep 24–30, 2026/ }));
   expect(screen.getByRole("radio", { name: "7 days" })).toHaveAttribute("aria-checked", "true");
   expect(screen.queryByText(/Demo data/)).not.toBeInTheDocument();
 });
@@ -103,18 +105,52 @@ test("choosing an occupation requests its data and is kept in the URL", async ()
   mockApi("real");
   renderApp();
   await screen.findByRole("img", { name: /2D view/ });
-  await userEvent.click(screen.getByRole("radio", { name: "Bartender" }));
+  await userEvent.click(screen.getByRole("button", { name: "Occupation: All jobs" }));
+  expect(screen.getByRole("menuitemradio", { name: "All jobs" })).toHaveAttribute("aria-checked", "true");
+  await userEvent.click(screen.getByRole("menuitemradio", { name: "Bartender" }));
   await waitFor(() => expect(calls.some((c) => c.includes("/timeline") && c.includes("occupation=bartender"))).toBe(true));
   expect(window.location.search).toContain("occupation=bartender");
+  expect(screen.getByRole("button", { name: "Occupation: Bartender" })).toBeInTheDocument();
+});
+
+test("occupation menu: arrow keys move, Escape closes and returns focus", async () => {
+  mockApi("real");
+  renderApp();
+  await screen.findByRole("img", { name: /2D view/ });
+  const opener = screen.getByRole("button", { name: "Occupation: All jobs" });
+  await userEvent.click(opener);
+  expect(screen.getByRole("menuitemradio", { name: "All jobs" })).toHaveFocus();
+  await userEvent.keyboard("{ArrowDown}");
+  expect(screen.getByRole("menuitemradio", { name: "Bartender" })).toHaveFocus();
+  await userEvent.keyboard("{Escape}");
+  expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  expect(opener).toHaveFocus();
+});
+
+test("height scale explains the square-root scale and the partial national overview", async () => {
+  mockApi("real");
+  renderApp();
+  await screen.findByRole("img", { name: /2D view/ });
+  await userEvent.click(screen.getByRole("button", { name: "More" }));
+  await userEvent.click(screen.getByRole("menuitem", { name: "Height scale & data" }));
+  const panel = screen.getByRole("region", { name: "Height scale and data" });
+  expect(panel).toHaveTextContent("twice as tall = four times the postings");
+  expect(panel).toHaveTextContent("全国概览仅展开部分城市，放大或检索查看其余城市");
+  expect(panel).toHaveTextContent("Data through Sep 30, 2026");
+  expect(panel).not.toHaveTextContent(/colou?r/i);
 });
 
 test("city list is keyboard reachable and shows exact counts", async () => {
   mockApi("real");
   renderApp();
   await screen.findByRole("img", { name: /2D view/ });
-  await userEvent.click(screen.getByRole("button", { name: "City list" }));
+  await userEvent.click(screen.getByRole("button", { name: "More" }));
+  await userEvent.click(screen.getByRole("menuitem", { name: "Search cities" }));
   const item = await screen.findByRole("button", { name: /Toronto, ON\s*395/ });
   item.focus();
   await userEvent.keyboard("{Enter}");
   expect(await screen.findByRole("region", { name: "Toronto details" })).toBeInTheDocument();
+  // a search reaches every city, zero ones included
+  await userEvent.type(screen.getByRole("searchbox", { name: "Search cities" }), "mont");
+  expect(screen.getByRole("button", { name: /Montréal, QC\s*0/ })).toBeInTheDocument();
 });

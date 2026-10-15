@@ -191,7 +191,7 @@ def test_release_frames_and_api(session, seeded, tmp_path, client):
     assert pinned["release_id"] == rel.id
 
     src = {s["key"]: s for s in client.get("/api/v2/atlas/sources").json()["sources"]}
-    assert set(src) == {"jobbank-open-data"}
+    assert set(src) == {"jobbank-open-data"}  # registered ATS sources are not shown here
     assert src["jobbank-open-data"]["admitted"]
 
 

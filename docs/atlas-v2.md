@@ -1,8 +1,6 @@
 # JobAtlas v2：加拿大职位立体地图（统计口径与运行说明）
 
-> 2026-10-15 更新：旧版数据和运行链路已执行退役清理。本文中旧版状态、迁移兼容或候选来源描述属于历史记录；当前运行与清理结果见 [清理记录](LEGACY_CLEANUP_2026-10-15.zh-CN.md) 和仓库 README。
-
-对应规格：`docs/JOBATLAS_V2_DEVELOPMENT_SPEC.zh-CN.md`。数据源决策见 `docs/data-source-decision.md`，验证结果见 `docs/atlas-validation.md`。
+数据源决策见 `docs/data-source-decision.md`。
 
 ## 1 统计口径
 
@@ -65,6 +63,13 @@ docker compose -f infra/compose.yaml run --rm --no-deps api jobatlas atlas-relea
 ```
 
 - 定时任务：atlas 队列每日执行一次 `jobatlas.atlas_sync`，导入新增或修改过的月份，最多 3 个，然后增量发布。
+- Employer boards（`app/atlas/ats.py`，数据集 `ats`）：每小时 `jobatlas.ats_sweep` 请求到期的招聘板（有加拿大职位的每轮都查，其余每月复查），最多抓取 50 分钟，然后发布；每 30 天 `jobatlas.ats_discover` 从 Common Crawl 最近 6 期索引找新招聘板。口径与 Job Bank 相同（每个加拿大工作地点一条，按首次发布日、多伦多时区计）。覆盖从首次抓取前 30 天开始，这 30 天标 `partial`（由当时仍在招的职位回溯，已关闭的缺失）；之后每天结束即 `complete`，当天为 `partial`。必须在常开的服务器上运行。
+
+```bash
+docker compose -f infra/compose.yaml run --rm --no-deps api jobatlas ats-discover          # 首次：找候选招聘板
+docker compose -f infra/compose.yaml run --rm --no-deps api jobatlas ats-add https://jobs.lever.co/example   # 手动加（Common Crawl 里 Lever 很少）
+docker compose -f infra/compose.yaml run --rm --no-deps api jobatlas ats-sweep             # 手动跑一轮
+```
 - 网页：http://localhost:5173/。旧版入口已移除。示例数据：`?data=demo`；草案 B：`?draft=b`。
 - 客户端每 60 秒查询一次 `/api/v2/atlas/version`（支持 ETag 和 304），页面隐藏时暂停。
 

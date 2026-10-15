@@ -293,7 +293,11 @@ def version(
 
 @router.get("/sources", response_model=SourcesResponse)
 def sources(session: Session = Depends(get_session)) -> SourcesResponse:
-    rows = session.query(AtlasSource).order_by(AtlasSource.key).all()
+    # Only the sources of the release this API serves: an admitted source whose data is not
+    # shown (e.g. the Employer boards dataset before it has a view) is not "used".
+    served = current_release(session, ds.REAL_DATASET)
+    keys = served.source_set_id.split("+") if served else []
+    rows = session.query(AtlasSource).filter(AtlasSource.key.in_(keys)).order_by(AtlasSource.key)
     out = []
     for r in rows:
         ok, why = admitted(r)

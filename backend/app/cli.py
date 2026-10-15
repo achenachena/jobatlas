@@ -1,4 +1,4 @@
-"""Operator CLI for the Job Bank atlas only."""
+"""Operator CLI for the atlas: Job Bank open data and Employer boards (public ATS APIs)."""
 
 import json
 
@@ -80,6 +80,38 @@ def atlas_release() -> None:
         r = build_release(session, REAL_DATASET, [SOURCE_KEY], change_kind="correction")
         publish(session, r)
         _echo({"release_id": r.id, "data_through": r.data_through, "quality": r.quality})
+
+
+@app.command("ats-discover")
+def ats_discover(collections: int = typer.Option(6, help="newest Common Crawl crawls to read")):
+    """Find employer boards (Greenhouse, Lever, Ashby) in Common Crawl as candidates."""
+    from app.atlas.commoncrawl import discover
+
+    with sync_session() as session:
+        _echo(discover(session, collections))
+
+
+@app.command("ats-add")
+def ats_add(urls: list[str]) -> None:
+    """Add employer boards by URL, e.g. https://jobs.lever.co/example."""
+    from app.atlas.ats import add_boards, recognize
+
+    found = [b for u in urls if (b := recognize(u))]
+    bad = [u for u in urls if not recognize(u)]
+    with sync_session() as session:
+        _echo({"added": add_boards(session, found, "manual"), "not_recognised": bad})
+
+
+@app.command("ats-sweep")
+def ats_sweep(
+    minutes: float = typer.Option(50, help="stop fetching after this long"),
+    no_release: bool = typer.Option(False, help="fetch only; do not publish"),
+) -> None:
+    """Fetch due employer boards and publish the Employer boards release."""
+    from app.atlas.ats import sweep
+
+    with sync_session() as session:
+        _echo(sweep(session, minutes=minutes, publish_release=not no_release).__dict__)
 
 
 if __name__ == "__main__":

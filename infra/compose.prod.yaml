@@ -1,0 +1,80 @@
+name: jobatlas
+
+x-backend: &backend
+  build:
+    context: ../backend
+  environment:
+    JOBATLAS_ENV: production
+    DATABASE_URL: postgresql+psycopg://jobatlas:${POSTGRES_PASSWORD}@db:5432/jobatlas
+    REDIS_URL: redis://redis:6379/0
+    CORS_ORIGINS: ${CORS_ORIGINS}
+    ATLAS_USER_AGENT: ${ATLAS_USER_AGENT}
+  depends_on:
+    db:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  restart: unless-stopped
+
+services:
+  db:
+    build: ./postgres
+    environment:
+      POSTGRES_USER: jobatlas
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: jobatlas
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jobatlas -d jobatlas"]
+      interval: 3s
+      retries: 20
+    restart: unless-stopped
+  redis:
+    image: redis:7.4.6-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      retries: 20
+    restart: unless-stopped
+  migrate:
+    <<: *backend
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+  api:
+    <<: *backend
+    command: ["uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+  worker:
+    <<: *backend
+    command: ["celery", "-A", "app.workers.celery_app", "worker", "--loglevel=INFO", "--pool=prefork", "--concurrency=1", "-Q", "atlas", "-n", "atlas@%h"]
+    mem_limit: 768m
+    stop_grace_period: 60s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+  scheduler:
+    <<: *backend
+    command: ["celery", "-A", "app.workers.celery_app", "beat", "--loglevel=INFO", "--schedule=/tmp/celerybeat-schedule"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+  caddy:
+    image: caddy:2.10.0-alpine
+    environment:
+      API_DOMAIN: ${API_DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  caddy_data:

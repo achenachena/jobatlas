@@ -1,74 +1,41 @@
-/** Art direction for the two drafts (spec §7.1). Draft A "Diorama" is the chosen look; draft
- * B "Manga panel" is kept as the alternative composition (?draft=b). */
-export interface ScenePalette {
-  name: "diorama" | "panel";
-  background: string;
-  sea: string;
-  seaInk: string;
-  landTop: string;
-  landSide: string;
-  neighbourTop: string;
-  neighbourSide: string;
-  lake: string;
-  ink: string;
-  provinceInk: string;
-  mountain: string;
-  snow: string;
-  shadow: string;
-  windows: string;
-  zeroPad: string;
-  /** camera: degrees above the horizon and around the vertical axis (0 = from the south). */
-  elevation: number;
-  azimuth: number;
-  landDepth: number;
-  coastWidth: number;
-  provinceWidth: number;
-}
-
-export const DIORAMA: ScenePalette = {
-  name: "diorama",
-  background: "#fcf6ed",
-  sea: "#fcf6ed",
-  seaInk: "#e9ddd6",
-  landTop: "#e3edcf",
-  landSide: "#afa3c5",
-  neighbourTop: "#e6e1d8",
-  neighbourSide: "#c9c0b2",
-  lake: "#a7dce5",
-  ink: "#30304b",
-  provinceInk: "#9693a1",
-  mountain: "#a9cbbd",
-  snow: "#ffffff",
-  shadow: "#7f93bd",
-  windows: "#3e5594",
-  zeroPad: "#fffaf0",
+/** "Clear Cel" art direction (docs/design/atlas-cel/tokens.json). One look; colours are the
+ * finished cel tones, line widths are CSS pixels. */
+export const CEL = {
+  paper: "#ffffff",
+  ink: "#172b70",
+  inkMuted: "#657ba8",
+  provinceLine: "#b3cddd",
+  landLight: "#e8f8fa",
+  landSide: "#8bbce4",
+  lake: "#a0c6df",
+  dataLight: "#6edac6",
+  dataShadow: "#358da9",
+  dataTop: "#edfff9",
+  dataGlow: "#adf5e7",
+  dataInk: "#263d91",
+  contactShadow: "#9dbcdc",
+  zero: "#a9c8e0",
+  unknown: "#7f91aa",
+  line: { data: 1.25, selected: 2.2, coast: 0.85, island: 0.65, province: 0.35 },
   elevation: 38,
-  azimuth: 8,
-  landDepth: 65,
-  coastWidth: 2.1,
-  provinceWidth: 0.8,
-};
-
-export const PANEL: ScenePalette = {
-  name: "panel",
-  background: "#fbfaf6",
-  sea: "#e9edf2",
-  seaInk: "#9aa6b8",
-  landTop: "#ffffff",
-  landSide: "#1d1d26",
-  neighbourTop: "#f1f1ee",
-  neighbourSide: "#55555f",
-  lake: "#e3e8ee",
-  ink: "#111118",
-  provinceInk: "#3a3a46",
-  mountain: "#d9d9de",
-  snow: "#ffffff",
-  shadow: "#c8ccd6",
-  windows: "#111118",
-  zeroPad: "#ffffff",
-  elevation: 64,
-  azimuth: 0,
-  landDepth: 28,
-  coastWidth: 3.6,
-  provinceWidth: 1.6,
-};
+  azimuth: -12,
+  landDepth: 45,
+  /** Common world-space footprint; zoom scales the complete object uniformly. */
+  bodyDiameter: 200,
+  shadowOpacity: 0.45,
+  cel: { threshold: 0.22, feather: 0.025 },
+  /** normalised [x, y, w, h] the land and body tips fit into, and where the map centres */
+  safeDesktop: [0.005, 0.065, 0.99, 0.85],
+  centreDesktop: [0.5, 0.485],
+  safeMobile: [0.005, 0.1, 0.99, 0.76],
+  detail: {
+    bodyLimit: 384,
+    nationalLabels: 4,
+    regionalLabels: 6,
+    mobileLabels: 2,
+    enterRegional: 2.2,
+    exitRegional: 1.8,
+    settleMs: 180,
+  },
+  motion: { height: 450, focus: 320 },
+} as const;

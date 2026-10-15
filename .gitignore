@@ -1,15 +1,34 @@
+# Secrets (only the example is committed)
 .env
 .env.*
 !.env.example
 .aws/
+*.pem
+*.key
+
+# Python
 .venv/
 __pycache__/
 *.pyc
 .pytest_cache/
 .ruff_cache/
+
+# Node / front-end build and test output
 node_modules/
 dist/
-.DS_Store
+*.tsbuildinfo
+test-results/
+playwright-report/
 
-# Local generated assets and scratch state
+# Runtime state and local scratch (downloaded open data, archived notes, screenshots)
+celerybeat-schedule*
+*.dump
 .local/
+
+# Editors, OS and coding-agent local state
+.idea/
+.vscode/
+.claude/
+.codex/
+.cursor/
+.DS_Store

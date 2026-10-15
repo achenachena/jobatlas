@@ -1,6 +1,7 @@
 """Daily base counts, atomic releases and window queries (spec §4, §5, §8, §10).
 
-A release is built from admitted sources only, over months whose coverage is `complete`.
+A release is built from admitted sources only, over periods whose coverage is `complete` or
+`partial` (counted, but flagged in the release's coverage).
 Its daily rows are inserted while the release is `building`; publishing flips one row, so a
 client always reads one consistent version. Playback is bound to a release id; the last few
 releases are kept so a client in history mode is not moved.
@@ -31,40 +32,53 @@ class ReleaseError(Exception):
     pass
 
 
-def _months_between(first: date, last: date) -> list[date]:
-    out, d = [], date(first.year, first.month, 1)
-    while d <= last:
-        out.append(d)
-        d = date(d.year + (d.month == 12), d.month % 12 + 1, 1)
+COUNTED = ("complete", "partial")
+
+
+def _spans(days: list[date]) -> list[tuple[date, date]]:
+    out: list[tuple[date, date]] = []
+    for d in sorted(days):
+        if out and d == out[-1][1] + timedelta(days=1):
+            out[-1] = (out[-1][0], d)
+        else:
+            out.append((d, d))
     return out
 
 
-def _month_end(start: date) -> date:
-    return date(start.year + (start.month == 12), start.month % 12 + 1, 1) - timedelta(days=1)
-
-
 def coverage_summary(session: Session, keys: list[str]) -> dict:
+    """History bounds, uncovered spans (`gaps`) and `partial` spans over the union of the
+    sources' counted periods. Periods may be months (Job Bank) or days (ATS). Partial days are
+    counted but flagged: backfilled days and the day in progress."""
     rows = session.scalars(
         select(AtlasCoverage)
-        .where(AtlasCoverage.source_key.in_(keys))
+        .where(AtlasCoverage.source_key.in_(keys), AtlasCoverage.status.in_(COUNTED))
         .order_by(AtlasCoverage.period_start)
     ).all()
-    complete = [r for r in rows if r.status == "complete"]
-    if not complete:
-        return {"history_start": None, "data_through": None, "gaps": [], "periods": 0}
-    first, last = complete[0].period_start, complete[-1].period_end
-    have = {r.period_start for r in complete}
-    gaps = [
-        {"start": m.isoformat(), "end": _month_end(m).isoformat(),
-         "reason": "month not imported or failed"}
-        for m in _months_between(first, last) if m not in have
-    ]  # fmt: skip
+    if not rows:
+        return {"history_start": None, "data_through": None, "gaps": [], "partial": [],
+                "periods": 0}  # fmt: skip
+    status: dict[date, str] = {}
+    notes: dict[date, str] = {}
+    for r in rows:
+        d = r.period_start
+        while d <= r.period_end:
+            if status.get(d) != "complete":  # any source complete -> the day is complete
+                status[d] = r.status
+                notes[d] = r.note or ""
+            d += timedelta(days=1)
+    first, last = min(status), max(status)
+    uncovered = [first + timedelta(days=i) for i in range((last - first).days + 1)
+                 if first + timedelta(days=i) not in status]  # fmt: skip
+    partial = [d for d, s in status.items() if s == "partial"]
     return {
         "history_start": first.isoformat(),
         "data_through": last.isoformat(),
-        "gaps": gaps,
-        "periods": len(complete),
-    }
+        "gaps": [{"start": a.isoformat(), "end": b.isoformat(),
+                  "reason": "period not imported or failed"} for a, b in _spans(uncovered)],
+        "partial": [{"start": a.isoformat(), "end": b.isoformat(), "reason": notes[a]}
+                    for a, b in _spans(partial)],
+        "periods": len(rows),
+    }  # fmt: skip
 
 
 INSERT_SQL = """
@@ -73,7 +87,7 @@ SELECT :rid, 'new_postings', occ, scope, city, day, count(*)
 FROM (
   SELECT p.posted_on AS day, p.occupation_id, p.geo_status, coalesce(p.city_id, '') AS city_id
   FROM atlas_postings p
-  JOIN atlas_coverage c ON c.source_key = p.source_key AND c.status = 'complete'
+  JOIN atlas_coverage c ON c.source_key = p.source_key AND c.status IN ('complete', 'partial')
    AND p.posted_on BETWEEN c.period_start AND c.period_end
   WHERE p.source_key = ANY(:keys) AND p.posted_on IS NOT NULL
     AND (CAST(:full AS boolean) OR EXISTS (
@@ -99,7 +113,8 @@ WHERE m.release_id = :prev
   AND NOT EXISTS (SELECT 1 FROM unnest(CAST(:starts AS date[]), CAST(:ends AS date[])) r(s, e)
                   WHERE m.day BETWEEN r.s AND r.e)
   AND EXISTS (SELECT 1 FROM atlas_coverage c WHERE c.source_key = ANY(:keys)
-              AND c.status = 'complete' AND m.day BETWEEN c.period_start AND c.period_end)
+              AND c.status IN ('complete', 'partial')
+              AND m.day BETWEEN c.period_start AND c.period_end)
 """
 
 QUALITY_SQL = """

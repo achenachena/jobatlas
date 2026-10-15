@@ -1,10 +1,6 @@
-@import "@fontsource/dela-gothic-one/latin-400.css";
+@import "@fontsource/m-plus-rounded-1c/latin-400.css";
 @import "@fontsource/m-plus-rounded-1c/latin-500.css";
 @import "@fontsource/m-plus-rounded-1c/latin-700.css";
-@import "@fontsource/m-plus-rounded-1c/latin-800.css";
-
-/* Element defaults use :where() (zero specificity) so every component class overrides them,
-   including the zero-specificity shared frame rules in frame.module.css. */
 
 *,
 *::before,
@@ -19,27 +15,20 @@ body,
   height: 100%;
 }
 
-html {
-  /* Dela Gothic One ships one (already heavy) weight: never fake-bold it. */
-  font-synthesis-weight: none;
-}
-
 body {
-  background: var(--paper-3);
-  color: var(--ink-700);
+  background: var(--paper);
+  color: var(--ink);
   font-family: var(--font-body);
-  font-size: var(--fs-md);
-  font-weight: var(--fw-regular);
-  line-height: var(--line-height);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.45;
   font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
 }
 
 :where(h1, h2, h3) {
-  font-family: var(--font-display);
-  font-weight: 400; /* Dela Gothic One has one (very heavy) weight */
-  color: var(--ink-900);
-  letter-spacing: 0.01em;
+  font-weight: 500;
+  color: var(--ink);
 }
 
 :where(button, input, select) {
@@ -52,18 +41,6 @@ body {
 }
 
 :focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
-.visually-hidden {
-  position: absolute !important;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-  border: 0;
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
