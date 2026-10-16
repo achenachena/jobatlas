@@ -15,12 +15,13 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy.orm import Session
 
+from app.atlas import ats, jobbank
 from app.atlas import datasets as ds
 from app.atlas.cities import GEONAMES_ATTRIBUTION
 from app.atlas.metrics import current_release
 from app.atlas.models import AtlasSource
 from app.atlas.occupations import PUBLIC_IDS
-from app.atlas.permissions import OGL_ATTRIBUTION, admitted
+from app.atlas.permissions import OGL_ATTRIBUTION, admitted, source
 from app.atlas.schemas import (
     Capabilities,
     CitiesResponse,
@@ -40,7 +41,9 @@ from app.db.session import sync_session
 
 router = APIRouter(prefix="/atlas", tags=["atlas"])
 
-DatasetParam = Literal["real", "demo"]
+# "real" is Job Bank (kept for compatibility); "ats" is Employer boards. Never added together.
+DatasetParam = Literal["real", "ats", "demo"]
+DATASET_IDS = {"real": ds.REAL_DATASET, "ats": ds.ATS_DATASET}
 WindowParam = Literal["1d", "7d", "30d"]
 Occ = Literal[PUBLIC_IDS]  # type: ignore[valid-type]
 MAX_TIMELINE_DAYS = 400
@@ -48,6 +51,16 @@ NATURAL_EARTH = "Map outlines: Natural Earth (public domain)."
 NOT_CONFIGURED = (
     "Real data source is not connected yet (no published release of an admitted source)."
 )
+REFRESH = {ds.REAL_DATASET: "monthly", ds.ATS_DATASET: "hourly"}
+PUBLICATION = {
+    ds.REAL_DATASET: "monthly: Job Bank publishes each month's postings a few days after it ends",
+    ds.ATS_DATASET: "hourly: employer job boards are re-read about every hour; figures run "
+    "through the last complete day (America/Toronto)",
+}
+# An Employer boards occupation is offered only with at least this many postings nationally in
+# the last 30 days: about five a week, below which every city shows 0 or 1 and the choice
+# says nothing (in October 2026: Software development 381, Human resources 32, the rest 0).
+MIN_OCCUPATION_POSTINGS = 20
 
 
 def get_session() -> Iterator[Session]:
@@ -62,7 +75,7 @@ def _open(session: Session, dataset: str, release: str | None = None):
             raise HTTPException(503, {"code": "DEMO_UNAVAILABLE",
                                       "message": "city catalogue not loaded"})  # fmt: skip
         return demo
-    real = ds.RealDataset.open(session, release)
+    real = ds.RealDataset.open(session, DATASET_IDS[dataset], release)
     if real is None:
         if release:
             raise HTTPException(404, {"code": "RELEASE_NOT_FOUND", "message": "release not served"})
@@ -86,17 +99,19 @@ def _cutoff(info: ds.Info, d: date):
 def capabilities(
     dataset: DatasetParam = "real", session: Session = Depends(get_session)
 ) -> Capabilities:
-    occs = ds.occupations_payload()
-    base = {"metrics": ["new_postings"], "occupations": occs, "windows": list(WINDOWS),
+    base = {"metrics": ["new_postings"], "windows": list(WINDOWS),
             "default_window": DEFAULT_WINDOW, "geo_levels": ["city"]}  # fmt: skip
+    dataset_id = DATASET_IDS.get(dataset, "demo-v1")
     try:
         d = _open(session, dataset)
     except HTTPException as exc:
         return Capabilities(
-            dataset_id="jobbank" if dataset == "real" else "demo-v1", data_mode="not_configured",
+            dataset_id=dataset_id, data_mode="not_configured",
             release_id=None, reason=exc.detail["message"], history_start=None, data_through=None,
             partial_latest_day=False, gaps=[], playback=False,
-            playback_reason="no data", stale=False, publication="—", quality={}, **base,
+            playback_reason="no data", stale=False, publication="—", quality={},
+            occupations=ds.occupations_payload(), refresh=REFRESH.get(dataset_id, "on_request"),
+            backfilled=[], employers=None, platforms=[], attribution=None, **base,
         )  # fmt: skip
     info = d.info()
     span = (info.data_through - info.history_start).days + 1
@@ -107,12 +122,35 @@ def capabilities(
         partial_latest_day=info.cutoff is not None, gaps=info.gaps, playback=playback,
         playback_reason=None if playback else "history shorter than two days",
         stale=info.stale, quality=info.quality,
-        publication=(
-            "monthly: Job Bank publishes each month's postings a few days after it ends"
-            if info.data_mode == "real" else "generated on request (demo)"
-        ),
-        **base,
+        publication=PUBLICATION.get(info.dataset_id, "generated on request (demo)"),
+        refresh=REFRESH.get(info.dataset_id, "on_request"),
+        backfilled=[{"start": info.backfilled[0].isoformat(),
+                     "end": info.backfilled[1].isoformat(),
+                     "reason": "backfilled: counted from postings still open when collection "
+                               "started (closed ones are missing)"}] if info.backfilled else [],
+        **_dataset_facts(session, info), **base,
     )  # fmt: skip
+
+
+def _dataset_facts(session: Session, info: ds.Info) -> dict:
+    """Occupations offered, coverage and credit line for one dataset."""
+    if info.dataset_id == ds.ATS_DATASET:
+        names = ats.platforms(info.quality.get("counted_sources") or info.source_set_id.split("+"))
+        return {"occupations": _ats_occupations(info.release_id),
+                "employers": info.quality.get("employers"), "platforms": names,
+                "attribution": ats.attribution(names) if names else None}  # fmt: skip
+    attribution = None
+    if info.dataset_id == ds.REAL_DATASET:
+        attribution = source(session, jobbank.SOURCE_KEY).attribution
+    return {"occupations": ds.occupations_payload(), "employers": None, "platforms": [],
+            "attribution": attribution}  # fmt: skip
+
+
+@lru_cache(maxsize=32)
+def _ats_occupations(release_id: str) -> list[dict]:
+    with sync_session() as session:
+        totals = _open(session, "ats", release_id).occupation_totals(30)
+    return ds.occupations_payload({o for o, n in totals.items() if n >= MIN_OCCUPATION_POSTINGS})
 
 
 @router.get("/cities", response_model=CitiesResponse)
@@ -174,7 +212,7 @@ def frame(
             total_reason=None if f.national is not None else "window not fully covered",
             city_unconfirmed=f.unconfirmed, remote_canada=f.remote,
         ),
-        notes=f.notes,
+        notes=f.notes, backfilled_days=f.backfilled_days,
     )  # fmt: skip
 
 
@@ -206,7 +244,7 @@ def timeline(
         frames=[TimelineFrame(date=f.day.isoformat(), quality=f.quality,
                               days_available=f.days_available,
                               counts=[f.cities.get(c) for c in ids], national=f.national,
-                              notes=f.notes) for f in fr],
+                              notes=f.notes, backfilled_days=f.backfilled_days) for f in fr],
         max_count=scale_max(dataset, info.release_id, occupation, window_key),
     )  # fmt: skip
 
@@ -254,7 +292,8 @@ def series(
         city_id=city_id, occupation=occupation, window=window_key,
         points=[SeriesPoint(date=f.day.isoformat(), count=f.cities.get(city_id),
                             quality=f.quality if f.cities.get(city_id) is not None
-                            or f.quality == "missing" else "not_covered") for f in fr],
+                            or f.quality == "missing" else "not_covered",
+                            backfilled_days=f.backfilled_days) for f in fr],
     )  # fmt: skip
 
 
@@ -274,19 +313,19 @@ def version(
         )  # fmt: skip
         mode = "demo"
     else:
-        r = current_release(session, "jobbank")
-        ok = r is not None and ds.RealDataset.open(session) is not None
-        rid = r.id if ok else None
-        through = r.data_through.isoformat() if ok and r.data_through else None
-        published = r.published_at.isoformat() if ok and r.published_at else None
-        kind = r.change_kind if ok else None
-        mode = "real" if ok else "not_configured"
+        real = ds.RealDataset.open(session, DATASET_IDS[dataset])
+        r = real.release if real else None
+        rid = r.id if r else None
+        through = real.data_through.isoformat() if r else None
+        published = r.published_at.isoformat() if r and r.published_at else None
+        kind = r.change_kind if r else None
+        mode = "real" if r else "not_configured"
     etag = f'"{rid or "none"}"'
     if request.headers.get("if-none-match") == etag:
         return Response(status_code=304, headers={"ETag": etag})
     response.headers["ETag"] = etag
     response.headers["Cache-Control"] = "no-cache"
-    return VersionResponse(dataset_id="demo-v1" if dataset == "demo" else "jobbank",
+    return VersionResponse(dataset_id=DATASET_IDS.get(dataset, "demo-v1"),
                            data_mode=mode, release_id=rid, data_through=through,
                            published_at=published, change_kind=kind)  # fmt: skip
 

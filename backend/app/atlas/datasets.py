@@ -1,6 +1,7 @@
-"""The two datasets the v2 API can serve, behind one interface.
+"""The datasets the v2 API can serve, behind one interface.
 
-- RealDataset: the published release of admitted sources (Job Bank open data).
+- RealDataset: the published release of admitted sources, for one dataset id: Job Bank open
+  data ("jobbank") or Employer boards ("ats"). The two are never added together.
 - DemoDataset: deterministic, generated on request, never stored with real records, always
   labelled data_mode="demo". It exists to show long history, dense cities, gaps and partial
   days. A failed real request never falls back to it.
@@ -13,19 +14,20 @@ import math
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.atlas.metrics import (
     REAL_DATASET,
     Frame,
+    backfilled_span,
     current_release,
     frames,
     release_by_id,
     release_cities,
     rolling_frames,
 )
-from app.atlas.models import AtlasCity, AtlasRelease
+from app.atlas.models import AtlasCity, AtlasDailyMetric, AtlasRelease
 from app.atlas.occupations import CLASSIFICATION_VERSION, OCCUPATIONS
 from app.atlas.permissions import admitted, source
 from app.atlas.windows import REPORTING_TZ, WINDOWS
@@ -47,6 +49,7 @@ class Info:
     quality: dict
     stale: bool
     change_kind: str
+    backfilled: tuple[date, date] | None = None  # days whose counts are lower bounds
 
 
 def city_payload(c: AtlasCity) -> dict:
@@ -57,20 +60,28 @@ def city_payload(c: AtlasCity) -> dict:
     }  # fmt: skip
 
 
+ATS_DATASET = "ats"
+# Days after which a dataset's latest day counts as overdue: Job Bank publishes monthly,
+# Employer boards are swept hourly.
+STALE_AFTER = {REAL_DATASET: 46, ATS_DATASET: 2}
+
+
 class RealDataset:
-    dataset_id = REAL_DATASET
     data_mode = "real"
 
     def __init__(self, session: Session, release: AtlasRelease):
         self.session = session
         self.release = release
+        self.dataset_id = release.dataset_id
 
     @classmethod
-    def open(cls, session: Session, release_id: str | None = None) -> RealDataset | None:
+    def open(
+        cls, session: Session, dataset_id: str = REAL_DATASET, release_id: str | None = None
+    ) -> RealDataset | None:
         r = (
-            release_by_id(session, REAL_DATASET, release_id)
+            release_by_id(session, dataset_id, release_id)
             if release_id
-            else current_release(session, REAL_DATASET)
+            else current_release(session, dataset_id)
         )
         if r is None:
             return None
@@ -80,16 +91,37 @@ class RealDataset:
                 return None  # permission lapsed: the release must not be served
         return cls(session, r)
 
+    @property
+    def data_through(self) -> date:
+        """Last served day. An Employer boards release ends on the day it was swept, which was
+        not over yet: it serves through the day before (the last complete day)."""
+        lag = 1 if self.dataset_id == ATS_DATASET else 0
+        return self.release.data_through - timedelta(days=lag)
+
     def info(self) -> Info:
         r = self.release
-        # Monthly source: data more than ~6 weeks past its month is overdue.
-        stale = (datetime.now(REPORTING_TZ).date() - r.data_through).days > 46
+        through = self.data_through
+        stale = (datetime.now(REPORTING_TZ).date() - through).days > STALE_AFTER[self.dataset_id]
         gaps = (r.coverage or {}).get("gaps", [])
         return Info(
-            self.dataset_id, self.data_mode, r.id, r.history_start, r.data_through, None,
+            self.dataset_id, self.data_mode, r.id, r.history_start, through, None,
             r.source_set_id, r.classification_version, r.published_at, gaps, r.quality or {},
-            stale, r.change_kind,
+            stale, r.change_kind, backfilled_span(r),
         )  # fmt: skip
+
+    def occupation_totals(self, days: int) -> dict[str, int]:
+        """Postings per occupation, nationally, in the last `days` served days."""
+        last = self.data_through
+        q = (
+            select(AtlasDailyMetric.occupation_id, func.sum(AtlasDailyMetric.count))
+            .where(
+                AtlasDailyMetric.release_id == self.release.id,
+                AtlasDailyMetric.scope == "national",
+                AtlasDailyMetric.day.between(last - timedelta(days=days - 1), last),
+            )
+            .group_by(AtlasDailyMetric.occupation_id)
+        )
+        return {occ: int(n) for occ, n in self.session.execute(q)}
 
     def cities(self) -> list[dict]:
         return [city_payload(c) for c in release_cities(self.session, self.release)]
@@ -186,7 +218,8 @@ def _demo_count(city_id: str, population: int, occupation: str, day: date) -> in
     return int(lam + _noise(city_id, occupation, day) * (1 + math.sqrt(lam)))
 
 
-def occupations_payload() -> list[dict]:
+def occupations_payload(keep: set[str] | None = None) -> list[dict]:
+    """The "all" entry, then the occupations in `keep` (every occupation when None)."""
     return [
         {
             "id": "all",
@@ -194,7 +227,9 @@ def occupations_payload() -> list[dict]:
             "note": "every counted posting, including unclassified ones",
         }
     ] + [  # fmt: skip
-        {"id": o.id, "label": o.label, "note": o.note} for o in OCCUPATIONS
+        {"id": o.id, "label": o.label, "note": o.note}
+        for o in OCCUPATIONS
+        if keep is None or o.id in keep
     ]
 
 

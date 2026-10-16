@@ -3,8 +3,9 @@
 A release is built from admitted sources only, over periods whose coverage is `complete` or
 `partial` (counted, but flagged in the release's coverage).
 Its daily rows are inserted while the release is `building`; publishing flips one row, so a
-client always reads one consistent version. Playback is bound to a release id; the last few
-releases are kept so a client in history mode is not moved.
+client always reads one consistent version. Playback is bound to a release id; a release
+stays readable for at least a day after it stops being current, so a client in history mode
+is not moved.
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ from __future__ import annotations
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import delete, select, text, update
 from sqlalchemy.orm import Session
@@ -24,8 +25,12 @@ from app.atlas.windows import WINDOWS, window
 from app.core.timeutil import utcnow
 
 METRIC = "new_postings"
-KEEP_RELEASES = 3
+KEEP_RELEASES = 3  # at least this many, plus every release current within KEEP_FOR
+KEEP_FOR = timedelta(hours=24)
 REAL_DATASET = "jobbank"
+# Coverage note prefix of days rebuilt from postings still open when collection started
+# (atlas/ats.py): their counts are lower bounds, closed postings are missing.
+BACKFILL_NOTE = "backfilled"
 
 
 class ReleaseError(Exception):
@@ -213,15 +218,28 @@ def publish(session: Session, release: AtlasRelease) -> None:
     release.status = "published"
     release.published_at = utcnow()
     session.commit()
-    old = session.scalars(
-        select(AtlasRelease.id)
-        .where(AtlasRelease.dataset_id == release.dataset_id)
-        .order_by(AtlasRelease.created_at.desc())
-        .offset(KEEP_RELEASES)
-    ).all()
+    old = expired_releases(
+        session.execute(
+            select(AtlasRelease.id, AtlasRelease.created_at, AtlasRelease.published_at)
+            .where(AtlasRelease.dataset_id == release.dataset_id)
+            .order_by(AtlasRelease.created_at.desc())
+        ).all(),
+        utcnow(),
+    )
     if old:
         session.execute(delete(AtlasRelease).where(AtlasRelease.id.in_(old)))
         session.commit()
+
+
+def expired_releases(rows: list, now: datetime) -> list[str]:
+    """Releases (newest first: id, created_at, published_at) that may be deleted: a release is
+    kept while it was current at some point within KEEP_FOR (a page bound to it then keeps
+    working for that long), and the newest KEEP_RELEASES are always kept."""
+    cutoff = now - KEEP_FOR
+    # the newest release live before the cutoff was still current at the cutoff
+    before = [(i, rid) for i, (rid, created, published) in enumerate(rows)
+              if (published or created) < cutoff]  # fmt: skip
+    return [rid for i, rid in before[1:] if i >= KEEP_RELEASES]
 
 
 def current_release(session: Session, dataset_id: str) -> AtlasRelease | None:
@@ -250,6 +268,7 @@ class Frame:
     quality: str  # complete | partial | missing
     days_available: int
     notes: list[str] = field(default_factory=list)
+    backfilled_days: int = 0  # days of the window whose counts are lower bounds
 
 
 def gap_days(release: AtlasRelease) -> set[date]:
@@ -260,6 +279,25 @@ def gap_days(release: AtlasRelease) -> set[date]:
             out.add(d)
             d += timedelta(days=1)
     return out
+
+
+def backfilled_span(release: AtlasRelease) -> tuple[date, date] | None:
+    """Days of a release counted only from postings still open when collection started. The
+    backfilled coverage ends the day before the first sweep; that day itself was observed only
+    from the sweep on, so it is a lower bound too. Read from the release's frozen coverage."""
+    spans = [(date.fromisoformat(p["start"]), date.fromisoformat(p["end"]))
+             for p in (release.coverage or {}).get("partial", [])
+             if p.get("reason", "").startswith(BACKFILL_NOTE)]  # fmt: skip
+    if not spans:
+        return None
+    end = min(max(b for _, b in spans) + timedelta(days=1), release.data_through)
+    return min(a for a, _ in spans), end
+
+
+def _days(span: tuple[date, date] | None) -> set[date]:
+    if span is None:
+        return set()
+    return {span[0] + timedelta(days=i) for i in range((span[1] - span[0]).days + 1)}
 
 
 def release_cities(session: Session, release: AtlasRelease) -> list[AtlasCity]:
@@ -303,6 +341,7 @@ def rolling_frames(
     *,
     not_covered: set[str] = frozenset(),
     partial_on: date | None = None,
+    backfilled: set[date] = frozenset(),
 ) -> list[Frame]:
     """One frame per day, each summing its own trailing window (playing a year never
     accumulates a year). Running totals make a full history O(days × cities). A window that
@@ -322,6 +361,7 @@ def rolling_frames(
             running[key] += count
         w = window(window_key, d, history_start=history_start)
         missing = sum(1 for i in range(n) if (d - timedelta(days=i)) in gaps)
+        filled = sum(1 for i in range(n) if (d - timedelta(days=i)) in backfilled)
         notes = []
         if missing:
             quality = "missing"
@@ -336,16 +376,19 @@ def rolling_frames(
             notes.append("today is not over")
             if quality == "complete":
                 quality = "partial"
+        if filled:
+            notes.append(f"{filled} day(s) of this window are backfilled from postings still "
+                         "open when collection started: lower bounds")  # fmt: skip
         if quality == "missing":
             out.append(Frame(d, dict.fromkeys(city_ids), None, None, None, quality,
-                             w.days_available, notes))  # fmt: skip
+                             w.days_available, notes, filled))  # fmt: skip
         else:
             cities = {
                 c: (None if c in not_covered else running.get(("city", c), 0)) for c in city_ids
             }
             out.append(Frame(
                 d, cities, running.get(("national", ""), 0), running.get(("unconfirmed", ""), 0),
-                running.get(("remote", ""), 0), quality, w.days_available, notes,
+                running.get(("remote", ""), 0), quality, w.days_available, notes, filled,
             ))  # fmt: skip
         old = d - timedelta(days=n - 1)
         for key, count in daily.get(old, {}).items():
@@ -369,4 +412,5 @@ def frames(
     for (scope, city, day), count in rows.items():
         daily[day][(scope, city)] = count
     return rolling_frames(first_day, last_day, window_key, release.history_start,
-                          gap_days(release), daily, city_ids)  # fmt: skip
+                          gap_days(release), daily, city_ids,
+                          backfilled=_days(backfilled_span(release)))  # fmt: skip

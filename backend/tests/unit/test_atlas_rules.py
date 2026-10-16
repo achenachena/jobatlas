@@ -3,7 +3,9 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.atlas.ats import attribution
 from app.atlas.cities import CityIndex, city_key, parse_geonames, province_code
+from app.atlas.metrics import expired_releases
 from app.atlas.occupations import classify
 from app.atlas.permissions import REGISTRY, admitted
 from app.atlas.windows import REPORTING_TZ, window
@@ -186,3 +188,24 @@ def test_only_licensed_and_public_api_sources_are_registered_and_scheduled():
         "jobatlas.ats_discover",
     }
     assert celery_app.conf.task_default_queue == "atlas"
+
+
+# ------------------------------------------------------------------ release retention
+
+
+def test_releases_stay_for_a_day_after_they_stop_being_current():
+    now = datetime(2026, 10, 16, 12, tzinfo=UTC)
+    hourly = [(f"r{h}", now - timedelta(hours=h), now - timedelta(hours=h)) for h in range(40)]
+    # r24 went live exactly at the cutoff; r25 was the current release then, so it is kept.
+    assert expired_releases(hourly, now) == [f"r{h}" for h in range(26, 40)]
+    # the newest three are kept however old; an unpublished build counts by its creation time
+    old = [(rid, now - timedelta(days=9 + i), None) for i, rid in enumerate("abcd")]
+    assert expired_releases(old, now) == ["d"]
+
+
+def test_attribution_lists_the_platforms_used():
+    assert attribution(["Greenhouse", "Ashby", "Lever"]).startswith(
+        "Counted from employers' public job boards hosted on Greenhouse, Ashby and Lever."
+    )
+    assert "hosted on Greenhouse and Lever." in attribution(["Greenhouse", "Lever"])
+    assert "hosted on Ashby." in attribution(["Ashby"])
