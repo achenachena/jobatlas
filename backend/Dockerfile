@@ -12,7 +12,8 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY . .
 RUN uv sync --frozen --no-dev
 
-RUN useradd --system --uid 10001 jobatlas
+# /var/lib/jobatlas holds the beat schedule in production (a volume takes this owner)
+RUN useradd --system --uid 10001 jobatlas && install -d -o jobatlas /var/lib/jobatlas
 USER jobatlas
 
 CMD ["uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -60,7 +60,11 @@ services:
         condition: service_completed_successfully
   scheduler:
     <<: *backend
-    command: ["celery", "-A", "app.workers.celery_app", "beat", "--loglevel=INFO", "--schedule=/tmp/celerybeat-schedule"]
+    # The schedule's last-run times survive redeploys; in /tmp every deploy restarted each
+    # interval, so the daily and monthly tasks never ran while deploys came more often.
+    command: ["celery", "-A", "app.workers.celery_app", "beat", "--loglevel=INFO", "--schedule=/var/lib/jobatlas/celerybeat-schedule"]
+    volumes:
+      - beat:/var/lib/jobatlas
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -81,3 +85,4 @@ services:
 volumes:
   pgdata:
   caddy_data:
+  beat:
