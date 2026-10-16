@@ -4,9 +4,9 @@
 
 | Part | Location |
 | --- | --- |
-| Web | Vercel project `prj_i67jEDOTnQWeVGL2Oq8MwYRZB844` (team `team_AOWw5xwHPLgnSpEeewbgQtz9`), https://jobatlas-eight.vercel.app |
+| Web | Vercel project (`VERCEL_PROJECT_ID`, `VERCEL_ORG_ID`), https://jobatlas-eight.vercel.app |
 | API | https://jobatlas.184-195-161-235.sslip.io (Caddy, automatic TLS) |
-| Server | EC2 `i-0ab4772542d5a3371`, us-east-1, t3.small (CPU credits `standard`), Ubuntu, IPv4 only |
+| Server | EC2 (`DEPLOY_INSTANCE_ID`), us-east-1, t3.small (CPU credits `standard`), Ubuntu, IPv4 only |
 | Source on server | `/home/ubuntu/jobatlas` (git checkout, detached at the released SHA) |
 | Server config | `/home/ubuntu/deploy/.env` (`POSTGRES_PASSWORD`, `JOBATLAS_ENV`, `CORS_ORIGINS`, `ATLAS_USER_AGENT`, `API_DOMAIN`); never committed |
 | Stack | `infra/compose.prod.yaml`, Compose project `jobatlas` |
@@ -56,8 +56,9 @@ GitHub environment `production` holds `VERCEL_TOKEN` (secret) and the variables
 `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`, `AWS_DEPLOY_ROLE_ARN`, `DEPLOY_INSTANCE_ID`, `API_URL`.
 No long-lived AWS key exists. IAM:
 
-- `jobatlas-github-deploy`: trusted only for `repo:achenachena/jobatlas:environment:production`;
-  may only run `AWS-RunShellScript` on this instance and read the result.
+- `jobatlas-github-deploy`: must trust this repository and the production environment using
+  `repo:achenachena@22982277/jobatlas@1417366149:environment:production`; may only run
+  `AWS-RunShellScript` on this instance and read the result.
 - `jobatlas-ec2-ssm` (instance profile): `AmazonSSMManagedInstanceCore`, so the SSM agent can register.
 
 Release or re-release a specific commit (also the rollback path, see below):
@@ -71,7 +72,8 @@ gh workflow run deploy -f sha=<full commit sha>
 SSM (no open port needed):
 
 ```sh
-aws ssm start-session --region us-east-1 --target i-0ab4772542d5a3371
+aws ssm start-session --region us-east-1 \
+  --target "$(gh variable get DEPLOY_INSTANCE_ID --env production)"
 sudo -iu ubuntu
 ```
 
@@ -127,3 +129,53 @@ dc start api worker scheduler
 - A migration since then that the old code cannot read (for example `0015` drops the v1 tables):
   restore the backup taken before that release, then release the old commit. Rolling back only
   the web leaves it talking to an API it does not match.
+
+## Agent release instructions
+
+Read this runbook before releasing, including frontend-only changes. Use only the unified
+`deploy` workflow; do not run an independent Vercel production deployment or promote a
+build separately. Deploy an explicitly selected, committed SHA whose existing CI succeeded.
+Do not include unrelated uncommitted work. Follow the run to completion and report the run
+URL, released SHA and outcome; dispatching the workflow is not a successful release.
+
+Diagnose the first failed step from `gh run view <run-id> --log-failed` before changing
+credentials or infrastructure. Do not add duplicate tests, builds or release gates to
+troubleshoot a failed deployment.
+
+For `Could not retrieve Project Settings` with the pinned Vercel CLI 48.9.0:
+
+- This message wraps HTTP 403 with `forbidden` or `team_unauthorized`; it does not prove a
+  missing project (404) or a successful CLI login.
+- Verify the project and team IDs against Vercel, and the variables in GitHub environment
+  `production`. Access through a Vercel connector is separate from the workflow token.
+- If the IDs are correct, the owner must provide a token authorized for the project's team
+  (`achenachena's projects`) and save it in the `production` environment:
+
+  ```sh
+  gh secret set VERCEL_TOKEN --repo achenachena/jobatlas --env production
+  ```
+
+  Never ask for the token in chat, print it, commit it, or attempt to read it back from GitHub.
+  Deleting `.vercel`, creating a new project, or opening SSH access does not repair a token's
+  permissions.
+- Once the secret is updated, rerun the failed release if it still targets the intended
+  commit and workflow. Otherwise dispatch the unified workflow for the intended full SHA.
+- If staging fails, SSM and promotion have not run. If the backend deployed but promotion
+  failed, investigate that partial release; do not blindly roll back only one component.
+
+For `Not authorized to perform sts:AssumeRoleWithWebIdentity`, inspect the AWS role trust
+policy and GitHub's actual OIDC subject format before changing permissions:
+
+```sh
+gh api repos/achenachena/jobatlas/actions/oidc/customization/sub
+aws iam get-role --role-name jobatlas-github-deploy --query Role.AssumeRolePolicyDocument
+```
+
+On 2026-10-16 this repository has `use_immutable_subject=true` and prefix
+`repo:achenachena@22982277/jobatlas@1417366149`. The old name-only prefix in an AWS trust
+policy will not match. The environment suffix must also match the actual claim, including
+case. CloudTrail confirmed the workflow emits lowercase `environment:production`, despite
+the environment API reporting `Production`; the trust policy was corrected to that exact
+immutable subject on 2026-10-16. Preserve exact repository and
+environment restrictions rather than widening the subject to a wildcard. A local AWS login
+is needed to repair IAM, but its expiry does not cause GitHub's OIDC failure.

@@ -33,3 +33,6 @@ celerybeat-schedule*
 .cursor/
 .DS_Store
 .vercel/
+
+# Local design explorations; never part of the repo
+artifacts/
