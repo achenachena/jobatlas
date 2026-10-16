@@ -1,5 +1,6 @@
 /** One shared selection, mirrored in the URL so a refresh restores it (spec §11).
- * No parameters = Canada, all occupations, last 7 days, latest data, real data. */
+ * No parameters = Canada, all occupations, last 7 days, latest data, Job Bank (?data=ats:
+ * Employer boards, ?data=demo: demo). */
 import type { Dataset, WindowKey } from "./api";
 
 export interface Selection {
@@ -27,7 +28,7 @@ export function parseSelection(search: string): Selection {
   const p = new URLSearchParams(search);
   const date = p.get("date");
   return {
-    dataset: p.get("data") === "demo" ? "demo" : "real",
+    dataset: p.get("data") === "demo" ? "demo" : p.get("data") === "ats" ? "ats" : "real",
     occupation: /^[a-z_]{2,48}$/.test(p.get("occupation") ?? "") ? p.get("occupation")! : "all",
     window: WINDOWS.includes(p.get("window") as WindowKey) ? (p.get("window") as WindowKey) : "7d",
     date: date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null,

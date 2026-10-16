@@ -33,12 +33,12 @@ from datetime import date, datetime, timedelta
 from urllib.parse import parse_qs, quote, urlsplit
 
 import httpx
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.atlas.cities import PROVINCE_CODES, CityIndex, city_key, fold, province_code
-from app.atlas.metrics import build_release, current_release, publish
+from app.atlas.metrics import BACKFILL_NOTE, build_release, current_release, publish
 from app.atlas.models import AtlasBoard, AtlasCity, AtlasCoverage, AtlasPosting
 from app.atlas.occupations import CLASSIFICATION_VERSION, classify
 from app.atlas.permissions import INGEST, admitted, source, sync_registry
@@ -51,6 +51,8 @@ log = get_logger(__name__)
 
 DATASET = "ats"
 SOURCE_KEYS = {"greenhouse": "ats-greenhouse", "lever": "ats-lever", "ashby": "ats-ashby"}
+# Display names, in the order the attribution lists them.
+PLATFORM_NAMES = {"ats-greenhouse": "Greenhouse", "ats-ashby": "Ashby", "ats-lever": "Lever"}
 BACKFILL_DAYS = 30
 SWEEP_MINUTES = 50  # leaves the hourly schedule (and the Job Bank task) room on one worker
 # Active boards and failed fetches are due again by the next hourly sweep (a sweep fetches
@@ -516,7 +518,7 @@ def update_coverage(session: Session, key: str, now: datetime) -> bool:
         for i in range(BACKFILL_DAYS, 0, -1):
             plan[today - timedelta(days=i)] = (
                 "partial",
-                f"backfilled on {today}: postings still open then (closed ones are missing)",
+                f"{BACKFILL_NOTE} on {today}: postings still open then (closed ones are missing)",
             )
     else:
         d = last
@@ -538,6 +540,34 @@ def update_coverage(session: Session, key: str, now: datetime) -> bool:
         )  # fmt: skip
     session.commit()
     return last != today
+
+
+# ------------------------------------------------------------------ release facts
+
+COUNTED_SQL = """
+SELECT count(DISTINCT p.resource_id) AS employers, array_agg(DISTINCT p.source_key) AS keys
+FROM atlas_postings p
+JOIN atlas_coverage c ON c.source_key = p.source_key AND c.status IN ('complete', 'partial')
+ AND p.posted_on BETWEEN c.period_start AND c.period_end
+WHERE p.source_key = ANY(:keys)
+"""
+
+
+def counted(session: Session, keys: list[str]) -> dict:
+    """Employers (boards) and sources with at least one posting counted in a release built now:
+    stored with the release so they stay fixed for it."""
+    r = session.execute(text(COUNTED_SQL), {"keys": keys}).mappings().one()
+    return {"employers": r["employers"], "counted_sources": sorted(r["keys"] or [])}
+
+
+def platforms(keys: Iterable[str]) -> list[str]:
+    return [name for key, name in PLATFORM_NAMES.items() if key in set(keys)]
+
+
+def attribution(names: list[str]) -> str:
+    listed = names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
+    return (f"Counted from employers' public job boards hosted on {listed}. "
+            "Not affiliated with these platforms.")  # fmt: skip
 
 
 # ------------------------------------------------------------------ sweep
@@ -619,6 +649,7 @@ def sweep(
             first = current_release(session, DATASET) is None
             release = build_release(session, DATASET, keys,
                                     change_kind="coverage" if first else "update")  # fmt: skip
+            release.quality = {**release.quality, **counted(session, keys)}
             publish(session, release)
             report.release_id = release.id
     log.info("ats_sweep", **{k: v for k, v in report.__dict__.items() if v})

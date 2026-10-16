@@ -34,6 +34,13 @@ test("no URL parameters = Canada, all jobs, last 7 days, latest, real data", () 
   expect(serializeSelection(DEFAULT_SELECTION)).toBe("");
 });
 
+test("Employer boards is ?data=ats; no parameter is Job Bank", () => {
+  expect(parseSelection("?data=ats").dataset).toBe("ats");
+  expect(serializeSelection({ ...DEFAULT_SELECTION, dataset: "ats" })).toBe("?data=ats");
+  expect(parseSelection("").dataset).toBe("real");
+  expect(parseSelection("?data=boards").dataset).toBe("real");
+});
+
 test("selection round-trips through the URL; invalid values fall back", () => {
   const s = { ...DEFAULT_SELECTION, occupation: "bartender", window: "30d" as const, date: "2025-07-01", city: "ca-on-toronto" };
   expect(parseSelection(serializeSelection(s))).toEqual(s);

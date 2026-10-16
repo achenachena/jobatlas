@@ -18,12 +18,14 @@ import { addDays, daysBetween } from "./state";
 
 export const CHUNK_DAYS = 120;
 
-export function useCapabilities(dataset: Dataset) {
-  return useQuery({
-    queryKey: ["atlas", "caps", dataset],
-    queryFn: ({ signal }) => atlasGet<Capabilities>("/capabilities", { dataset }, signal),
-    staleTime: Infinity,
-  });
+export const capabilitiesQuery = (dataset: Dataset) => ({
+  queryKey: ["atlas", "caps", dataset],
+  queryFn: ({ signal }: { signal: AbortSignal }) => atlasGet<Capabilities>("/capabilities", { dataset }, signal),
+  staleTime: Infinity,
+});
+
+export function useCapabilities(dataset: Dataset, enabled = true) {
+  return useQuery({ ...capabilitiesQuery(dataset), enabled });
 }
 
 export function useCities(dataset: Dataset, release: string | null | undefined) {
@@ -32,6 +34,8 @@ export function useCities(dataset: Dataset, release: string | null | undefined) 
     queryFn: ({ signal }) => atlasGet<CitiesResponse>("/cities", { dataset, release: release ?? undefined }, signal),
     enabled: !!release,
     staleTime: Infinity,
+    // a new release or dataset keeps the map on screen until its cities arrive
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -102,6 +106,7 @@ export function useScaleMax(a: TimelineArgs, mode: "shared" | "fit") {
   const q = useQuery({
     ...timelineQuery({ ...a, occupation: occ }, [a.dataThrough ?? "", a.dataThrough ?? ""]),
     enabled: !!a.release && !!a.dataThrough,
+    placeholderData: keepPreviousData, // keep the map on screen until the new scale arrives
   });
   return q.data?.max_count ?? null;
 }

@@ -204,6 +204,32 @@ export interface components {
             /** Publication */
             publication: string;
             /**
+             * Refresh
+             * @description how often the data changes: monthly (Job Bank), hourly (Employer boards), on_request (demo)
+             * @enum {string}
+             */
+            refresh: "monthly" | "hourly" | "on_request";
+            /**
+             * Backfilled
+             * @description days counted only from postings still open when collection started (lower bounds); empty when none
+             */
+            backfilled: components["schemas"]["Gap"][];
+            /**
+             * Employers
+             * @description employers (job boards) with at least one posting counted in this release; null when the dataset has no employer breakdown or the release predates the count
+             */
+            employers: number | null;
+            /**
+             * Platforms
+             * @description job-board platforms counted in this release
+             */
+            platforms: string[];
+            /**
+             * Attribution
+             * @description credit line to show with this dataset
+             */
+            attribution: string | null;
+            /**
              * Reporting Timezone
              * @default America/Toronto
              */
@@ -335,6 +361,11 @@ export interface components {
             national: components["schemas"]["NationalSummary"];
             /** Notes */
             notes: string[];
+            /**
+             * Backfilled Days
+             * @description days of the window that are backfilled: counted only from postings still open when collection started, so the value is a lower bound (0: none). Independent of quality, which says whether days are missing.
+             */
+            backfilled_days: number;
         };
         /** Gap */
         Gap: {
@@ -384,6 +415,11 @@ export interface components {
              * @enum {string}
              */
             quality: "complete" | "partial" | "missing" | "not_covered" | "stale";
+            /**
+             * Backfilled Days
+             * @description days of the window that are backfilled: counted only from postings still open when collection started, so the value is a lower bound (0: none). Independent of quality, which says whether days are missing.
+             */
+            backfilled_days: number;
         };
         /** SeriesResponse */
         SeriesResponse: {
@@ -464,6 +500,11 @@ export interface components {
             national: number | null;
             /** Notes */
             notes: string[];
+            /**
+             * Backfilled Days
+             * @description days of the window that are backfilled: counted only from postings still open when collection started, so the value is a lower bound (0: none). Independent of quality, which says whether days are missing.
+             */
+            backfilled_days: number;
         };
         /** TimelineResponse */
         TimelineResponse: {
@@ -593,7 +634,7 @@ export interface operations {
     capabilities_api_v2_atlas_capabilities_get: {
         parameters: {
             query?: {
-                dataset?: "real" | "demo";
+                dataset?: "real" | "ats" | "demo";
             };
             header?: never;
             path?: never;
@@ -624,7 +665,7 @@ export interface operations {
     cities_api_v2_atlas_cities_get: {
         parameters: {
             query?: {
-                dataset?: "real" | "demo";
+                dataset?: "real" | "ats" | "demo";
                 release?: string | null;
             };
             header?: never;
@@ -656,7 +697,7 @@ export interface operations {
     frame_api_v2_atlas_frame_get: {
         parameters: {
             query?: {
-                dataset?: "real" | "demo";
+                dataset?: "real" | "ats" | "demo";
                 occupation?: "all" | "software_development" | "human_resources" | "bartender" | "barista" | "registered_nurse" | "cook";
                 window?: "1d" | "7d" | "30d";
                 date?: string | null;
@@ -691,7 +732,7 @@ export interface operations {
     timeline_api_v2_atlas_timeline_get: {
         parameters: {
             query?: {
-                dataset?: "real" | "demo";
+                dataset?: "real" | "ats" | "demo";
                 occupation?: "all" | "software_development" | "human_resources" | "bartender" | "barista" | "registered_nurse" | "cook";
                 window?: "1d" | "7d" | "30d";
                 start?: string | null;
@@ -727,7 +768,7 @@ export interface operations {
     series_api_v2_atlas_cities__city_id__series_get: {
         parameters: {
             query?: {
-                dataset?: "real" | "demo";
+                dataset?: "real" | "ats" | "demo";
                 occupation?: "all" | "software_development" | "human_resources" | "bartender" | "barista" | "registered_nurse" | "cook";
                 window?: "1d" | "7d" | "30d";
                 end?: string | null;
@@ -765,7 +806,7 @@ export interface operations {
     version_api_v2_atlas_version_get: {
         parameters: {
             query?: {
-                dataset?: "real" | "demo";
+                dataset?: "real" | "ats" | "demo";
             };
             header?: never;
             path?: never;

@@ -1,11 +1,9 @@
 """v2 atlas: import, dedup, coverage, atomic releases, admission gate and API semantics."""
 
-import os
 from datetime import date
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
 from app.atlas import jobbank
@@ -89,28 +87,6 @@ def test_unadmitted_source_cannot_import_or_release(session, seeded, tmp_path):
         build_release(session, REAL_DATASET, [jobbank.SOURCE_KEY])
     with pytest.raises(ReleaseError):
         build_release(session, REAL_DATASET, ["linkedin"])
-
-
-@pytest.fixture
-def client(engine):
-    from app.api.routes import atlas as routes
-    from app.core import config
-    from app.db import session as dbs
-
-    os.environ["DATABASE_URL"] = os.environ["JOBATLAS_TEST_DATABASE_URL"]
-    os.environ.setdefault("REDIS_URL", "redis://localhost:63799/15")
-    caches = (
-        config.get_settings, dbs.get_sync_engine, dbs._sync_factory, dbs.get_async_engine,
-        dbs._async_factory, routes._city_ids, routes._cities, routes.scale_max,
-    )  # fmt: skip
-    for fn in caches:
-        fn.cache_clear()
-    from app.api.main import create_app
-
-    with TestClient(create_app()) as c:
-        yield c
-    for fn in caches:
-        fn.cache_clear()
 
 
 def test_not_configured_is_distinct_and_never_demo(session, seeded, client):

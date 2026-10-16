@@ -14,7 +14,12 @@ export type SeriesResponse = components["schemas"]["SeriesResponse"];
 export type VersionResponse = components["schemas"]["VersionResponse"];
 export type SourcesResponse = components["schemas"]["SourcesResponse"];
 
-export type Dataset = "real" | "demo";
+export type Gap = components["schemas"]["Gap"];
+
+/** Job Bank ("real") and Employer boards ("ats") are parallel datasets: never summed or shown
+ * together. "demo" is generated data. */
+export type Dataset = "real" | "ats" | "demo";
+export const DATASET_NAME: Record<Dataset, string> = { real: "Job Bank", ats: "Employer boards", demo: "Demo" };
 export type WindowKey = "1d" | "7d" | "30d";
 
 export async function atlasGet<T>(

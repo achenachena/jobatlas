@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
@@ -62,3 +63,26 @@ def session(engine) -> Session:
     s = sessionmaker(engine, expire_on_commit=False)()
     yield s
     s.close()
+
+
+@pytest.fixture
+def client(engine):
+    from app.api.routes import atlas as routes
+    from app.core import config
+    from app.db import session as dbs
+
+    os.environ["DATABASE_URL"] = os.environ["JOBATLAS_TEST_DATABASE_URL"]
+    os.environ.setdefault("REDIS_URL", "redis://localhost:63799/15")
+    caches = (
+        config.get_settings, dbs.get_sync_engine, dbs._sync_factory, dbs.get_async_engine,
+        dbs._async_factory, routes._city_ids, routes._cities, routes.scale_max,
+        routes._ats_occupations,
+    )  # fmt: skip
+    for fn in caches:
+        fn.cache_clear()
+    from app.api.main import create_app
+
+    with TestClient(create_app()) as c:
+        yield c
+    for fn in caches:
+        fn.cache_clear()

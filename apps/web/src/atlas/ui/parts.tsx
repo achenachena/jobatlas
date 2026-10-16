@@ -3,7 +3,7 @@
  * from "More" or from the date and city notes. */
 import { type ReactNode, type RefObject, useEffect, useId, useRef, useState } from "react";
 
-import type { Capabilities, City, SeriesResponse, SourcesResponse, WindowKey } from "../api";
+import { type Capabilities, type City, type Dataset, DATASET_NAME, type Gap, type SeriesResponse, type SourcesResponse, type WindowKey } from "../api";
 import { legendTicks } from "../scale";
 import { addDays } from "../state";
 import s from "./atlas.module.css";
@@ -83,7 +83,16 @@ function menuKeys(e: React.KeyboardEvent<HTMLElement>) {
 
 // ---------------------------------------------------------------- top left
 
-export function Brand(p: { caps: Capabilities | undefined; occupation: string; demo: boolean; onOccupation: (id: string) => void }) {
+export function Brand(p: {
+  caps: Capabilities | undefined;
+  occupation: string;
+  demo: boolean;
+  onOccupation: (id: string) => void;
+  /** the dataset switch, always visible next to the brand */
+  switcher?: ReactNode;
+  /** a one-line pointer under the occupation (e.g. to the other dataset) */
+  guide?: ReactNode;
+}) {
   const occs = p.caps?.occupations ?? [{ id: "all", label: "All jobs", note: "" }];
   const [open, setOpen] = useState(false);
   const btn = useRef<HTMLButtonElement>(null);
@@ -97,6 +106,7 @@ export function Brand(p: { caps: Capabilities | undefined; occupation: string; d
   return (
     <header className={s.top}>
       <h1 className={s.brand}>JobAtlas</h1>
+      {p.switcher}
       <div className={s.occ}>
         <button
           ref={btn}
@@ -131,12 +141,114 @@ export function Brand(p: { caps: Capabilities | undefined; occupation: string; d
           </div>
         )}
       </div>
+      {p.guide}
       {p.demo && (
         <div className={s.badge} role="status">
           Demo data · 示例数据 — generated, not real postings
         </div>
       )}
     </header>
+  );
+}
+
+/** Job Bank or Employer boards: two parallel datasets, one at a time. Every number and date in
+ * the notes comes from each dataset's capabilities. */
+export function DatasetSwitch(p: {
+  value: Dataset;
+  caps: Record<"real" | "ats", Capabilities | undefined>;
+  onChange: (d: "real" | "ats") => void;
+}) {
+  const ids = ["real", "ats"] as const;
+  const noteId = useId();
+  const refs = useRef<(HTMLButtonElement | null)[]>([]);
+  const available = (id: "real" | "ats") => !!p.caps[id]?.history_start && p.caps[id]?.data_mode !== "not_configured";
+  const note = (id: "real" | "ats") => {
+    const c = p.caps[id];
+    if (!c) return "Loading…";
+    if (!available(id)) return "Not available yet";
+    const since = `since ${fmtDay(c.history_start!)}`;
+    if (id === "real") return `All occupations · ${c.refresh} · ${since}`;
+    const who = c.employers == null ? "Employers'" : `${fmtNum(c.employers)} employers'`;
+    return `${who} career pages · updated ${c.refresh} · ${since}`;
+  };
+  const onKey = (e: React.KeyboardEvent, i: number) => {
+    const to = { ArrowLeft: i - 1, ArrowUp: i - 1, ArrowRight: i + 1, ArrowDown: i + 1 }[e.key];
+    if (to === undefined) return;
+    e.preventDefault();
+    const id = ids[(to + ids.length) % ids.length]!;
+    if (!available(id)) return;
+    refs.current[ids.indexOf(id)]?.focus();
+    p.onChange(id);
+  };
+  const current = p.value === "ats" ? "ats" : "real";
+  return (
+    <div className={s.datasets}>
+      <div className={s.datasetGroup} role="radiogroup" aria-label="Dataset">
+        {ids.map((id, i) => (
+          <button
+            key={id}
+            ref={(el) => void (refs.current[i] = el)}
+            type="button"
+            role="radio"
+            aria-checked={current === id}
+            aria-describedby={`${noteId}-${id}`}
+            tabIndex={current === id ? 0 : -1}
+            disabled={!available(id) && current !== id}
+            onClick={() => current !== id && p.onChange(id)}
+            onKeyDown={(e) => onKey(e, i)}
+          >
+            <span>{DATASET_NAME[id]}</span>
+            <small id={`${noteId}-${id}`} className={s.datasetNote}>{note(id)}</small>
+          </button>
+        ))}
+      </div>
+      {/* phones: only the chosen dataset's note, full width, below the switch */}
+      <p className={s.datasetNoteNarrow} aria-hidden="true">{note(current)}</p>
+    </div>
+  );
+}
+
+const LOWER_BOUND =
+  "Includes backfilled days, counted only from postings still open when collection started: the real number is at least this.";
+
+/** "≈ lower bound" next to a number that includes backfilled days. */
+export function LowerBound() {
+  const id = useId();
+  return (
+    <>
+      <span className={s.lowerBound} title={LOWER_BOUND} aria-describedby={id}>
+        ≈ lower bound
+      </span>
+      <span id={id} className={s.visuallyHidden}>{LOWER_BOUND}</span>
+    </>
+  );
+}
+
+/** What a dataset covers, from its capabilities (Job Bank keeps its existing wording). */
+export function coverageText(caps: Capabilities | undefined): string {
+  if (caps?.data_mode === "demo") return "Generated demo data";
+  if (caps?.dataset_id && caps.refresh === "hourly")
+    return `Postings from ${caps.employers == null ? "employers'" : `${fmtNum(caps.employers)} employers'`} own career pages — mostly tech and corporate. Not the whole job market.`;
+  return "Source: Job Bank open data (monthly)";
+}
+
+/** The map corner's source line: the dataset's attribution and, for hourly data, its age. */
+export function SourceLine(p: { caps: Capabilities | undefined; publishedAt: string | null | undefined }) {
+  const [now, setNow] = useState(() => Date.now());
+  const hourly = p.caps?.refresh === "hourly";
+  useEffect(() => {
+    if (!hourly) return;
+    const t = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, [hourly]);
+  if (!p.caps || p.caps.data_mode === "not_configured") return null;
+  const minutes = p.publishedAt ? Math.max(0, Math.round((now - Date.parse(p.publishedAt)) / 60_000)) : null;
+  const age = minutes == null ? null : minutes < 60 ? `Updated ${minutes} min ago` : `Updated ${Math.round(minutes / 60)} h ago`;
+  return (
+    <p className={s.sourceLine}>
+      {p.caps.attribution ?? DATASET_NAME[p.caps.data_mode === "demo" ? "demo" : "real"]}
+      {hourly && age && <> · {age}</>}
+    </p>
   );
 }
 
@@ -207,6 +319,8 @@ export function ScalePanel(p: {
   caps: Capabilities | undefined;
   publishedAt: string | null | undefined;
   national: { total_unique: number | null; city_unconfirmed: number | null } | undefined;
+  /** the national total includes backfilled days (a lower bound) */
+  lowerBound: boolean;
   onClose: () => void;
 }) {
   const ticks = p.scaleMax ? legendTicks(p.scaleMax, 3) : [];
@@ -254,12 +368,14 @@ export function ScalePanel(p: {
           Data through <strong>{fmtDay(p.caps.data_through)}</strong>
           {p.caps.stale && <> · <strong>may be stale</strong></>}
           <br />
-          {demo ? "Generated demo data" : "Source: Job Bank open data (monthly)"}
+          {coverageText(p.caps)}
           {p.publishedAt && !demo && <> · updated {new Date(p.publishedAt).toLocaleDateString("en-CA")}</>}
+          {p.caps.attribution && <><br />{p.caps.attribution}</>}
           {p.national && (
             <>
               <br />
               Canada: <strong>{p.national.total_unique == null ? "unknown" : fmtNum(p.national.total_unique)}</strong> postings
+              {p.lowerBound && p.national.total_unique != null && <> <LowerBound /></>}
               {p.national.city_unconfirmed ? <> · {fmtNum(p.national.city_unconfirmed)} city unconfirmed</> : null}
             </>
           )}
@@ -282,7 +398,13 @@ export function TimelineBar(p: {
   playReason: string | null;
   speed: number;
   gaps: { start: string; end: string }[];
+  /** days counted only from postings still open when collection started */
+  backfilled: Gap[];
   partialDay: boolean;
+  /** briefly highlight the date (it jumped, e.g. to another dataset's latest day) */
+  flash: boolean;
+  /** a quiet "Latest" link while viewing history (hourly data has no "new data" banner) */
+  latestLink: boolean;
   onDay: (d: string) => void;
   onPlay: () => void;
   onSpeed: (n: number) => void;
@@ -311,10 +433,15 @@ export function TimelineBar(p: {
         <Icon name={p.playing ? "pause" : "play"} />
       </button>
       <div className={s.when}>
-        <button ref={btn} type="button" className={s.dateBtn} id={id} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        <button ref={btn} type="button" className={`${s.dateBtn} ${p.flash ? s.dateFlash : ""}`} id={id} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
           <span aria-live="polite">{label}</span>
           {!p.latest && <small>history</small>}
         </button>
+        {p.latestLink && !p.latest && (
+          <button type="button" className={s.latestLink} onClick={p.onLatest}>
+            Latest
+          </button>
+        )}
         {open && (
           <div ref={box} className={`${s.popover} ${s.timePopover}`} role="dialog" aria-label="Time settings">
             <div className={s.segment} role="radiogroup" aria-label="Time window">
@@ -345,6 +472,20 @@ export function TimelineBar(p: {
         )}
       </div>
       <div className={s.sliderWrap}>
+        {p.backfilled.map((g) => (
+          <span
+            key={`b${g.start}`}
+            className={s.backfillMark}
+            tabIndex={0}
+            role="note"
+            aria-label={`${g.start} – ${g.end}: ${BACKFILLED}`}
+            data-tip={BACKFILLED}
+            style={{
+              left: `${(100 * dayIndex(p.historyStart, g.start)) / total}%`,
+              width: `${Math.max(0.6, (100 * (dayIndex(g.start, g.end) + 1)) / total)}%`,
+            }}
+          />
+        ))}
         {p.gaps.map((g) => (
           <span
             key={g.start}
@@ -372,6 +513,8 @@ export function TimelineBar(p: {
   );
 }
 
+const BACKFILLED = "Backfilled from postings still open when collection started — lower bounds";
+
 function dayIndex(a: string, b: string): number {
   return Math.round((Date.parse(`${b}T12:00:00Z`) - Date.parse(`${a}T12:00:00Z`)) / 86_400_000);
 }
@@ -385,13 +528,18 @@ function Sparkline({ series }: { series: SeriesResponse | undefined }) {
   const w = 260;
   const h = 50;
   const step = pts.length > 1 ? w / (pts.length - 1) : w;
-  const path = pts
-    .map((p, i) => (p.count == null ? null : `${i * step},${h - 4 - ((p.count ?? 0) / max) * (h - 10)}`))
-    .filter(Boolean)
-    .join(" ");
+  const y = (c: number) => h - 4 - (c / max) * (h - 10);
+  // one segment per day; a day that includes backfilled days (a lower bound) is dashed
+  const segments = pts.slice(1).map((p, i) => {
+    const a = pts[i]!;
+    if (a.count == null || p.count == null) return null;
+    const dashed = a.backfilled_days > 0 || p.backfilled_days > 0;
+    return <line key={i} x1={i * step} y1={y(a.count)} x2={(i + 1) * step} y2={y(p.count)} strokeDasharray={dashed ? "3 3" : undefined} />;
+  });
+  const lower = pts.some((p) => p.backfilled_days > 0);
   return (
-    <svg className={s.spark} viewBox={`0 0 ${w} ${h}`} role="img" aria-label={`Trend over ${pts.length} days, peak ${max}`}>
-      <polyline points={path} fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinejoin="round" />
+    <svg className={s.spark} viewBox={`0 0 ${w} ${h}`} role="img" aria-label={`Trend over ${pts.length} days, peak ${max}${lower ? "; dashed days are lower bounds (backfilled)" : ""}`}>
+      <g fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round">{segments}</g>
       {pts.map((p, i) => (p.count == null ? <rect key={i} x={i * step - 1} y={0} width={2} height={h} className={s.sparkGap} /> : null))}
     </svg>
   );
@@ -405,6 +553,8 @@ export function CityCard(p: {
   window: WindowKey;
   occupationLabel: string;
   series: SeriesResponse | undefined;
+  dataset: Dataset;
+  lowerBound: boolean;
   onClose: () => void;
 }) {
   return (
@@ -412,10 +562,13 @@ export function CityCard(p: {
       <h2>
         {p.city.name}, {p.city.province}
       </h2>
-      <div className={s.bigCount}>{p.count == null ? "—" : `${fmtNum(p.count)} jobs`}</div>
+      <div className={s.bigCount}>
+        {p.count == null ? "—" : `${fmtNum(p.count)} jobs`}
+        {p.lowerBound && p.count != null && <> <LowerBound /></>}
+      </div>
       <p className={s.small}>
         {p.occupationLabel} postings first published {windowLabel(p.day, p.window)}.<br />
-        Coverage: {qualityText(p.quality)}
+        Coverage: {qualityText(p.quality, DATASET_NAME[p.dataset])}
       </p>
       <Sparkline series={p.series} />
       <p className={s.small}>Last 90 days, each point = its own {p.window} window.</p>
@@ -423,10 +576,10 @@ export function CityCard(p: {
   );
 }
 
-function qualityText(q: string): string {
+function qualityText(q: string, dataset: string): string {
   return (
     {
-      complete: "complete within Job Bank data",
+      complete: `complete within ${dataset} data`,
       partial: "partial window (history starts later or the day is not over)",
       missing: "data gap — unknown, not zero",
       not_covered: "not covered — unknown, not zero",
@@ -539,7 +692,9 @@ export function SourcesDialog(p: { sources: SourcesResponse | undefined; caps: C
           ))}
         </ul>
         <h2>Attribution</h2>
-        {p.sources?.attributions.map((a) => (
+        {p.caps?.attribution && <p className={s.small}>{p.caps.attribution}</p>}
+        {p.caps?.refresh === "hourly" && <p className={s.small}>{coverageText(p.caps)}</p>}
+        {p.sources?.attributions.filter((a) => a !== p.caps?.attribution).map((a) => (
           <p key={a} className={s.small}>
             {a}
           </p>

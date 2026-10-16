@@ -8,6 +8,11 @@ from pydantic import BaseModel, Field
 
 DataMode = Literal["real", "demo", "not_configured"]
 Quality = Literal["complete", "partial", "missing", "not_covered", "stale"]
+BACKFILLED_DAYS = (
+    "days of the window that are backfilled: counted only from postings still open when "
+    "collection started, so the value is a lower bound (0: none). Independent of quality, "
+    "which says whether days are missing."
+)
 
 
 class StatsMeta(BaseModel):
@@ -51,6 +56,7 @@ class FrameResponse(StatsMeta):
     cities: list[CityCount]
     national: NationalSummary
     notes: list[str]
+    backfilled_days: int = Field(description=BACKFILLED_DAYS)
 
 
 class TimelineFrame(BaseModel):
@@ -60,6 +66,7 @@ class TimelineFrame(BaseModel):
     counts: list[int | None] = Field(description="aligned with TimelineResponse.city_ids")
     national: int | None
     notes: list[str]
+    backfilled_days: int = Field(description=BACKFILLED_DAYS)
 
 
 class TimelineResponse(BaseModel):
@@ -81,6 +88,7 @@ class SeriesPoint(BaseModel):
     date: str
     count: int | None
     quality: Quality
+    backfilled_days: int = Field(description=BACKFILLED_DAYS)
 
 
 class SeriesResponse(BaseModel):
@@ -144,6 +152,20 @@ class Capabilities(BaseModel):
     playback_reason: str | None
     stale: bool
     publication: str
+    refresh: Literal["monthly", "hourly", "on_request"] = Field(
+        description="how often the data changes: monthly (Job Bank), hourly (Employer boards), "
+        "on_request (demo)"
+    )
+    backfilled: list[Gap] = Field(
+        description="days counted only from postings still open when collection started "
+        "(lower bounds); empty when none"
+    )
+    employers: int | None = Field(
+        description="employers (job boards) with at least one posting counted in this release; "
+        "null when the dataset has no employer breakdown or the release predates the count"
+    )
+    platforms: list[str] = Field(description="job-board platforms counted in this release")
+    attribution: str | None = Field(description="credit line to show with this dataset")
     reporting_timezone: str = "America/Toronto"
     quality: dict
 
