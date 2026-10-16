@@ -25,7 +25,7 @@ changed since that component's last successful release:
 | Changed since the last release of each component | Release |
 | --- | --- |
 | Web only (`apps/web`, `packages/api-client`) | Stage web, check the live API contract, promote web. No AWS, no migrations. |
-| API only (`backend`, `infra/compose.prod.yaml`, `infra/Caddyfile`, `infra/postgres`) | Deploy API over SSM, readiness. No web build. |
+| API only (`backend`, `infra/compose.prod.yaml`, `infra/Caddyfile`) | Deploy API over SSM, readiness. No web build. |
 | Both, or a file of unknown kind | Stage web, deploy API, readiness, check the contract, promote web. |
 | Docs, CI, tests, local-only Docker files | Nothing. |
 

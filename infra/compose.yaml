@@ -18,8 +18,7 @@ x-backend: &backend
 
 services:
   db:
-    build: ./postgres
-    image: jobatlas-postgis:17-3
+    image: postgres:17.6-bookworm
     environment:
       POSTGRES_USER: jobatlas
       POSTGRES_PASSWORD: jobatlas
