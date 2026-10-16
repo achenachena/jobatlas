@@ -18,19 +18,39 @@ domain in `.env`, the `VITE_API_BASE_URL` Vercel variable and the `API_URL` GitH
 
 ## How a release works
 
-`.github/workflows/deploy.yml` runs after `ci` passes on `main`. One run releases one commit:
+`.github/workflows/deploy.yml` runs after `ci` passes on `main` (or when dispatched for a full
+SHA whose `ci` succeeded). One run releases one pinned commit, and only the components that
+changed since that component's last successful release:
 
-1. Build the web app for that commit once and stage it on Vercel (not live).
-2. Get temporary AWS credentials through GitHub OIDC (role `jobatlas-github-deploy`).
-3. Over SSM: check out the commit on the server and `docker compose up -d --build`. The
-   `migrate` service applies migrations before the API starts.
-4. `GET /api/v2/health/ready` must return 200.
-5. Promote the staged web build.
+| Changed since the last release of each component | Release |
+| --- | --- |
+| Web only (`apps/web`, `packages/api-client`) | Stage web, check the live API contract, promote web. No AWS, no migrations. |
+| API only (`backend`, `infra/compose.prod.yaml`, `infra/Caddyfile`, `infra/postgres`) | Deploy API over SSM, readiness. No web build. |
+| Both, or a file of unknown kind | Stage web, deploy API, readiness, check the contract, promote web. |
+| Docs, CI, tests, local-only Docker files | Nothing. |
+
+The `plan` job compares the commit with the last successful release of each component,
+recorded as GitHub deployments (environment `production`, task `release:web` or
+`release:api`) written only after that component went live; a failed step records nothing. A
+component with no record is released. The steps:
+
+1. Web: build once and stage it on Vercel (not live).
+2. API: temporary AWS credentials through GitHub OIDC (role `jobatlas-github-deploy`); over SSM,
+   check out the commit on the server and `docker compose up -d --build` (the `migrate` service
+   applies migrations before the API starts); `GET /api/v2/health/ready` must return 200.
+3. Web: regenerate the API types from the live `/api/v2/openapi.json` with the pinned
+   generator; they must equal `packages/api-client/schema.d.ts`, or the web is not promoted.
+4. Web: promote the staged build.
+
+Paths only show what changed, not that the live API supports the web. A web change that needs
+a new endpoint or field must ship with the backend change and the regenerated
+`packages/api-client/schema.d.ts`; step 3 refuses a web-only release whose API types do not
+match the live API.
 
 Only one release runs at a time. A run stops at the first failing step; the step name says
-which stage failed, and the web stays on the previous build until step 5. A run whose commit
-is no longer the head of `main` does nothing. Vercel Git deploys of `main` are disabled in
-`apps/web/vercel.json`, so the web never goes live ahead of the API.
+which stage failed, and the web stays on the previous build until its promotion. An automatic
+run whose commit is no longer the head of `main` does nothing. Vercel Git deploys of `main`
+are disabled in `apps/web/vercel.json`, so the web never goes live outside this workflow.
 
 GitHub environment `production` holds `VERCEL_TOKEN` (secret) and the variables
 `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`, `AWS_DEPLOY_ROLE_ARN`, `DEPLOY_INSTANCE_ID`, `API_URL`.
@@ -102,7 +122,8 @@ dc start api worker scheduler
 
 ## Rollback
 
-- No migration since the target commit: `gh workflow run deploy -f sha=<previous sha>`.
+- No migration since the target commit: `gh workflow run deploy -f sha=<previous sha>`; only
+  the components that differ from the target are redeployed.
 - A migration since then that the old code cannot read (for example `0015` drops the v1 tables):
   restore the backup taken before that release, then release the old commit. Rolling back only
   the web leaves it talking to an API it does not match.

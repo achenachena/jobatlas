@@ -1,7 +1,11 @@
 name: deploy
 
-# One production release per commit: stage the web build on Vercel, deploy the backend over
-# SSM, check readiness, then promote the staged web build. Runbook: docs/DEPLOY.md.
+# Releases one committed SHA after `ci` passed on it, deploying only the components whose files
+# changed since that component's last successful release (runbook: docs/DEPLOY.md):
+#   web only  -> stage on Vercel, check the live API contract, promote; no AWS
+#   API only  -> deploy over SSM, readiness; no web build
+#   both      -> stage web, deploy API, readiness, check the contract, promote web
+#   neither   -> nothing (docs, CI, tests)
 on:
   workflow_run:
     workflows: [ci]
@@ -15,63 +19,124 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 concurrency:
   group: deploy-production
   cancel-in-progress: false
 
 jobs:
-  check:
+  plan:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+      deployments: read
     outputs:
-      current: ${{ steps.main.outputs.current }}
+      sha: ${{ steps.plan.outputs.sha }}
+      web: ${{ steps.plan.outputs.web }}
+      api: ${{ steps.plan.outputs.api }}
     steps:
-      # A slow or rerun CI must not roll production back to an older commit.
-      - id: main
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.sha || github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+      - id: plan
         env:
-          SHA: ${{ github.event.workflow_run.head_sha }}
+          SHA: ${{ inputs.sha || github.event.workflow_run.head_sha }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
         run: |
-          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then echo current=true >> "$GITHUB_OUTPUT"; exit 0; fi
-          latest=$(git ls-remote "https://github.com/$GITHUB_REPOSITORY" refs/heads/main | cut -f1)
-          [ "$latest" = "$SHA" ] && echo current=true >> "$GITHUB_OUTPUT" || echo "Superseded by $latest"
+          set -euo pipefail
+          [ "$(git rev-parse --verify "$SHA^{commit}")" = "$SHA" ] || { echo "::error::Release a full commit SHA"; exit 1; }
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            # a dispatched commit must have passed the existing CI
+            ok=$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?head_sha=$SHA&status=success" --jq .total_count)
+            [ "$ok" -gt 0 ] || { echo "::error::ci has not succeeded on $SHA"; exit 1; }
+          else
+            # a slow or rerun CI must not roll production back to an older commit
+            latest=$(git ls-remote "https://github.com/$REPO" refs/heads/main | cut -f1)
+            if [ "$latest" != "$SHA" ]; then
+              echo "Superseded by $latest" | tee -a "$GITHUB_STEP_SUMMARY"
+              echo "web=false" >> "$GITHUB_OUTPUT"; echo "api=false" >> "$GITHUB_OUTPUT"; exit 0
+            fi
+          fi
+
+          # Which component a changed file belongs to. Unknown files count for both.
+          area() {
+            case $1 in
+              # docs, CI, tests and local-only Docker files (production builds the API from backend/)
+              *.md|docs/*|.github/*|.gitignore|.env.example|.dockerignore|infra/compose.yaml|backend/tests/*|apps/web/e2e/*|apps/web/playwright.config.ts|apps/web/Dockerfile) echo none ;;
+              apps/web/*|packages/api-client/*) echo web ;;
+              backend/*|infra/*) echo api ;;
+              *) echo both ;;
+            esac
+          }
+          # Last successful release of a component (records are written only on success).
+          last() { gh api "repos/$REPO/deployments?environment=production&task=release:$1&per_page=1" --jq '.[0].sha // empty'; }
+          for c in web api; do
+            from=$(last "$c")
+            if [ -z "$from" ] || ! git cat-file -e "$from^{commit}" 2>/dev/null; then
+              need=true; why="no recorded release"
+            else
+              need=false; why="no $c changes since ${from:0:7}"
+              while read -r f; do
+                a=$(area "$f")
+                if [ "$a" = "$c" ] || [ "$a" = both ]; then need=true; why="$f changed since ${from:0:7}"; break; fi
+              done < <(git diff --name-only "$from" "$SHA")
+            fi
+            echo "$c=$need" >> "$GITHUB_OUTPUT"
+            echo "- $c: $need ($why)" | tee -a "$GITHUB_STEP_SUMMARY"
+          done
 
   release:
-    needs: check
-    if: needs.check.outputs.current == 'true'
+    needs: plan
+    if: needs.plan.outputs.web == 'true' || needs.plan.outputs.api == 'true'
     runs-on: ubuntu-24.04
     environment: production
+    permissions:
+      contents: read
+      deployments: write
+      id-token: write # only requested by the API steps
     env:
-      SHA: ${{ inputs.sha || github.event.workflow_run.head_sha }}
+      SHA: ${{ needs.plan.outputs.sha }}
+      WEB: ${{ needs.plan.outputs.web }}
+      API: ${{ needs.plan.outputs.api }}
       VERCEL: npx --yes vercel@48.9.0
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
       INSTANCE: ${{ vars.DEPLOY_INSTANCE_ID }}
+      API_URL: ${{ vars.API_URL }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ env.SHA }}
-      - uses: actions/setup-node@v7
+      - if: env.WEB == 'true'
+        uses: actions/setup-node@v7
         with:
           node-version: "24.15.0"
 
       - name: Stage web build (not live)
+        if: env.WEB == 'true'
         run: |
           $VERCEL pull --yes --environment=production --token="$VERCEL_TOKEN"
           $VERCEL build --prod --token="$VERCEL_TOKEN"
           url=$($VERCEL deploy --prebuilt --prod --skip-domain --token="$VERCEL_TOKEN")
           echo "WEB_URL=$url" >> "$GITHUB_ENV"
 
-      - uses: aws-actions/configure-aws-credentials@v6
+      - if: env.API == 'true'
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: us-east-1
 
       - name: Deploy backend
+        if: env.API == 'true'
         run: |
           cmd="runuser -l ubuntu -c 'set -e; cd ~/jobatlas; git fetch -q origin; git checkout -q --detach $SHA; docker compose --env-file ~/deploy/.env -f infra/compose.prod.yaml up -d --build --remove-orphans'"
           id=$(aws ssm send-command --instance-ids "$INSTANCE" --document-name AWS-RunShellScript \
@@ -87,7 +152,35 @@ jobs:
           [ "$status" = Success ]
 
       - name: Backend readiness
-        run: curl -fsS --retry 12 --retry-delay 5 --retry-all-errors "${{ vars.API_URL }}/api/v2/health/ready"
+        if: env.API == 'true'
+        run: curl -fsS --retry 12 --retry-delay 5 --retry-all-errors "$API_URL/api/v2/health/ready"
+
+      - name: Record API release
+        if: env.API == 'true'
+        run: &record |
+          id=$(jq -n --arg sha "$SHA" --arg task "release:$COMPONENT" \
+            '{ref: $sha, environment: "production", task: $task, auto_merge: false, required_contexts: []}' |
+            gh api "repos/$GITHUB_REPOSITORY/deployments" --input - --jq .id)
+          gh api "repos/$GITHUB_REPOSITORY/deployments/$id/statuses" -f state=success \
+            -f log_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" > /dev/null
+        env:
+          COMPONENT: api
+
+      # Paths only show what changed, not that the live API supports the web. The web compiles
+      # against packages/api-client/schema.d.ts; regenerate it from the live API with the same
+      # pinned generator and require an exact match before the web goes live.
+      - name: Live API matches the web's API types
+        if: env.WEB == 'true'
+        run: |
+          npx --yes openapi-typescript@7.13.0 "$API_URL/api/v2/openapi.json" -o "$RUNNER_TEMP/live.d.ts"
+          diff -u packages/api-client/schema.d.ts "$RUNNER_TEMP/live.d.ts"
 
       - name: Promote web build
+        if: env.WEB == 'true'
         run: $VERCEL promote "$WEB_URL" --yes --token="$VERCEL_TOKEN" --scope="$VERCEL_ORG_ID"
+
+      - name: Record web release
+        if: env.WEB == 'true'
+        run: *record
+        env:
+          COMPONENT: web
