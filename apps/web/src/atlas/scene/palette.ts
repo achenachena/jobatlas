@@ -29,7 +29,7 @@ export const CEL = {
   centreDesktop: [0.5, 0.485],
   safeMobile: [0.005, 0.1, 0.99, 0.76],
   detail: {
-    bodyLimit: 384,
+    bodyLimit: 6000, // every city with postings is a body (the gazetteer has ~5,700 cities)
     nationalLabels: 4,
     regionalLabels: 6,
     mobileLabels: 2,

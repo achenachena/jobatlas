@@ -510,6 +510,47 @@
   z-index: 3;
 }
 
+.gestureHint {
+  position: absolute;
+  left: 50%;
+  top: 40px;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgb(255 254 251 / 0.94);
+  border: 1px solid rgb(23 43 112 / 0.14);
+  font-size: 13px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 3;
+  animation: hintIn 240ms ease-out;
+}
+@keyframes hintIn {
+  from {
+    opacity: 0;
+  }
+}
+
+.backHome {
+  position: absolute;
+  left: 50%;
+  top: 40px;
+  transform: translateX(-50%);
+  min-height: 36px;
+  padding: 0 16px;
+  border-radius: 999px;
+  background: rgb(255 254 251 / 0.94);
+  border: 1px solid rgb(23 43 112 / 0.18);
+  color: var(--ink);
+  font-size: 13px;
+  cursor: pointer;
+  z-index: 3;
+}
+.backHome:hover {
+  background: var(--hover);
+}
+
 /* ---------------------------------------------------------------- city notes */
 .labels {
   position: absolute;
@@ -753,6 +794,18 @@
     right: 12px;
     bottom: calc(52px + var(--safe-bottom));
     gap: 2px;
+  }
+  /* phones turn the map with a two-finger twist; the row has no room for two more icons */
+  .rotateBtn {
+    display: none;
+  }
+  .backHome {
+    top: 64px;
+    min-height: 44px;
+  }
+  .gestureHint {
+    top: 72px;
+    font-size: 12px;
   }
   .statusBar {
     left: 16px;

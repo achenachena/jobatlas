@@ -69,3 +69,69 @@ export function landClearance(polygons: Polygon[], lakes: Polygon[]) {
 export function separatedRadius(clearance: number, nearest: number, nominal: number): number {
   return Math.max(0, Math.min(nominal, clearance * 0.7, nearest * 0.32));
 }
+
+/** Signed distance to the land's outer edge on a ~8 km raster (km; positive on land, negative
+ * off it; lakes count as land), with its gradient, for keeping the camera over land smoothly.
+ * Exact Euclidean distance transform (Felzenszwalb & Huttenlocher). */
+export function landField(polygons: Polygon[]) {
+  const xs = polygons.flatMap((p) => p[0]!.map((q) => q[0])), ys = polygons.flatMap((p) => p[0]!.map((q) => q[1]));
+  const minX = Math.min(...xs) - 400, minY = Math.min(...ys) - 400;
+  const cell = 8;
+  const w = Math.ceil((Math.max(...xs) + 400 - minX) / cell), h = Math.ceil((Math.max(...ys) + 400 - minY) / cell);
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const g = canvas.getContext("2d")!;
+  g.beginPath();
+  for (const p of polygons) p[0]!.forEach(([x, y], i) => (i ? g.lineTo : g.moveTo).call(g, (x - minX) / cell, (y - minY) / cell));
+  g.fill();
+  const alpha = g.getImageData(0, 0, w, h).data;
+  const land = new Uint8Array(w * h);
+  for (let i = 0; i < w * h; i++) land[i] = alpha[i * 4 + 3]! > 127 ? 1 : 0;
+  const INF = 1e20;
+  const edt = (feature: (i: number) => boolean) => {
+    const d = new Float64Array(w * h);
+    for (let i = 0; i < w * h; i++) d[i] = feature(i) ? 0 : INF;
+    const n = Math.max(w, h), f = new Float64Array(n), out = new Float64Array(n), v = new Int32Array(n), z = new Float64Array(n + 1);
+    const pass = (len: number) => {
+      let k = 0;
+      v[0] = 0; z[0] = -INF; z[1] = INF;
+      for (let q = 1; q < len; q++) {
+        let sx = (f[q]! + q * q - (f[v[k]!]! + v[k]! * v[k]!)) / (2 * q - 2 * v[k]!);
+        while (sx <= z[k]!) { k--; sx = (f[q]! + q * q - (f[v[k]!]! + v[k]! * v[k]!)) / (2 * q - 2 * v[k]!); }
+        k++; v[k] = q; z[k] = sx; z[k + 1] = INF;
+      }
+      k = 0;
+      for (let q = 0; q < len; q++) {
+        while (z[k + 1]! < q) k++;
+        out[q] = (q - v[k]!) ** 2 + f[v[k]!]!;
+      }
+    };
+    for (let x = 0; x < w; x++) {
+      for (let y = 0; y < h; y++) f[y] = d[y * w + x]!;
+      pass(h);
+      for (let y = 0; y < h; y++) d[y * w + x] = out[y]!;
+    }
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) f[x] = d[y * w + x]!;
+      pass(w);
+      for (let x = 0; x < w; x++) d[y * w + x] = out[x]!;
+    }
+    return d;
+  };
+  const toSea = edt((i) => !land[i]), toLand = edt((i) => !!land[i]);
+  const sdf = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) sdf[i] = land[i] ? Math.sqrt(toSea[i]!) * cell : -Math.sqrt(toLand[i]!) * cell;
+  const at = (gx: number, gy: number) => sdf[Math.min(h - 1, Math.max(0, gy)) * w + Math.min(w - 1, Math.max(0, gx))]!;
+  // bilinear, so the distance and its gradient change smoothly with position
+  const distance = (x: number, y: number) => {
+    const fx = (x - minX) / cell - 0.5, fy = (y - minY) / cell - 0.5;
+    const x0 = Math.floor(fx), y0 = Math.floor(fy), tx = fx - x0, ty = fy - y0;
+    return (at(x0, y0) * (1 - tx) + at(x0 + 1, y0) * tx) * (1 - ty) + (at(x0, y0 + 1) * (1 - tx) + at(x0 + 1, y0 + 1) * tx) * ty;
+  };
+  const gradient = (x: number, y: number): Point => [
+    (distance(x + cell, y) - distance(x - cell, y)) / (2 * cell),
+    (distance(x, y + cell) - distance(x, y - cell)) / (2 * cell),
+  ];
+  return { distance, gradient };
+}

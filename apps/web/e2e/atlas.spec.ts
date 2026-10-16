@@ -147,32 +147,106 @@ test("new release: latest mode follows it; history mode keeps its date and offer
   release.id = "fx1";
 });
 
-test("map rotates by drag and controls, then resets its view", async ({ page }) => {
+test("zoom at the pointer and by pinch, drag to pan, click selects, Ctrl/right-drag and buttons rotate, reset restores", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/");
   await ready(page);
   const map = page.getByRole("img", { name: /3D map of Canada/ });
-  const anchor = () => page.evaluate(() => {
-    const sc = (window as unknown as { __atlas: { anchors(): { id: string; x: number; y: number }[] } }).__atlas;
-    return sc.anchors().find((a) => a.id === "ca-on-toronto")!;
+  const toronto = () => page.evaluate(() => {
+    const sc = (window as unknown as { __atlas: { anchors(): { id: string; bx: number; by: number }[] } }).__atlas;
+    const a = sc.anchors().find((a) => a.id === "ca-on-toronto")!;
+    return { x: a.bx, y: a.by };
   });
-  await expect.poll(async () => (await anchor())?.x).toBeDefined();
-  const initial = await anchor();
-  await page.screenshot({ path: "/tmp/jobatlas-manga-desktop.png" });
-  await page.mouse.move(600, 550);
+  await expect.poll(async () => (await toronto())?.x).toBeDefined();
+  const initial = await toronto();
+  // first visit: a one-line gesture hint, gone after the first interaction
+  const hint = page.getByRole("note").filter({ hasText: "Ctrl-drag to rotate" });
+  await expect(hint).toBeVisible();
+  // Once zoomed past the land's size on both axes (at home an axis is locked, centred), the
+  // wheel zooms around the pointer: an inland place under it stays put (mouse events are whole
+  // pixels). Near a coast or border the view is pulled inland instead.
+  for (let i = 0; i < 4; i++) await page.getByRole("button", { name: "Zoom in" }).click();
+  // over a solidly inland place (Edmonton), where the view is mostly land; near coasts or
+  // borders the "mostly land" limit may move the view instead
+  const px = await page.evaluate(() => {
+    const sc = (window as unknown as { __atlas: { focusCity(id: string, zoom: number): void; anchors(): { id: string; bx: number; by: number }[] } }).__atlas;
+    sc.focusCity("ca-ab-edmonton", 1); // reduced motion: immediate, zoom unchanged
+    const a = sc.anchors().find((a) => a.id === "ca-ab-edmonton")!;
+    return { x: Math.round(a.bx), y: Math.round(a.by) };
+  });
+  const before = await page.evaluate(([x, y]) => (window as unknown as { __atlas: { groundAt(x: number, y: number): { x: number; z: number } } }).__atlas.groundAt(x, y), [px.x, px.y]);
+  await page.mouse.move(px.x, px.y);
+  await page.mouse.wheel(0, -200);
+  await expect.poll(async () => {
+    const after = await page.evaluate(([x, y]) => (window as unknown as { __atlas: { groundAt(x: number, y: number): { x: number; z: number } } }).__atlas.groundAt(x, y), [px.x, px.y]);
+    return Math.hypot(after.x - before.x, after.z - before.z);
+  }).toBeLessThan(1); // km on the map
+  await expect(hint).toHaveCount(0);
+  // a trackpad pinch (wheel + Ctrl, small deltas) zooms noticeably, still around the pointer
+  const zoomOf = () => page.evaluate(() => (window as unknown as { __atlas: { zoom: number } }).__atlas.zoom);
+  const z0 = await zoomOf();
+  await page.keyboard.down("Control");
+  for (let i = 0; i < 10; i++) await page.mouse.wheel(0, -5);
+  await page.keyboard.up("Control");
+  expect(await zoomOf()).toBeGreaterThan(z0 * 1.5);
+  // track the ground point under the pointer
+  const ground = before;
+  const tracked = () => page.evaluate((g) => {
+    const sc = (window as unknown as { __atlas: { toScreen(x: number, y: number, z: number): [number, number]; landTop: number } }).__atlas;
+    const [x, y] = sc.toScreen(g.x, sc.landTop, g.z);
+    return { x, y };
+  }, ground);
+  const zoomed = await tracked();
+  // dragging (inland, within the limits) moves the map with the pointer and selects nothing
+  await page.mouse.move(Math.round(zoomed.x), Math.round(zoomed.y));
   await page.mouse.down();
-  await page.mouse.move(790, 580, { steps: 10 });
+  await page.mouse.move(Math.round(zoomed.x) + 150, Math.round(zoomed.y) + 90, { steps: 10 });
   await page.mouse.up();
-  expect(Math.abs((await anchor()).x - initial.x)).toBeGreaterThan(10);
+  const dragged = await tracked();
+  expect(Math.abs(dragged.x - (zoomed.x + 150))).toBeLessThan(1);
+  expect(Math.abs(dragged.y - (zoomed.y + 90))).toBeLessThan(1);
   await expect(page.getByRole("region", { name: /details/ })).toHaveCount(0);
+  expect(page.url()).not.toContain("city=");
+  // a plain click still selects the city the hover points at
+  await page.mouse.move(Math.round(dragged.x), Math.round(dragged.y));
+  const hoveredCity = () => page.evaluate(() => (window as unknown as { __atlas: { hovered: string | null } }).__atlas.hovered);
+  await expect.poll(hoveredCity).not.toBeNull();
+  const hovered = await hoveredCity();
+  await page.mouse.click(Math.round(dragged.x), Math.round(dragged.y));
+  await expect(page).toHaveURL(new RegExp(`city=${hovered}`));
+  await page.keyboard.press("Escape");
+  // Ctrl-drag (Mac trackpad) and right-drag turn the map instead of moving it, without selecting
+  const azimuth = () => page.evaluate(() => (window as unknown as { __atlas: { azimuth: number } }).__atlas.azimuth);
+  const az0 = await azimuth();
+  await page.keyboard.down("Control");
+  await page.mouse.move(700, 450);
+  await page.mouse.down();
+  await page.mouse.move(820, 450, { steps: 10 });
+  await page.mouse.up();
+  await page.keyboard.up("Control");
+  expect(Math.abs((await azimuth()) - az0)).toBeGreaterThan(20);
+  expect(page.url()).not.toContain("city=");
+  const az1 = await azimuth(); // turned as far as it goes one way (±30° from home)...
+  await page.mouse.move(820, 450);
+  await page.mouse.down({ button: "right" });
+  await page.mouse.move(700, 450, { steps: 10 });
+  await page.mouse.up({ button: "right" });
+  expect(Math.abs((await azimuth()) - az1)).toBeGreaterThan(20); // ...so right-drag turns it back
+  // reset restores the initial scale and position
   await page.getByRole("button", { name: "Reset view" }).click();
-  expect((await anchor()).x).toBeCloseTo(initial.x, 1);
+  expect((await toronto()).x).toBeCloseTo(initial.x, 1);
+  expect((await toronto()).y).toBeCloseTo(initial.y, 1);
+  // visible rotate buttons, from the home angle (within the limits both ways)
+  const az2 = await azimuth();
+  await page.getByRole("button", { name: "Rotate left" }).click();
+  expect(Math.abs((await azimuth()) - az2)).toBeGreaterThan(20);
+  await page.getByRole("button", { name: "Rotate right" }).click();
+  expect((await azimuth()) - az2).toBeCloseTo(0, 5);
   await map.focus();
   await page.keyboard.press("e");
-  expect(Math.abs((await anchor()).x - initial.x)).toBeGreaterThan(10);
-  await map.focus();
+  expect(Math.abs((await toronto()).x - initial.x)).toBeGreaterThan(10);
   await page.keyboard.press("0");
-  expect((await anchor()).x).toBeCloseTo(initial.x, 1);
+  expect((await toronto()).x).toBeCloseTo(initial.x, 1);
 });
 
 test("bodies persist across viewing angles and zoom; labels stay sparse", async ({ page }) => {
@@ -244,11 +318,13 @@ test("crisp gestures and separated footprints contained on land", async ({ page 
   await page.waitForTimeout(250);
   const bodies = await page.evaluate(() => (window as unknown as { __atlas: import("../src/atlas/scene/AtlasScene").AtlasScene }).__atlas.footprints());
   expect(bodies.length).toBeGreaterThan(0);
-  for (const a of bodies) {
-    expect(a.radius * 1.15).toBeLessThan(a.clearance);
-    for (const b of bodies) if (a.id !== b.id)
-      expect((a.radius + b.radius) * 1.15).toBeLessThan(Math.hypot(a.x - b.x, a.z - b.z));
-  }
+  // collect violations first: one expect per pair is too many calls with every city drawn
+  const offLand = bodies.filter((a) => a.radius * 1.15 >= a.clearance).map((a) => a.id);
+  const touching: string[] = [];
+  for (const a of bodies) for (const b of bodies)
+    if (a.id < b.id && (a.radius + b.radius) * 1.15 >= Math.hypot(a.x - b.x, a.z - b.z)) touching.push(`${a.id}/${b.id}`);
+  expect(offLand).toEqual([]);
+  expect(touching).toEqual([]);
 });
 
 
@@ -301,7 +377,12 @@ test("geographic labels stay fixed across idle hover, selection, data, and offsc
   await page.getByRole("button", { name: "Occupation: All jobs" }).click();
   await page.getByRole("menuitemradio", { name: "Bartender" }).click();
   for (const name of names) await expect(labels).toContainText(name);
-  await page.evaluate(() => (window as unknown as { __atlas: import("../src/atlas/scene/AtlasScene").AtlasScene }).__atlas.pan(5000, 0));
+  // at the home zoom the view is locked; zoomed in, panning to the far west takes Toronto off screen
+  await page.evaluate(() => {
+    const sc = (window as unknown as { __atlas: import("../src/atlas/scene/AtlasScene").AtlasScene }).__atlas;
+    sc.zoomAt(4);
+    sc.pan(5000, 0);
+  });
   await expect(labels).not.toContainText("Toronto");
   await page.getByRole("button", { name: "Reset view" }).click();
   for (const name of names) await expect(labels).toContainText(name);
@@ -345,21 +426,33 @@ test("initial real bodies do not wait for the playback chunk", async ({ page }) 
   } finally { releaseChunk(); }
 });
 
-test("zoom preserves world-space body and contact-shadow proportions", async ({ page }) => {
+test("zoom keeps footprints within a detail level; every level is separated and on land", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/");
   await ready(page);
-  const read = () => page.evaluate(() => {
-    const sc = (window as unknown as { __atlas: import("../src/atlas/scene/AtlasScene").AtlasScene }).__atlas;
-    return sc.footprints().map(({ id, x, z, radius }) => ({ id, x, z, radius })).sort((a, b) => a.id.localeCompare(b.id));
-  });
+  type Scene = import("../src/atlas/scene/AtlasScene").AtlasScene;
+  const read = () => page.evaluate(() => (window as unknown as { __atlas: Scene }).__atlas.footprints().sort((a, b) => a.id.localeCompare(b.id)));
+  const zoomBy = async (f: number) => {
+    await page.evaluate((f) => (window as unknown as { __atlas: Scene }).__atlas.zoomAt(f), f);
+    await page.waitForTimeout(400); // the body set is rebuilt once the camera settles
+  };
+  const problems = (fp: Awaited<ReturnType<typeof read>>) => {
+    const out: string[] = [];
+    for (const a of fp) {
+      if (a.radius * 1.15 >= a.clearance) out.push(`${a.id} off land`);
+      for (const b of fp) if (a.id < b.id && a.radius + b.radius >= Math.hypot(a.x - b.x, a.z - b.z)) out.push(`${a.id}/${b.id} touch`);
+    }
+    return out;
+  };
   const before = await read();
   expect(before.length).toBeGreaterThan(0);
-  await page.evaluate(() => (window as unknown as { __atlas: import("../src/atlas/scene/AtlasScene").AtlasScene }).__atlas.zoomAt(6));
-  await page.waitForTimeout(300);
+  expect(problems(before)).toEqual([]);
+  await zoomBy(1.3); // same level (1–1.5×): the same bodies, same feet
   expect(await read()).toEqual(before);
-  for (const a of before) for (const b of before) if (a.id !== b.id)
-    expect((a.radius + b.radius) * 1.16).toBeLessThan(Math.hypot(a.x - b.x, a.z - b.z));
+  await zoomBy(4); // deeper levels: more cities fit, still none touching, all on land
+  const deep = await read();
+  expect(deep.length).toBeGreaterThanOrEqual(before.length);
+  expect(problems(deep)).toEqual([]);
 });
 
 for (const deviceScaleFactor of [2, 3]) {

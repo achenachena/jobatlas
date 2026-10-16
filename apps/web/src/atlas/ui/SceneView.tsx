@@ -23,6 +23,9 @@ interface Props {
   onOpenDetails: () => void;
 }
 
+const HINT_KEY = "atlas.gestureHintSeen";
+const TOUCH = typeof window !== "undefined" && !!window.matchMedia?.("(pointer: coarse)").matches;
+
 type Side = "right" | "left";
 interface Placed {
   id: string;
@@ -38,7 +41,29 @@ export function SceneView(p: Props) {
   const [hover, setHover] = useState<string | null>(null);
   const hoverRef = useRef(hover);
   hoverRef.current = hover;
+  // One-line gesture hint on the first visit; gone after the first interaction or a few seconds.
+  const [hint, setHint] = useState(() => {
+    try {
+      return !localStorage.getItem(HINT_KEY);
+    } catch {
+      return true;
+    }
+  });
+  const dismissHint = useRef(() => {
+    setHint(false);
+    try {
+      localStorage.setItem(HINT_KEY, "1");
+    } catch {
+      /* private mode: the hint simply shows again next time */
+    }
+  }).current;
+  useEffect(() => {
+    if (!hint) return;
+    const t = setTimeout(dismissHint, 7000);
+    return () => clearTimeout(t);
+  }, [hint, dismissHint]);
   const refreshLabels = useRef<() => void>(() => {});
+  const [away, setAway] = useState(false);
   const names = useRef(new Map<string, string>());
   const references = useRef<{ desktop: string[]; mobile: string[] }>({ desktop: [], mobile: [] });
   const selectedRef = useRef(p.selected);
@@ -59,6 +84,7 @@ export function SceneView(p: Props) {
       const ids = new Set([...placed.map(l => l.id), ...[hoverRef.current, selectedRef.current].filter((id): id is string => !!id)]);
       setAuto(placed);
       setAnchors(new Map(sc.anchors(ids).map(a => [a.id, a])));
+      setAway(!sc.isHome());
     };
     refreshLabels.current = refresh;
     const offFrame = sc.onFrame(refresh);
@@ -100,19 +126,26 @@ export function SceneView(p: Props) {
     if (p.focus) scene.current?.focusCity(p.focus.id);
   }, [p.focus]);
 
-  // Drag orbits; Shift/right-drag pans; two fingers pan/pinch; click picks.
+  // Drag pans (the grabbed point follows the pointer); right/Shift-drag orbits; two fingers
+  // pan, pinch-zoom and twist; a click that did not move picks.
   useEffect(() => {
     const el = host.current!;
-    let down: { x: number; y: number; moved: boolean; pan: boolean } | null = null;
+    let down: { x: number; y: number; moved: boolean; orbit: boolean } | null = null;
     const pointers = new Map<number, { x: number; y: number }>();
     let pinch = 0;
+    let twist = 0;
     const onDown = (e: PointerEvent) => {
       el.setPointerCapture(e.pointerId);
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      down = { x: e.clientX, y: e.clientY, moved: pointers.size > 1, pan: e.shiftKey || e.button === 2 };
+      // Ctrl-drag (Mac trackpads), Shift-drag and right-drag turn the map; a plain drag moves it
+      down = { x: e.clientX, y: e.clientY, moved: pointers.size > 1, orbit: e.shiftKey || e.ctrlKey || e.button === 2 };
+      dismissHint();
+      scene.current?.beginGesture(); // limits are elastic until every pointer is released
+      el.style.cursor = "grabbing";
       if (pointers.size === 2) {
         const [a, b] = [...pointers.values()];
         pinch = Math.hypot(a!.x - b!.x, a!.y - b!.y);
+        twist = Math.atan2(b!.y - a!.y, b!.x - a!.x);
       }
     };
     const onMove = (e: PointerEvent) => {
@@ -124,11 +157,19 @@ export function SceneView(p: Props) {
         if (pointers.size === 2) {
           const [a, b] = [...pointers.values()];
           const d = Math.hypot(a!.x - b!.x, a!.y - b!.y);
-          sc.pan((e.clientX - prev.x) / 2, (e.clientY - prev.y) / 2);
-          if (pinch) sc.zoomAt(d / pinch, (a!.x + b!.x) / 2, (a!.y + b!.y) / 2);
+          const angle = Math.atan2(b!.y - a!.y, b!.x - a!.x);
+          const mx = (a!.x + b!.x) / 2, my = (a!.y + b!.y) / 2;
+          sc.drag(mx - (e.clientX - prev.x) / 2, my - (e.clientY - prev.y) / 2, mx, my, true);
+          if (pinch) sc.zoomAt(d / pinch, mx, my, true);
+          // twisting clockwise turns the map clockwise (rotate() is 0.28° per pixel)
+          let turn = angle - twist;
+          if (turn > Math.PI) turn -= 2 * Math.PI;
+          if (turn < -Math.PI) turn += 2 * Math.PI;
+          sc.rotate(-((turn * 180) / Math.PI) / 0.28, 0, true);
           pinch = d;
-        } else if (down?.pan) sc.pan(e.clientX - prev.x, e.clientY - prev.y);
-        else sc.rotate(e.clientX - prev.x, e.clientY - prev.y);
+          twist = angle;
+        } else if (down?.orbit) sc.rotate(e.clientX - prev.x, e.clientY - prev.y, true);
+        else sc.drag(prev.x, prev.y, e.clientX, e.clientY, true);
         if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4) down.moved = true;
       } else if (e.pointerType === "mouse") {
         setHover(sc.pick(e.clientX, e.clientY));
@@ -137,13 +178,43 @@ export function SceneView(p: Props) {
     const onUp = (e: PointerEvent) => {
       pointers.delete(e.pointerId);
       if (pointers.size < 2) pinch = 0;
-      if (e.type !== "pointercancel" && e.button === 0 && down && !down.moved && scene.current) onSelectRef.current(scene.current.pick(e.clientX, e.clientY));
-      down = null;
+      if (e.type !== "pointercancel" && e.button === 0 && down && !down.moved && !down.orbit && scene.current) onSelectRef.current(scene.current.pick(e.clientX, e.clientY));
+      if (pointers.size === 0) {
+        scene.current?.endGesture(); // spring back inside the limits
+        down = null;
+        el.style.cursor = "";
+      }
     };
     const onLeave = () => setHover(null);
+    // Trackpad pinch arrives as a wheel event with ctrlKey and small deltas: zoom faster for it.
+    let gesture: { scale: number; rotation: number } | null = null;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      scene.current?.zoomAt(Math.exp(-e.deltaY * 0.0016), e.clientX, e.clientY);
+      dismissHint();
+      if (gesture) return; // Safari reports the pinch as a gesture below
+      scene.current?.zoomAt(Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0016)), e.clientX, e.clientY, true);
+    };
+    // Safari's trackpad gestures: pinch zooms at the pointer, a two-finger twist turns the map.
+    type Gesture = Event & { scale: number; rotation: number; clientX: number; clientY: number };
+    const onGestureStart = (e: Event) => {
+      if (pointers.size > 1) return; // touch screens use the pointer handling above
+      e.preventDefault();
+      dismissHint();
+      gesture = { scale: 1, rotation: 0 };
+      scene.current?.beginGesture();
+    };
+    const onGestureChange = (e: Event) => {
+      const g = e as Gesture;
+      const sc = scene.current;
+      if (!gesture || !sc) return;
+      e.preventDefault();
+      sc.zoomAt(g.scale / gesture.scale, g.clientX, g.clientY, true);
+      sc.rotate(-(g.rotation - gesture.rotation) / 0.28, 0, true); // clockwise twist turns the map clockwise
+      gesture = { scale: g.scale, rotation: g.rotation };
+    };
+    const onGestureEnd = () => {
+      if (gesture) scene.current?.endGesture();
+      gesture = null;
     };
     const onContext = (e: MouseEvent) => e.preventDefault();
     el.addEventListener("contextmenu", onContext);
@@ -153,7 +224,13 @@ export function SceneView(p: Props) {
     el.addEventListener("pointercancel", onUp);
     el.addEventListener("pointerleave", onLeave);
     el.addEventListener("wheel", onWheel, { passive: false });
+    el.addEventListener("gesturestart", onGestureStart);
+    el.addEventListener("gesturechange", onGestureChange);
+    el.addEventListener("gestureend", onGestureEnd);
     return () => {
+      el.removeEventListener("gesturestart", onGestureStart);
+      el.removeEventListener("gesturechange", onGestureChange);
+      el.removeEventListener("gestureend", onGestureEnd);
       el.removeEventListener("contextmenu", onContext);
       el.removeEventListener("pointerdown", onDown);
       el.removeEventListener("pointermove", onMove);
@@ -183,6 +260,7 @@ export function SceneView(p: Props) {
     const fn = keys[e.key];
     if (fn) {
       e.preventDefault();
+      dismissHint();
       fn();
     }
   };
@@ -198,16 +276,44 @@ export function SceneView(p: Props) {
         className={s.stage}
         tabIndex={0}
         role="img"
-        aria-label="3D map of Canada. Body height shows new job postings per city on a square-root scale. The national overview shows hundreds of cities as bodies, with a stable set at every viewing angle. Search to inspect any city. Select a city on the map or in the city list for exact values. Drag to rotate, Shift-drag to pan, scroll to zoom; Q/E rotate, arrow keys pan, plus and minus zoom, 0 resets."
+        aria-label="3D map of Canada. Body height shows new job postings per city on a square-root scale. The national overview shows hundreds of cities as bodies, with a stable set at every viewing angle. Search to inspect any city. Select a city on the map or in the city list for exact values. Drag to pan; Ctrl-drag, Shift-drag or right-drag to rotate; scroll or pinch to zoom at the pointer; on touch, drag to pan and use two fingers to zoom and turn. Q/E or the rotate buttons rotate, arrow keys pan, plus and minus zoom, 0 resets."
         onKeyDown={onKey}
         style={{ cursor: hover ? "pointer" : "grab", touchAction: "none" }}
       />
+      {hint && !away && (
+        <p className={s.gestureHint} role="note">
+          {TOUCH ? "Drag to move · Pinch to zoom · Twist two fingers to rotate" : "Drag to move · Scroll or pinch to zoom · Ctrl-drag to rotate"}
+        </p>
+      )}
+      {away && (
+        <button type="button" className={s.backHome} onClick={() => scene.current?.resetView()}>
+          Back to all of Canada
+        </button>
+      )}
       <div className={s.mapTools} aria-label="Map view controls" role="group">
+        <button
+          className={`${s.iconBtn} ${s.rotateBtn}`}
+          type="button"
+          aria-label="Rotate left"
+          title="Rotate left (Q) · or Ctrl-drag / Shift-drag the map"
+          onClick={() => scene.current?.rotate(-100)}
+        >
+          <Icon name="rotateLeft" />
+        </button>
+        <button
+          className={`${s.iconBtn} ${s.rotateBtn}`}
+          type="button"
+          aria-label="Rotate right"
+          title="Rotate right (E) · or Ctrl-drag / Shift-drag the map"
+          onClick={() => scene.current?.rotate(100)}
+        >
+          <Icon name="rotateRight" />
+        </button>
         <button
           className={s.iconBtn}
           type="button"
           aria-label="Reset view"
-          title="Reset view · drag to rotate, Shift-drag to pan, scroll to zoom"
+          title="Reset view (0) · back to the starting zoom, position and angle"
           onClick={() => scene.current?.resetView()}
         >
           <Icon name="reset" />

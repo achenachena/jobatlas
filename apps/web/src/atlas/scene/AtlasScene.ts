@@ -1,9 +1,9 @@
 /** The Canada atlas scene ("Clear Cel", docs/design/atlas-cel). Orbitable orthographic camera
- * over a pale extruded land board with ink coast and province lines. Cities with the highest
- * counts are drawn as round-topped bodies (one revolved profile, shaped per instance in the
- * vertex shader so the cap never stretches) with painted cel shading and a thin ink outline;
- * secondary cities use a sparse, zoom-dependent set of screen-space dots. The render loop only runs while something changes
- * (camera, tween, resize), so an idle map costs nothing. */
+ * over a pale extruded land board with ink coast and province lines. Every city with postings
+ * is drawn as a round-topped body (one revolved profile, shaped per instance in the vertex
+ * shader so the cap never stretches) with painted cel shading and a thin ink outline; cities
+ * with zero or unknown counts are not drawn (search reaches them). The render loop only runs
+ * while something changes (camera, tween, resize), so an idle map costs nothing. */
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { LineMaterial } from "three/addons/lines/LineMaterial.js";
@@ -11,9 +11,9 @@ import { LineSegments2 } from "three/addons/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/addons/lines/LineSegmentsGeometry.js";
 
 import { project } from "../projection";
-import { heightFor } from "../scale";
+import { heightFor, MAX_HEIGHT } from "../scale";
 import { CEL } from "./palette";
-import { landClearance, separatedRadius } from "./footprints";
+import { landClearance, landField, separatedRadius } from "./footprints";
 
 
 type Ring = [number, number][];
@@ -32,7 +32,7 @@ export interface SceneCity {
 }
 export interface Anchor {
   id: string;
-  /** body tip (or base for dots), base point and on-screen body radius, CSS px */
+  /** body tip (or base when not drawn), base point and on-screen body radius, CSS px */
   x: number;
   y: number;
   bx: number;
@@ -58,6 +58,44 @@ interface Body {
 }
 
 const MAX_BODIES = CEL.detail.bodyLimit + 2; // plus selected and hovered
+/** Camera limits. The deepest zoom is set by geography: at 6× the GTA cities (Toronto,
+ * Mississauga, Brampton, Vaughan, Markham) stand clearly apart as separate bodies (measured;
+ * they separate from 2.25×). */
+const ZOOM_MAX = 6;
+const AZIMUTH_RANGE = 30;
+
+const ELEVATION_MIN = 30;
+const ELEVATION_MAX = 60;
+/** Rubber band beyond a limit during a gesture: the overshoot grows ever more slowly towards
+ * these bounds (zoom factor, pan as a share of the view, degrees), then springs back over
+ * SPRING_MS when released. */
+const RUBBER_ZOOM = Math.log(1.15);
+const RUBBER_PAN = 0.12;
+const RUBBER_ANGLE = 6;
+const SPRING_MS = 250;
+/** iOS-style rubber band: follows 1:1 at first, never passes `limit` */
+const rubber = (x: number, limit: number) => Math.sign(x) * limit * (1 - 1 / ((Math.abs(x) * 0.55) / limit + 1));
+
+interface CameraState {
+  target: THREE.Vector3;
+  zoom: number;
+  az: number;
+  el: number;
+}
+
+/** Detail level for a zoom: steps of 1.5× (1, 1.5, 2.25, …). */
+const levelFor = (zoom: number) => Math.pow(1.5, Math.floor(Math.log(zoom + 1e-9) / Math.log(1.5)));
+
+/** Zoom interpolates linearly in 1/zoom (the view's scale) alongside the target, so a point the
+ * two states share on screen (the pointer of a zoom) stays put all the way. */
+function lerpState(a: CameraState, b: CameraState, t: number): CameraState {
+  return {
+    target: a.target.clone().lerp(b.target, t),
+    zoom: 1 / (1 / a.zoom + (1 / b.zoom - 1 / a.zoom) * t),
+    az: a.az + (b.az - a.az) * t,
+    el: a.el + (b.el - a.el) * t,
+  };
+}
 const SEGMENTS = 32;
 const BODY_RINGS = 4;
 const CAP_RINGS = 10;
@@ -69,7 +107,7 @@ const ease = (t: number) => 1 - Math.pow(1 - t, 3);
 
 /** Unit revolved profile: aProf = (profile parameter, angle). Parameter -1 is the bottom
  * centre, -0.5 the bottom rim, 0..1 the side, 1..2 the shoulder arc, 3 the top centre. */
-function domeGeometry(segments = SEGMENTS, capRings = CAP_RINGS): THREE.InstancedBufferGeometry {
+export function domeGeometry(segments = SEGMENTS, capRings = CAP_RINGS): THREE.InstancedBufferGeometry {
   const prof: number[] = [];
   const index: number[] = [];
   const ring = (p: number) => {
@@ -107,7 +145,7 @@ function domeGeometry(segments = SEGMENTS, capRings = CAP_RINGS): THREE.Instance
   return g;
 }
 
-const DOME_VERTEX = /* glsl */ `
+export const DOME_VERTEX = /* glsl */ `
 uniform float uR;
 uniform float uPx;
 attribute vec2 aProf;
@@ -249,48 +287,6 @@ void main() {
   #include <colorspace_fragment>
 }`;
 
-/** Screen-space city dots: kind 1 = positive, 2 = zero, 3 = unknown ring. */
-const DOT_VERTEX = /* glsl */ `
-uniform float uDpr;
-uniform float uLift;
-attribute float aKind;
-attribute float aSize;
-varying float vKind;
-varying float vR;
-void main() {
-  vKind = aKind;
-  vR = aSize / (aSize + 1.0);
-  gl_Position = projectionMatrix * viewMatrix * vec4(position, 1.0);
-  // a sprite has one depth: lift it so the ground just in front does not cut the dot in half
-  gl_Position.z -= uLift * gl_Position.w;
-  gl_PointSize = aKind < 0.5 ? 0.0 : (aSize * 2.0 + 2.0) * uDpr;
-}`;
-const DOT_FRAGMENT = /* glsl */ `
-uniform vec3 uInk;
-uniform vec3 uZero;
-uniform vec3 uUnknown;
-varying float vKind;
-varying float vR;
-void main() {
-  if (vKind < 0.5) discard; // WebGL may clamp a zero point size to one pixel.
-  vec2 c = gl_PointCoord * 2.0 - 1.0;
-  float d = length(c);
-  float edge = fwidth(d);
-  float a;
-  vec3 col;
-  if (vKind > 2.5) {
-    a = 1.0 - smoothstep(0.14 - edge, 0.14 + edge, abs(d - vR * 0.8));
-    col = uUnknown;
-  } else {
-    a = 1.0 - smoothstep(vR - edge, vR + edge, d);
-    col = vKind > 1.5 ? uZero : uInk;
-    // positive cities not drawn as bodies are low-contrast ink dots
-    if (vKind < 1.5 && vKind > 0.5) a *= 0.4;
-  }
-  if (a < 0.01) discard;
-  gl_FragColor = vec4(col, a);
-  #include <colorspace_fragment>
-}`;
 
 export class AtlasScene {
   readonly renderer: THREE.WebGLRenderer;
@@ -305,22 +301,31 @@ export class AtlasScene {
   private homeTarget = new THREE.Vector3();
   private zoom = 1;
   private interacted = false;
+  private gesture = false;
+  private releaseTimer = 0;
+  /** a gesture's camera before the rubber band (null when no gesture is stretching it) */
+  private raw: CameraState | null = null;
+  /** the eased limits correction of the gesture in progress */
+  private correction: THREE.Vector3 | null = null;
+  /** the screen point of the last zoom, the anchor of a zoom spring-back */
+  private zoomPoint: [number, number] | null = null;
+  private wheelLock = 0;
+  private anim: { start: number; ms: number; from: CameraState; to: CameraState } | null = null;
   private landPoints: THREE.Vector3[] = [];
+  private land: ReturnType<typeof landField> | null = null;
   private lines: LineMaterial[] = [];
   private bodies: Body[] = [];
   private byId = new Map<string, number>();
   private scaleMax = 1;
   private priority: { id: string; max: number }[] = [];
   private expanded = new Set<string>();
-  private visibleDots = new Set<string>();
   private regional = false;
   private frozen = false;
   private settleTimer = 0;
   private selected: string | null = null;
   private hovered: string | null = null;
   private tweenStart = 0;
-  private cameraTween: { start: number; fromT: THREE.Vector3; toT: THREE.Vector3; fromZ: number; toZ: number } | null = null;
-  /** Bodies and dots need rebuilding when data, selection, hover or zoom change, or while a
+  /** Bodies need rebuilding when data, selection, hover or zoom change, or while a
    * tween runs; panning and turning only re-render. */
   private layoutDirty = true;
   private raf = 0;
@@ -330,11 +335,17 @@ export class AtlasScene {
   private resizeObserver: ResizeObserver;
   private domeGeo = domeGeometry();
   private placementKey = "";
+  /** placements per detail level for the current data (placementData) */
+  private placements = new Map<number, Map<string, [number, number, number]>>();
+  private placementData = "";
+  private precomputing = new Map<number, Generator<void, void>>();
+  /** detail level: footprints, spacing and search distances are divided by it, so zooming in
+   * by 1.5× frees room for more cities while bodies keep a similar size on screen */
+  private level = 1;
   private clearanceAt: (x: number, y: number) => number = () => 0;
   private contactGeo = new THREE.InstancedBufferGeometry();
   private domeMat: THREE.ShaderMaterial;
   private outlineMat: THREE.ShaderMaterial;
-  private dots!: THREE.Points;
   private leaders = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: CEL.inkMuted, transparent: true, opacity: 0.65 }));
 
   constructor(
@@ -443,6 +454,7 @@ export class AtlasScene {
     };
 
     const polys = geo.provinces.flatMap((pr) => pr.polygons);
+    this.land = landField(polys);
     this.clearanceAt = landClearance(polys, geo.lakes);
     this.scene.add(slab(polys, top, [landPaint(this.domeMat.uniforms.uLight!.value), landPaint(this.domeMat.uniforms.uLight!.value, true)]));
 
@@ -496,34 +508,6 @@ export class AtlasScene {
       return { id: c.id, x, z: -y, from: 0, to: 0, shown: 0, count: null, clearance: this.clearanceAt(x, y), radius: 0, chartX: x, chartZ: -y };
     });
     this.byId = new Map(this.bodies.map((b, i) => [b.id, i]));
-    if (this.dots) {
-      this.scene.remove(this.dots);
-      this.dots.geometry.dispose();
-      (this.dots.material as THREE.Material).dispose();
-    }
-    const n = this.bodies.length;
-    const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.Float32BufferAttribute(this.bodies.flatMap((b) => [b.x, this.landTop + 1, b.z]), 3));
-    g.setAttribute("aKind", new THREE.Float32BufferAttribute(new Float32Array(n), 1).setUsage(THREE.DynamicDrawUsage));
-    g.setAttribute("aSize", new THREE.Float32BufferAttribute(new Float32Array(n), 1).setUsage(THREE.DynamicDrawUsage));
-    this.dots = new THREE.Points(
-      g,
-      new THREE.ShaderMaterial({
-        uniforms: {
-          uDpr: { value: this.renderer.getPixelRatio() },
-          uLift: { value: 0 },
-          uInk: { value: new THREE.Color(CEL.ink) },
-          uZero: { value: new THREE.Color(CEL.zero) },
-          uUnknown: { value: new THREE.Color(CEL.unknown) },
-        },
-        vertexShader: DOT_VERTEX,
-        fragmentShader: DOT_FRAGMENT,
-        transparent: true,
-      }),
-    );
-    this.dots.frustumCulled = false;
-    this.dots.renderOrder = 3;
-    this.scene.add(this.dots);
     performance.measure("atlas:cities", { start: started });
     this.expanded.clear();
     this.layoutDirty = true;
@@ -579,86 +563,120 @@ export class AtlasScene {
     this.invalidate();
   }
 
-  /** Hundreds of positive cities stay present through rotation and zoom. Only labels and zero/unknown
-   * markers use screen-space detail; overlap is resolved by the depth buffer, not deletion. */
+  /** Cities with postings become bodies in data-rank order wherever a footprint fits on land
+   * without touching another; the rest appear as zooming in frees room (no dots, no overlap).
+   * The set is independent of the view angle, so it holds through rotation. */
   private updateDetail(): void {
     const d = CEL.detail;
     if (this.zoom >= d.enterRegional) this.regional = true;
     else if (this.zoom < d.exitRegional) this.regional = false;
-    const w = this.host.clientWidth, h = this.host.clientHeight;
-    // A stable, data-ranked set of hundreds, independent of camera/overlap. No view-angle
-    // deletion or zoom gate. Selection can still expose any other city from the full dataset.
-    const rankedBodies = this.priority.length
-      ? this.priority.map(p => this.bodies[this.byId.get(p.id) ?? -1]).filter((b): b is Body => !!b && b.to > 0)
-      : this.bodies.filter(b => b.to > 0).sort((a, b) => b.to - a.to);
-    const placementKey = rankedBodies.map(b => `${b.id}:${Math.round(b.to)}`).join("|");
+    const level = levelFor(this.zoom);
+    const ranked = this.rankedBodies();
+    const dataKey = ranked.map(b => `${b.id}:${Math.round(b.to)}`).join("|");
+    if (dataKey !== this.placementData) {
+      this.placementData = dataKey;
+      this.placements.clear();
+    }
+    const placementKey = `${level}|${dataKey}`;
     if (placementKey !== this.placementKey) {
-    const placementStarted = performance.now();
-    this.placementKey = placementKey;
-    const spaced: Body[] = [];
-    for (const b of this.bodies) { b.chartX = b.x; b.chartZ = b.z; b.radius = 0; }
-    for (const [rank, b] of rankedBodies.entries()) {
-      if (spaced.length >= CEL.detail.bodyLimit) break;
-      // A few major centres need a legible round body rather than a coast-clipped needle.
-      // Their geographic anchor stays fixed; a short ground leader explicitly discloses
-      // any chart displacement. All placements are geographic and frozen across rotation.
-      const nominal = 42;
-      const candidates: [number, number][] = [[b.x, b.z]];
-      for (let distance = 24; distance <= (rank < 24 ? 144 : 48); distance += 24)
-        for (let angle = 0; angle < 16; angle++) candidates.push([b.x + distance * Math.cos(angle * Math.PI / 8), b.z + distance * Math.sin(angle * Math.PI / 8)]);
-      const sizes = [nominal, 32, 24, 16];
-      let placed = false;
-      for (const size of sizes) {
-        for (const [x, z] of candidates) {
-          const radius = size;
-          if (spaced.some(other => Math.hypot(x - other.chartX, z - other.chartZ) < radius + other.radius + 18)) continue;
-          if (this.clearanceAt(x, -z) < radius / 0.7) continue;
-          b.chartX = x; b.chartZ = z; b.radius = radius;
-          spaced.push(b); placed = true; break;
-        }
-        if (placed) break;
+      this.placementKey = placementKey;
+      this.level = level;
+      const placed = this.placementAt(level, ranked);
+      for (const b of this.bodies) { b.chartX = b.x; b.chartZ = b.z; b.radius = 0; }
+      for (const [id, [x, z, radius]] of placed) {
+        const b = this.bodies[this.byId.get(id)!]!;
+        b.chartX = x; b.chartZ = z; b.radius = radius;
       }
+      this.expanded = new Set(placed.keys());
+      this.updateFootprints();
     }
-    const next = new Set(spaced.map(b => b.id));
-    this.expanded = next;
-    this.updateFootprints();
-    performance.measure("atlas:placement", { start: placementStarted });
-    }
-    const next = this.expanded;
-    // Stable priority plus screen-space spacing prevents thousands of city points becoming
-    // a second heatmap. Hidden cities remain in the searchable dataset, not moved/aggregated.
-    const dotGap = this.regional ? 16 : 30;
-    const dotLimit = this.regional ? 180 : 64;
-    const cells = new Map<string, [number, number][]>();
-    const occupy = (x: number, y: number) => {
-      const key = `${Math.floor(x / dotGap)},${Math.floor(y / dotGap)}`;
-      const cell = cells.get(key) ?? [];
-      cell.push([x, y]);
-      cells.set(key, cell);
-    };
-    const crowded = (x: number, y: number) => {
-      const gx = Math.floor(x / dotGap), gy = Math.floor(y / dotGap);
-      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++)
-        if (cells.get(`${gx + dx},${gy + dy}`)?.some(([ox, oy]) => (ox - x) ** 2 + (oy - y) ** 2 < dotGap ** 2)) return true;
-      return false;
-    };
-    for (const b of this.bodies) if (next.has(b.id)) occupy(...this.toScreen(b.x, this.landTop, b.z));
-    this.visibleDots.clear();
-    const ranked = [...new Set([...this.priority.map(p => p.id), ...this.bodies.map(b => b.id)])];
-    for (const id of ranked) {
-      if (this.visibleDots.size >= dotLimit) break;
-      if (next.has(id)) continue;
-      const b = this.bodies[this.byId.get(id) ?? -1];
-      if (!b || b.clearance <= 0) continue;
-      const [x, y] = this.toScreen(b.x, this.landTop, b.z);
-      if (x < 8 || y < 8 || x > w - 8 || y > h - 8) continue;
-      if (crowded(x, y)) continue;
-      occupy(x, y);
-      this.visibleDots.add(id);
-    }
+    // Precompute the neighbouring levels in small idle slices, so the next zoom step across a
+    // level does not stall on placement and no slice blocks input.
+    for (const next of [level * 1.5, level / 1.5])
+      if (next >= 1 && next <= ZOOM_MAX * 1.5) this.precompute(next, ranked, dataKey);
     this.layoutDirty = true;
     this.invalidate();
     for (const cb of this.settleListeners) cb();
+  }
+
+  private rankedBodies(): Body[] {
+    return this.priority.length
+      ? this.priority.map(p => this.bodies[this.byId.get(p.id) ?? -1]).filter((b): b is Body => !!b && b.to > 0)
+      : this.bodies.filter(b => b.to > 0).sort((a, b) => b.to - a.to);
+  }
+
+  private placementAt(level: number, ranked: Body[]): Map<string, [number, number, number]> {
+    const cached = this.placements.get(level);
+    if (cached) return cached;
+    // finish an idle precompute already under way rather than starting over
+    const steps = this.precomputing.get(level) ?? this.placementSteps(level, ranked);
+    while (!steps.next().done);
+    this.precomputing.delete(level);
+    return this.placements.get(level)!;
+  }
+
+  private precompute(level: number, ranked: Body[], dataKey: string): void {
+    if (this.placements.has(level) || this.precomputing.has(level)) return;
+    const steps = this.placementSteps(level, ranked);
+    this.precomputing.set(level, steps);
+    const idle = (cb: (d: { timeRemaining(): number }) => void) =>
+      window.requestIdleCallback ? window.requestIdleCallback(cb) : window.setTimeout(() => cb({ timeRemaining: () => 6 }), 30);
+    const run = (deadline: { timeRemaining(): number }) => {
+      if (this.disposed || this.placementData !== dataKey || this.placements.has(level)) return void this.precomputing.delete(level);
+      while (deadline.timeRemaining() > 2)
+        if (steps.next().done) return void this.precomputing.delete(level);
+      idle(run);
+    };
+    idle(run);
+  }
+
+  /** Feet for one detail level (cached), yielding every few cities so it can run in idle
+   * slices: in rank order, each city takes the largest footprint that fits on land without
+   * touching another, at its own point or a nearby spot (a ground leader shows the shift).
+   * Sizes, gaps and search rings are divided by the level. */
+  private *placementSteps(level: number, ranked: Body[]): Generator<void, void> {
+    const started = performance.now();
+    const CELL = 120 / level; // wider than the largest foot + gap + foot
+    const grid = new Map<string, [number, number, number][]>();
+    const blocked = (x: number, z: number, radius: number, gap: number) => {
+      const gx = Math.floor(x / CELL), gz = Math.floor(z / CELL);
+      for (let dx = -1; dx <= 1; dx++)
+        for (let dz = -1; dz <= 1; dz++)
+          for (const [ox, oz, or] of grid.get(`${gx + dx},${gz + dz}`) ?? [])
+            if (Math.hypot(x - ox, z - oz) < radius + or + gap) return true;
+      return false;
+    };
+    const out = new Map<string, [number, number, number]>();
+    const sizes = [42, 32, 24, 16].map((size) => size / level);
+    const gap = 18 / level;
+    for (const [rank, b] of ranked.entries()) {
+      if (out.size >= CEL.detail.bodyLimit) break;
+      if (rank % 32 === 31) yield;
+      // Near rings shrink with the level. A city whose point falls just off the simplified
+      // coast also searches the original reach, so it can stand on the nearest land; major
+      // centres look further for a legible round body.
+      const reach = rank < 24 ? 144 : 48;
+      const distances = new Set<number>();
+      for (let d = 24; d <= reach; d += 24) {
+        distances.add(d / level);
+        if (b.clearance <= 0) distances.add(d);
+      }
+      const candidates: [number, number][] = [[b.x, b.z]];
+      for (const distance of [...distances].sort((x, y) => x - y))
+        for (let angle = 0; angle < 16; angle++) candidates.push([b.x + distance * Math.cos(angle * Math.PI / 8), b.z + distance * Math.sin(angle * Math.PI / 8)]);
+      search: for (const radius of sizes)
+        for (const [x, z] of candidates) {
+          if (blocked(x, z, radius, gap) || this.clearanceAt(x, -z) < radius / 0.7) continue;
+          out.set(b.id, [x, z, radius]);
+          const key = `${Math.floor(x / CELL)},${Math.floor(z / CELL)}`;
+          const cell = grid.get(key);
+          if (cell) cell.push([x, z, radius]);
+          else grid.set(key, [[x, z, radius]]);
+          break search;
+        }
+    }
+    this.placements.set(level, out);
+    performance.measure("atlas:placement", { start: started });
   }
 
   private updateFootprints(): void {
@@ -669,7 +687,7 @@ export class AtlasScene {
         if ((b.id === this.selected || b.id === this.hovered) && b.to > 0) {
           let nearest = Infinity;
           for (const other of this.bodies) if (this.expanded.has(other.id)) nearest = Math.min(nearest, Math.hypot(b.x - other.chartX, b.z - other.chartZ) - other.radius);
-          b.radius = separatedRadius(b.clearance, nearest, 22);
+          b.radius = separatedRadius(b.clearance, nearest, 22 / this.level);
         }
       }
       if (b.radius > 0 && Math.hypot(b.x - b.chartX, b.z - b.chartZ) > 1)
@@ -685,57 +703,35 @@ export class AtlasScene {
   }
 
   private layout(now: number): boolean {
-    if (!this.dots) return false;
+    if (!this.bodies.length) return false;
     const R = this.bodyRadius();
     const px = this.worldPerPx();
     this.domeMat.uniforms.uR!.value = R;
     this.domeMat.uniforms.uPx!.value = px;
-    // about 6 px of ground in depth units (the camera's depth range is 40 000)
-    (this.dots.material as THREE.ShaderMaterial).uniforms.uLift!.value = (6 * px) / 20000;
     const pos = this.domeGeo.getAttribute("iPos") as THREE.InstancedBufferAttribute;
     const radii = this.domeGeo.getAttribute("iR") as THREE.InstancedBufferAttribute;
     const hAttr = this.domeGeo.getAttribute("iH") as THREE.InstancedBufferAttribute;
     const lineAttr = this.domeGeo.getAttribute("iLine") as THREE.InstancedBufferAttribute;
-    const kind = this.dots.geometry.getAttribute("aKind") as THREE.BufferAttribute;
-    const size = this.dots.geometry.getAttribute("aSize") as THREE.BufferAttribute;
     let moving = false;
     let n = 0;
-    this.bodies.forEach((b, i) => {
+    const scale = this.heightScale();
+    this.bodies.forEach((b) => {
       const t = this.opts.reducedMotion ? 1 : Math.min(1, Math.max(0, (now - this.tweenStart) / CEL.motion.height));
       if (t < 1) moving = true;
       b.shown = b.from + (b.to - b.from) * ease(t);
       const marked = b.id === this.selected || b.id === this.hovered;
       if (this.isBody(b) && n < MAX_BODIES) {
         pos.setXYZ(n, b.chartX, this.landTop, b.chartZ);
-        hAttr.setX(n, b.shown);
+        hAttr.setX(n, b.shown * scale);
         const radius = Math.min(R, b.radius);
         radii.setX(n, b.radius);
         lineAttr.setX(n, Math.min(marked ? CEL.line.selected : CEL.line.data, radius / px * 0.22));
         n++;
-        const displaced = Math.hypot(b.chartX - b.x, b.chartZ - b.z) > 1;
-        kind.setX(i, displaced ? 1 : 0);
-        size.setX(i, displaced ? 2.5 : 0);
-        return;
-      }
-      if (!marked && !this.visibleDots.has(b.id)) {
-        kind.setX(i, 0);
-        return;
-      }
-      if (b.count == null) {
-        kind.setX(i, 3);
-        size.setX(i, marked ? 4 : 2.5);
-      } else if (b.count === 0) {
-        kind.setX(i, 2);
-        size.setX(i, marked ? 3 : 1.5);
-      } else {
-        kind.setX(i, 1);
-        size.setX(i, marked ? 3.5 : 2);
       }
     });
     this.domeGeo.instanceCount = n;
     this.contactGeo.instanceCount = n;
     pos.needsUpdate = radii.needsUpdate = hAttr.needsUpdate = lineAttr.needsUpdate = true;
-    kind.needsUpdate = size.needsUpdate = true;
     return moving;
   }
 
@@ -750,17 +746,35 @@ export class AtlasScene {
     return CEL.bodyDiameter / 2;
   }
 
+  /** The safe rectangle in CSS px: [left, top, width, height], and where the home view centres. */
+  private safeRect(): { x: number; y: number; w: number; h: number; cx: number; cy: number } {
+    const W = this.host.clientWidth || 1, H = this.host.clientHeight || 1;
+    const mobile = W < 760;
+    const [sx, sy, sw, sh] = mobile ? CEL.safeMobile : CEL.safeDesktop;
+    const [cx, cy] = mobile ? [sx + sw / 2, sy + sh / 2] : CEL.centreDesktop;
+    return { x: sx * W, y: sy * H, w: sw * W, h: sh * H, cx: cx * W, cy: cy * H };
+  }
+
+  /** One global height factor for every body, from zoom and elevation only: the body for
+   * count = scaleMax never projects taller than half the safe rectangle. Data meaning is kept
+   * (same count = same height at any moment); only the camera changes it, continuously. */
+  heightScale(zoom = this.zoom, elevation = this.elevation): number {
+    const k = (2 * this.homeHalfH) / zoom / (this.host.clientHeight || 1);
+    const projected = (MAX_HEIGHT * Math.cos((elevation * Math.PI) / 180)) / k;
+    return Math.min(1, (this.safeRect().h * 0.5) / projected);
+  }
+
   private resize(): void {
     const w = this.host.clientWidth || 1;
     const h = this.host.clientHeight || 1;
     // Preserve native resolution on Retina displays and when moving between displays.
     this.renderer.setPixelRatio(window.devicePixelRatio || 1);
     this.renderer.setSize(w, h, false);
-    if (this.dots) (this.dots.material as THREE.ShaderMaterial).uniforms.uDpr!.value = this.renderer.getPixelRatio();
     this.renderer.domElement.style.width = `${w}px`;
     this.renderer.domElement.style.height = `${h}px`;
     for (const m of this.lines) m.resolution.set(w, h);
     this.fitHome(!this.interacted);
+    if (this.interacted) this.commit(this.state(), false);
     this.layoutDirty = true;
     this.scheduleSettle();
     this.invalidate();
@@ -774,43 +788,31 @@ export class AtlasScene {
     return { dir, right, up };
   }
 
-  /** Home view: the real land points and the tips of the top bodies fit the safe rectangle at
-   * the default angle. Moves the camera only when `apply` (before the user takes over). */
+  /** The land's extent on the camera plane for given angles: [u0, u1, v0, v1]. */
+  private landExtent(el: number, az: number): [number, number, number, number] {
+    const { right, up } = this.basis(el, az);
+    let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+    for (const p of this.landPoints) {
+      const u = p.dot(right), v = p.dot(up);
+      if (u < u0) u0 = u;
+      if (u > u1) u1 = u;
+      if (v < v0) v0 = v;
+      if (v > v1) v1 = v;
+    }
+    return [u0, u1, v0, v1];
+  }
+
+  /** Home view: the real land fits the safe rectangle at the default angle. Moves the camera
+   * only when `apply` (before the user takes over). */
   private fitHome(apply: boolean): void {
     if (!this.landPoints.length) return;
-    const w = this.host.clientWidth || 1, h = this.host.clientHeight || 1;
-    const mobile = w < 760;
-    const [sx, sy, sw, sh] = mobile ? CEL.safeMobile : CEL.safeDesktop;
-    const [cx, cy] = mobile ? [sx + sw / 2, sy + sh / 2] : CEL.centreDesktop;
-    const homeAzimuth = CEL.azimuth;
-    const homeElevation = CEL.elevation;
-    const { dir, right, up } = this.basis(homeElevation, homeAzimuth);
-    let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
-    const add = (p: THREE.Vector3) => {
-      const u = p.dot(right), v = p.dot(up);
-      u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v);
-    };
-    this.landPoints.forEach(add);
-    for (const p of this.priority) {
-      const b = this.bodies[this.byId.get(p.id) ?? -1];
-      if (b) add(new THREE.Vector3(b.x, this.landTop + heightFor(p.max, this.scaleMax), b.z));
-    }
-    const k = Math.max((u1 - u0) / (sw * w), (v1 - v0) / (sh * h)); // world units per px
-    this.homeHalfH = (k * h) / 2;
-    // place the bounds' centre at the target centre, but keep them inside the safe rectangle
-    const halfW = (u1 - u0) / k / 2, halfV = (v1 - v0) / k / 2;
-    const px = THREE.MathUtils.clamp(cx * w, sx * w + halfW, (sx + sw) * w - halfW);
-    const py = THREE.MathUtils.clamp(cy * h, sy * h + halfV, (sy + sh) * h - halfV);
-    const uc = (u0 + u1) / 2 - (px - w / 2) * k;
-    const vc = (v0 + v1) / 2 + (py - h / 2) * k;
-    const q = right.clone().multiplyScalar(uc).addScaledVector(up, vc);
-    this.homeTarget.copy(q.addScaledVector(dir, (this.landTop - q.y) / dir.y));
-    if (apply) {
-      this.target.copy(this.homeTarget);
-      this.zoom = 1;
-      this.elevation = homeElevation;
-      this.azimuth = homeAzimuth;
-    }
+    const H = this.host.clientHeight || 1;
+    const safe = this.safeRect();
+    const [u0, u1, v0, v1] = this.landExtent(CEL.elevation, CEL.azimuth);
+    const k = Math.max((u1 - u0) / safe.w, (v1 - v0) / safe.h); // world units per px
+    this.homeHalfH = (k * H) / 2;
+    this.homeTarget.copy(this.constrain({ target: this.homeTarget, zoom: 1, az: CEL.azimuth, el: CEL.elevation }).target);
+    if (apply) this.setState({ target: this.homeTarget, zoom: 1, az: CEL.azimuth, el: CEL.elevation });
     this.updateCamera();
   }
 
@@ -834,15 +836,194 @@ export class AtlasScene {
     this.camera.updateMatrixWorld();
     this.domeMat.uniforms.uPx!.value = this.worldPerPx();
     this.domeMat.uniforms.uR!.value = this.bodyRadius();
+    this.layoutDirty = true; // body heights follow the camera's height scale
   }
 
-  /** A user camera move: stop auto-fitting, keep the body set until the camera settles. */
-  private moved(): void {
-    this.interacted = true;
-    this.cameraTween = null;
+  private state(): CameraState {
+    return { target: this.target.clone(), zoom: this.zoom, az: this.azimuth, el: this.elevation };
+  }
+
+  private setState(st: CameraState): void {
+    this.target.copy(st.target);
+    this.zoom = st.zoom;
+    this.azimuth = st.az;
+    this.elevation = st.el;
     this.updateCamera();
+  }
+
+  /** The nearest allowed camera: zoom in [1, max], azimuth within ±30° of home, elevation
+   * 30–60°, and on each screen axis the land either centred (when it fits the safe rectangle)
+   * or covering the safe rectangle's full width (no blank margin inside it). */
+  private constrain(st: CameraState): CameraState {
+    const zoom = THREE.MathUtils.clamp(st.zoom, 1, ZOOM_MAX);
+    const az = THREE.MathUtils.clamp(st.az, CEL.azimuth - AZIMUTH_RANGE, CEL.azimuth + AZIMUTH_RANGE);
+    const el = THREE.MathUtils.clamp(st.el, ELEVATION_MIN, ELEVATION_MAX);
+    if (!this.landPoints.length) return { target: st.target.clone(), zoom, az, el };
+    const W = this.host.clientWidth || 1, H = this.host.clientHeight || 1;
+    const safe = this.safeRect();
+    const k = (2 * this.homeHalfH) / zoom / H;
+    const { dir, right, up } = this.basis(el, az);
+    const [u0, u1, v0, v1] = this.landExtent(el, az);
+    // camera-plane centre that puts screen position `px` on land coordinate `u`
+    const fit = (lo: number, hi: number, safeLo: number, safeLen: number, centre: number, screen: number, sign: 1 | -1, cur: number) => {
+      const len = (hi - lo) / k;
+      if (len <= safeLen * (1 + 1e-6)) {
+        // fits: centred like the home view (bounds centre at the target centre, kept inside)
+        const half = len / 2;
+        const p = THREE.MathUtils.clamp(centre, safeLo + half, safeLo + safeLen - half);
+        return (lo + hi) / 2 - sign * (p - screen / 2) * k;
+      }
+      // larger: the land's edges may not come inside the safe rectangle
+      const a = lo + sign * (screen / 2 - (sign > 0 ? safeLo : safeLo + safeLen)) * k;
+      const b = hi - sign * ((sign > 0 ? safeLo + safeLen : safeLo) - screen / 2) * k;
+      return THREE.MathUtils.clamp(cur, Math.min(a, b), Math.max(a, b));
+    };
+    // the view centre (the target, on the ground) at the same place on screen
+    const ground = st.target.clone().addScaledVector(dir, (this.landTop - st.target.y) / dir.y);
+    // The extent alone still allows views of mostly empty sea, or of the US, at Canada's
+    // irregular edges: keep the view centre 15% of the view inside the coast or border,
+    // climbing the land's distance field (smooth, so a drag along the limit never jumps). Only
+    // deeper steps are taken, so on land thinner than that the centre rests on its spine
+    // instead of rocking across it.
+    if (this.land) {
+      const inset = 0.15 * Math.min(safe.w, safe.h) * k;
+      // never push a selected city's body out of view: a coastal city may show more sea
+      const sel = this.selected ? this.bodies[this.byId.get(this.selected) ?? -1] : undefined;
+      const tip = sel ? this.landTop + sel.shown * this.heightScale(zoom, el) : 0;
+      const keepsSelected = (cx: number, cy: number) => !sel || sel.radius <= 0 || [this.landTop, tip].every((py) => {
+        const p = new THREE.Vector3(sel.chartX, py, sel.chartZ), g = new THREE.Vector3(cx, this.landTop, -cy);
+        const X = W / 2 + (p.dot(right) - g.dot(right)) / k, Y = H / 2 - (p.dot(up) - g.dot(up)) / k;
+        return X >= 0 && X <= W && Y >= 0 && Y <= H;
+      });
+      // far off land, one long first step; then small steps (≤ 4 km) up the field
+      let x = ground.x, y = -ground.z, d = this.land.distance(x, y);
+      const selectedShown = keepsSelected(x, y);
+      for (let i = 0; i < 60 && d < inset; i++) {
+        const [gx, gy] = this.land.gradient(x, y);
+        const len = Math.hypot(gx, gy);
+        if (len < 1e-3) break;
+        const step = d < -8 ? -d : Math.min(inset - d, 4);
+        const nx = x + (gx / len) * step, ny = y + (gy / len) * step;
+        const nd = this.land.distance(nx, ny);
+        if (nd <= d) break; // the spine of thin land: as deep as it goes
+        if (selectedShown && !keepsSelected(nx, ny)) break;
+        x = nx; y = ny; d = nd;
+      }
+      ground.x = x;
+      ground.z = -y;
+    }
+    const uc = fit(u0, u1, safe.x, safe.w, safe.cx, W, 1, ground.dot(right));
+    const vc = fit(v0, v1, safe.y, safe.h, safe.cy, H, -1, ground.dot(up));
+    const t = ground.addScaledVector(right, uc - ground.dot(right)).addScaledVector(up, vc - ground.dot(up));
+    t.addScaledVector(dir, (this.landTop - t.y) / dir.y); // same view, target back on the ground
+    return { target: t, zoom, az, el };
+  }
+
+  /** What a gesture's raw camera shows: the nearest allowed camera plus the overshoot,
+   * rubber-banded per component (continuous, bounded). */
+  private display(raw: CameraState): CameraState {
+    const W = this.host.clientWidth || 1, H = this.host.clientHeight || 1;
+    // zoom first, around the zoom point, so that point stays under the pointer while stretched
+    const limited = THREE.MathUtils.clamp(raw.zoom, 1, ZOOM_MAX);
+    const zoom = limited * Math.exp(rubber(Math.log(raw.zoom / limited), RUBBER_ZOOM));
+    let target = raw.target;
+    if (zoom !== raw.zoom && this.zoomPoint) {
+      const { dir, right, up } = this.basis(raw.el, raw.az);
+      const dk = ((2 * this.homeHalfH) / H) * (1 / raw.zoom - 1 / zoom);
+      target = raw.target.clone()
+        .addScaledVector(right, (this.zoomPoint[0] - W / 2) * dk)
+        .addScaledVector(up, -(this.zoomPoint[1] - H / 2) * dk);
+      target.addScaledVector(dir, (this.landTop - target.y) / dir.y);
+    }
+    const c = this.constrain({ ...raw, target, zoom });
+    const k = (2 * this.homeHalfH) / c.zoom / H;
+    const { dir, right, up } = this.basis(c.el, c.az);
+    // The limits' correction is eased in over a few events: where an irregular coast makes the
+    // allowed position jump, the view glides instead. Inside the limits it is zero (no lag).
+    const correction = target.clone().sub(c.target);
+    this.correction = (this.correction ?? new THREE.Vector3()).lerp(correction, 0.3);
+    const off = this.correction;
+    const limit = RUBBER_PAN * Math.min(W, H);
+    const t = target.clone().sub(off)
+      .addScaledVector(right, rubber(off.dot(right) / k, limit) * k)
+      .addScaledVector(up, rubber(off.dot(up) / k, limit) * k);
+    t.addScaledVector(dir, (this.landTop - t.y) / dir.y);
+    return {
+      target: t,
+      zoom,
+      az: c.az + rubber(raw.az - c.az, RUBBER_ANGLE),
+      el: c.el + rubber(raw.el - c.el, RUBBER_ANGLE),
+    };
+  }
+
+  /** Apply a camera move. During a gesture (elastic) the input accumulates on a raw camera and
+   * the view shows it rubber-banded past the limits; other moves, and reduced motion, are
+   * clamped outright. */
+  private commit(next: CameraState, elastic: boolean): void {
+    this.anim = null;
+    if (!elastic || this.opts.reducedMotion) {
+      this.raw = null;
+      this.setState(this.constrain(next));
+    } else {
+      this.raw = next;
+      this.setState(this.display(next));
+      // wheels and trackpads have no "release": spring back once input pauses
+      clearTimeout(this.releaseTimer);
+      if (!this.gesture) this.releaseTimer = window.setTimeout(() => this.release(true), 120);
+    }
+    this.interacted = true;
     this.scheduleSettle();
     this.invalidate();
+  }
+
+  /** The camera an elastic move starts from: the gesture's raw camera, or the view. */
+  private base(): CameraState {
+    return this.raw ? { ...this.raw, target: this.raw.target.clone() } : this.state();
+  }
+
+  /** A pointer or trackpad gesture starts / ends: overshoot is allowed only while it lasts. */
+  beginGesture(): void {
+    this.gesture = true;
+    this.raw = null;
+    this.correction = null;
+    this.anim = null;
+    clearTimeout(this.releaseTimer);
+  }
+
+  endGesture(): void {
+    this.gesture = false;
+    this.release(false);
+  }
+
+  /** Spring back inside the limits; a zoom past its limit returns around the last zoom point. */
+  private release(fromWheel: boolean): void {
+    this.raw = null;
+    this.correction = null;
+    const cur = this.state();
+    let to = this.constrain(cur);
+    if (to.zoom !== cur.zoom && this.zoomPoint) {
+      const [x, y] = this.zoomPoint;
+      const before = this.groundAt(x, y);
+      this.setState({ ...cur, zoom: to.zoom });
+      const after = this.groundAt(x, y);
+      this.setState(cur);
+      if (before && after) to = this.constrain({ ...cur, target: cur.target.clone().add(before.sub(after)), zoom: to.zoom });
+    }
+    const k = (2 * this.homeHalfH) / cur.zoom / (this.host.clientHeight || 1);
+    if (cur.target.distanceTo(to.target) / k < 0.5 && Math.abs(Math.log(cur.zoom / to.zoom)) < 1e-4 && Math.abs(cur.az - to.az) + Math.abs(cur.el - to.el) < 0.01) return;
+    // trackpad momentum keeps sending wheel events after the fingers lift: don't let them
+    // stretch the view again while it springs back
+    if (fromWheel) this.wheelLock = performance.now() + 350;
+    if (this.opts.reducedMotion) this.setState(to);
+    else this.anim = { start: performance.now(), ms: SPRING_MS, from: cur, to };
+    this.invalidate();
+  }
+
+  /** True when the camera is not at the home view (shows "Back to Canada"). */
+  isHome(): boolean {
+    const k = (2 * this.homeHalfH) / this.zoom / (this.host.clientHeight || 1);
+    return Math.abs(this.zoom - 1) < 0.01 && Math.abs(this.azimuth - CEL.azimuth) < 0.5 && Math.abs(this.elevation - CEL.elevation) < 0.5
+      && this.target.distanceTo(this.homeTarget) / k < 1;
   }
 
   private scheduleSettle(): void {
@@ -850,11 +1031,10 @@ export class AtlasScene {
     this.settleTimer = window.setTimeout(() => !this.disposed && this.updateDetail(), CEL.detail.settleMs);
   }
 
-  /** Orbit around the map target, keeping the land readable. */
-  rotate(dx: number, dy = 0): void {
-    this.azimuth = (this.azimuth - dx * 0.28) % 360;
-    this.elevation = THREE.MathUtils.clamp(this.elevation + dy * 0.2, 24, 75);
-    this.moved();
+  /** Orbit around the map target (azimuth ±30° from home, elevation 30–60°). */
+  rotate(dx: number, dy = 0, elastic = false): void {
+    const b = elastic ? this.base() : this.state();
+    this.commit({ ...b, az: b.az - dx * 0.28, el: b.el + dy * 0.2 }, elastic);
   }
 
   /** Pan by a screen delta (pixels). */
@@ -864,64 +1044,77 @@ export class AtlasScene {
     const up = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 1);
     const groundUp = new THREE.Vector3(up.x, 0, up.z).normalize();
     const el = (this.elevation * Math.PI) / 180;
-    this.target.addScaledVector(right, -dx * perPx).addScaledVector(groundUp, (dy * perPx) / Math.sin(el));
-    this.moved();
+    const target = this.target.clone().addScaledVector(right, -dx * perPx).addScaledVector(groundUp, (dy * perPx) / Math.sin(el));
+    this.commit({ target, zoom: this.zoom, az: this.azimuth, el: this.elevation }, false);
+  }
+
+  /** Drag the map: the ground point under (fromX, fromY) follows the pointer to (toX, toY). */
+  drag(fromX: number, fromY: number, toX: number, toY: number, elastic = false): void {
+    const a = this.groundAt(fromX, fromY);
+    const b = this.groundAt(toX, toY);
+    if (!a || !b) return;
+    const base = elastic ? this.base() : this.state();
+    this.commit({ ...base, target: base.target.add(a.sub(b)) }, elastic);
   }
 
   /** Zoom by a factor around a screen point (keeps the point under the cursor). */
-  zoomAt(factor: number, clientX?: number, clientY?: number): void {
-    const before = clientX === undefined ? null : this.groundAt(clientX, clientY!);
-    this.zoom = Math.min(24, Math.max(0.8, this.zoom * factor));
-    this.layoutDirty = true;
-    this.updateCamera();
-    if (before) {
-      const after = this.groundAt(clientX!, clientY!);
-      if (after) this.target.add(before.sub(after));
+  zoomAt(factor: number, clientX?: number, clientY?: number, elastic = false): void {
+    if (elastic && !this.gesture && performance.now() < this.wheelLock) {
+      // momentum after a spring-back: ignore pushes past the limit it springs to
+      const settling = this.anim?.to.zoom ?? this.zoom;
+      if ((factor > 1 && settling >= ZOOM_MAX - 1e-6) || (factor < 1 && settling <= 1 + 1e-6)) {
+        this.wheelLock = performance.now() + 150;
+        return;
+      }
     }
-    this.moved();
+    const cur = this.state();
+    const base = elastic ? this.base() : cur;
+    const next = { ...base, target: base.target.clone(), zoom: base.zoom * factor };
+    if (clientX !== undefined) {
+      // anchor in the camera being changed (a stretched gesture's raw camera)
+      this.setState(base);
+      const before = this.groundAt(clientX, clientY!);
+      this.setState(next);
+      const after = this.groundAt(clientX, clientY!);
+      this.setState(cur);
+      if (before && after) next.target.add(before.sub(after));
+      this.zoomPoint = [clientX, clientY!];
+    } else this.zoomPoint = null;
+    this.commit(next, elastic);
   }
 
   resetView(): void {
-    this.interacted = false;
-    this.cameraTween = null;
+    this.anim = null;
+    this.raw = null;
     this.fitHome(true);
+    this.interacted = false;
     this.scheduleSettle();
     this.invalidate();
   }
 
-  /** Bring a city into view, with its whole body and label (320 ms ease, none when reduced). */
+  /** Bring a city into view, its whole body inside the viewport (320 ms ease, none when reduced). */
   focusCity(id: string, zoom = 3): void {
     const i = this.byId.get(id);
     if (i === undefined) return;
     const b = this.bodies[i]!;
-    const h = Math.max(b.to, b.shown);
-    let toZ = Math.max(this.zoom, zoom);
-    // the projected body must fit in about half the screen height
-    const projected = h * Math.cos((this.elevation * Math.PI) / 180);
-    if (projected > (this.homeHalfH / toZ) * 1.0) toZ = Math.max(1, this.homeHalfH / projected);
-    const toT = new THREE.Vector3(b.x, this.landTop + h / 2, b.z);
+    const toZoom = THREE.MathUtils.clamp(Math.max(this.zoom, zoom), 1, ZOOM_MAX);
+    const h = Math.max(b.to, b.shown) * this.heightScale(toZoom);
+    const to = this.constrain({ target: new THREE.Vector3(b.chartX, this.landTop + h / 2, b.chartZ), zoom: toZoom, az: this.azimuth, el: this.elevation });
     this.interacted = true;
-    if (this.opts.reducedMotion) {
-      this.target.copy(toT);
-      this.zoom = toZ;
-      this.updateCamera();
-      this.scheduleSettle();
-    } else {
-      this.cameraTween = { start: performance.now(), fromT: this.target.clone(), toT, fromZ: this.zoom, toZ };
-    }
+    this.raw = null;
+    if (this.opts.reducedMotion) this.setState(to);
+    else this.anim = { start: performance.now(), ms: CEL.motion.focus, from: this.state(), to };
+    this.scheduleSettle();
     this.invalidate();
   }
 
   private stepCamera(now: number): boolean {
-    const tw = this.cameraTween;
-    if (!tw) return false;
-    const t = Math.min(1, (now - tw.start) / CEL.motion.focus);
-    const e = ease(t);
-    this.target.lerpVectors(tw.fromT, tw.toT, e);
-    this.zoom = tw.fromZ + (tw.toZ - tw.fromZ) * e;
-    this.updateCamera();
+    const a = this.anim;
+    if (!a) return false;
+    const t = Math.min(1, (now - a.start) / a.ms);
+    this.setState(lerpState(a.from, a.to, ease(t)));
     if (t < 1) return true;
-    this.cameraTween = null;
+    this.anim = null;
     this.scheduleSettle();
     return false;
   }
@@ -943,7 +1136,7 @@ export class AtlasScene {
     return [((p.x + 1) / 2) * this.host.clientWidth, ((1 - p.y) / 2) * this.host.clientHeight];
   }
 
-  /** Nearest body (base-to-top) or city dot within a few pixels of a screen point. */
+  /** Nearest body (base-to-top, or its ground leader) within a few pixels of a screen point. */
   pick(clientX: number, clientY: number): string | null {
     const rect = this.renderer.domElement.getBoundingClientRect();
     const x = clientX - rect.left;
@@ -952,24 +1145,18 @@ export class AtlasScene {
     let best: string | null = null;
     let bestD = 8;
     for (const b of this.bodies) {
-      if (!this.isBody(b) && !this.visibleDots.has(b.id) && b.id !== this.selected && b.id !== this.hovered) continue;
-      const [bx, by] = this.toScreen(this.isBody(b) ? b.chartX : b.x, this.landTop, this.isBody(b) ? b.chartZ : b.z);
-      if (this.isBody(b) && Math.hypot(b.x - b.chartX, b.z - b.chartZ) > 1) {
+      if (!this.isBody(b)) continue;
+      const [bx, by] = this.toScreen(b.chartX, this.landTop, b.chartZ);
+      if (Math.hypot(b.x - b.chartX, b.z - b.chartZ) > 1) {
         const [ax, ay] = this.toScreen(b.x, this.landTop, b.z);
         const t = Math.max(0, Math.min(1, ((x - ax) * (bx - ax) + (y - ay) * (by - ay)) / ((bx - ax) ** 2 + (by - ay) ** 2 || 1)));
         const leaderDistance = Math.hypot(x - ax - t * (bx - ax), y - ay - t * (by - ay));
         if (leaderDistance < bestD) { bestD = leaderDistance; best = b.id; }
       }
       if (Math.abs(x - bx) > 60 || y > by + 20) continue;
-      let d: number;
-      if (this.isBody(b)) {
-        const [tx, ty] = this.toScreen(b.chartX, this.landTop + b.shown, b.chartZ);
-        const t = Math.max(0, Math.min(1, ((x - bx) * (tx - bx) + (y - by) * (ty - by)) / ((tx - bx) ** 2 + (ty - by) ** 2 || 1)));
-        d = Math.max(0, Math.hypot(x - (bx + t * (tx - bx)), y - (by + t * (ty - by))) - Math.min(rPx, b.radius / this.worldPerPx()) * 0.85);
-      } else {
-        if (!this.visibleDots.has(b.id) && b.id !== this.selected && b.id !== this.hovered) continue;
-        d = Math.hypot(x - bx, y - by);
-      }
+      const [tx, ty] = this.toScreen(b.chartX, this.landTop + b.shown * this.heightScale(), b.chartZ);
+      const t = Math.max(0, Math.min(1, ((x - bx) * (tx - bx) + (y - by) * (ty - by)) / ((tx - bx) ** 2 + (ty - by) ** 2 || 1)));
+      const d = Math.max(0, Math.hypot(x - (bx + t * (tx - bx)), y - (by + t * (ty - by))) - Math.min(rPx, b.radius / this.worldPerPx()) * 0.85);
       if (d < bestD) {
         bestD = d;
         best = b.id;
@@ -990,7 +1177,7 @@ export class AtlasScene {
       if (bx < -50 || by < -50 || bx > w + 50 || by > h + 50) continue;
       const body = this.isBody(b);
       // labels are placed when bodies settle, possibly before they have grown: use the target
-      const tall = (this.expanded.has(b.id) || body) && b.to > 0 ? Math.max(b.shown, b.to) : 0;
+      const tall = ((this.expanded.has(b.id) || body) && b.to > 0 ? Math.max(b.shown, b.to) : 0) * this.heightScale();
       const [x, y] = tall ? this.toScreen(b.chartX, this.landTop + tall, b.chartZ) : [bx, by];
       out.push({ id: b.id, x, y, bx, by, r: body ? Math.min(r, b.radius / this.worldPerPx()) : r, height: b.shown, count: b.count, body, displaced: Math.hypot(b.chartX - b.x, b.chartZ - b.z) > 1 });
     }
@@ -998,8 +1185,8 @@ export class AtlasScene {
   }
 
   /** Cities drawn as bodies in priority order, and whether the regional level is on. */
-  detail(): { expanded: string[]; dots: string[]; regional: boolean } {
-    return { expanded: this.priority.map((p) => p.id).filter((id) => this.expanded.has(id)), dots: [...this.visibleDots], regional: this.regional };
+  detail(): { expanded: string[]; regional: boolean } {
+    return { expanded: this.priority.map((p) => p.id).filter((id) => this.expanded.has(id)), regional: this.regional };
   }
 
   /** Data priority is independent of whether a coastal city fits a physical body. */
@@ -1044,6 +1231,7 @@ export class AtlasScene {
     this.disposed = true;
     cancelAnimationFrame(this.raf);
     clearTimeout(this.settleTimer);
+    clearTimeout(this.releaseTimer);
     this.resizeObserver.disconnect();
     this.scene.traverse((o) => {
       const mesh = o as THREE.Mesh;

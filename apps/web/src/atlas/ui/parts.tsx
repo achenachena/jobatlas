@@ -29,7 +29,10 @@ export function windowLabel(day: string, w: WindowKey): string {
 const ICONS: Record<string, ReactNode> = {
   play: <path d="M7.5 5.5v9l7-4.5z" fill="currentColor" stroke="none" />,
   pause: <path d="M7.5 5.5v9M12.5 5.5v9" strokeWidth={2} />,
-  reset: <path d="M15.5 10a5.5 5.5 0 1 1-1.8-4.1M14 2.8l-.1 3.4-3.4-.1" />,
+  // reset = fit the view (frame corners), distinct from the turning arrows
+  reset: <><path d="M3.5 7.5v-4h4M12.5 3.5h4v4M16.5 12.5v4h-4M7.5 16.5h-4v-4" /><circle cx="10" cy="10" r="1.6" /></>,
+  rotateLeft: <path d="M4.5 10a5.5 5.5 0 1 0 1.8-4.1M6 2.8l.1 3.4 3.4-.1" />,
+  rotateRight: <path d="M15.5 10a5.5 5.5 0 1 1-1.8-4.1M14 2.8l-.1 3.4-3.4-.1" />,
   plus: <><circle cx="10" cy="10" r="8.4" /><path d="M10 6.2v7.6M6.2 10h7.6" /></>,
   minus: <><circle cx="10" cy="10" r="8.4" /><path d="M6.2 10h7.6" /></>,
   more: <><circle cx="4.5" cy="10" r="1.1" fill="currentColor" /><circle cx="10" cy="10" r="1.1" fill="currentColor" /><circle cx="15.5" cy="10" r="1.1" fill="currentColor" /></>,
