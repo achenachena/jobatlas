@@ -19,7 +19,6 @@ async def live() -> dict:
 async def ready(session: AsyncSession = Depends(get_async_session)) -> JSONResponse:
     checks: dict[str, str] = {}
     try:
-        await session.execute(text("SELECT postgis_version()"))
         head = (await session.execute(text("SELECT version_num FROM alembic_version"))).scalar()
         checks["database"] = "ok" if head else "no_migrations"
     except Exception as exc:  # noqa: BLE001 - report any dependency failure as not ready

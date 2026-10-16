@@ -1,12 +1,11 @@
-"""JobAtlas v2 statistics layer: source admission, cities, postings, coverage, releases,
-daily metrics. Additive only; v1 tables are untouched.
+"""JobAtlas v2 schema baseline: source admission, cities, postings, coverage, releases, daily
+metrics and employer boards.
 
-Rollback: `alembic downgrade 0013` drops only these tables (back up first:
-`pg_dump -t 'atlas_*'`).
+The v1 history (0001-0015) was squashed into this revision. It keeps the id 0016, so a database
+already at 0016 is at this revision and runs nothing.
 
-Revision ID: 0014
-Revises: 0013
-Create Date: 2026-10-14
+Revision ID: 0016
+Create Date: 2026-10-16
 """
 
 from collections.abc import Sequence
@@ -15,8 +14,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects.postgresql import JSONB
 
-revision: str = "0014"
-down_revision: str | None = "0013"
+revision: str = "0016"
+down_revision: str | None = None
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -154,9 +153,29 @@ def upgrade() -> None:
         "atlas_daily_metrics",
         ["release_id", "metric", "occupation_id", "day"],
     )
+    op.create_table(
+        "atlas_boards",
+        sa.Column("platform", sa.String(16), primary_key=True),
+        sa.Column("slug", sa.String(128), primary_key=True),
+        sa.Column("company", sa.Text),
+        sa.Column("status", sa.String(16), nullable=False, server_default="new"),
+        sa.Column("canada_jobs", sa.Integer, nullable=False, server_default="0"),
+        sa.Column("found_via", sa.Text, nullable=False),
+        sa.Column("added_at", sa.DateTime(timezone=True), server_default=sa.func.now(),
+                  nullable=False),
+        sa.Column("baseline_at", sa.DateTime(timezone=True)),
+        sa.Column("ok_at", sa.DateTime(timezone=True)),
+        sa.Column("next_check_at", sa.DateTime(timezone=True), server_default=sa.func.now(),
+                  nullable=False),
+        sa.Column("error", sa.Text),
+        sa.CheckConstraint("status IN ('new', 'active', 'foreign', 'gone')",
+                           name="ck_atlas_boards_status"),
+    )  # fmt: skip
+    op.create_index("ix_atlas_boards_due", "atlas_boards", ["next_check_at"])
 
 
 def downgrade() -> None:
+    op.drop_table("atlas_boards")
     op.drop_table("atlas_daily_metrics")
     op.drop_table("atlas_releases")
     op.drop_table("atlas_coverage")

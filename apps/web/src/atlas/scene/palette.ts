@@ -1,5 +1,5 @@
-/** "Clear Cel" art direction (docs/design/atlas-cel/tokens.json). One look; colours are the
- * finished cel tones, line widths are CSS pixels. */
+/** "Clear Cel" art direction. One look; colours are the finished cel tones, line widths are
+ * CSS pixels. */
 export const CEL = {
   paper: "#ffffff",
   ink: "#172b70",

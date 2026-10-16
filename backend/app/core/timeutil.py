@@ -1,7 +1,4 @@
 from datetime import UTC, datetime
-from zoneinfo import ZoneInfo
-
-TORONTO = ZoneInfo("America/Toronto")
 
 
 def utcnow() -> datetime:

@@ -1,4 +1,4 @@
-"""Integration tests run against a real PostgreSQL + PostGIS (never SQLite).
+"""Integration tests run against a real PostgreSQL (never SQLite).
 
 Set JOBATLAS_TEST_DATABASE_URL (the compose DB works: a `jobatlas_test` database is created
 on demand). Tests are skipped when it is unset.

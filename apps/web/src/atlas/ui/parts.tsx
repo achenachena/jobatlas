@@ -372,13 +372,13 @@ export function TimelineBar(p: {
   );
 }
 
-export function dayIndex(a: string, b: string): number {
+function dayIndex(a: string, b: string): number {
   return Math.round((Date.parse(`${b}T12:00:00Z`) - Date.parse(`${a}T12:00:00Z`)) / 86_400_000);
 }
 
 // ---------------------------------------------------------------- city
 
-export function Sparkline({ series }: { series: SeriesResponse | undefined }) {
+function Sparkline({ series }: { series: SeriesResponse | undefined }) {
   const pts = series?.points ?? [];
   const vals = pts.map((p) => p.count ?? 0);
   const max = Math.max(1, ...vals);
@@ -423,7 +423,7 @@ export function CityCard(p: {
   );
 }
 
-export function qualityText(q: string): string {
+function qualityText(q: string): string {
   return (
     {
       complete: "complete within Job Bank data",

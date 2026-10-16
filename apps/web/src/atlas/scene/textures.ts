@@ -23,23 +23,3 @@ export function contactShadow(color: string): THREE.CanvasTexture {
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }
-
-/** Sparse vertical ink strokes for the land's cut sides only (≤ 12 % opacity). */
-export function sideHatch(base: string, ink: string): THREE.CanvasTexture {
-  const [c, g] = canvas(64, 64);
-  g.fillStyle = base;
-  g.fillRect(0, 0, 64, 64);
-  g.strokeStyle = ink;
-  g.globalAlpha = 0.06;
-  g.lineWidth = 2;
-  for (let x = 4; x < 64; x += 16) {
-    g.beginPath();
-    g.moveTo(x, 0);
-    g.lineTo(x, 64);
-    g.stroke();
-  }
-  const tex = new THREE.CanvasTexture(c);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}

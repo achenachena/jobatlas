@@ -18,8 +18,7 @@ jobs:
     runs-on: ubuntu-24.04
     services:
       db:
-        # amd64 runners can use the upstream PostGIS image directly.
-        image: postgis/postgis:17-3.5
+        image: postgres:17.6-bookworm
         env:
           POSTGRES_USER: jobatlas
           POSTGRES_PASSWORD: jobatlas

@@ -16,20 +16,12 @@ if os.environ.get("DATABASE_URL"):
 
 target_metadata = Base.metadata
 
-# PostGIS owns spatial_ref_sys; never let autogenerate touch it.
-EXCLUDED_TABLES = {"spatial_ref_sys"}
-
-
-def include_object(obj, name, type_, reflected, compare_to):
-    return not (type_ == "table" and name in EXCLUDED_TABLES)
-
 
 def run_migrations_offline() -> None:
     context.configure(
         url=config.get_main_option("sqlalchemy.url"),
         target_metadata=target_metadata,
         literal_binds=True,
-        include_object=include_object,
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -42,9 +34,7 @@ def run_migrations_online() -> None:
         poolclass=pool.NullPool,
     )
     with connectable.connect() as connection:
-        context.configure(
-            connection=connection, target_metadata=target_metadata, include_object=include_object
-        )
+        context.configure(connection=connection, target_metadata=target_metadata)
         with context.begin_transaction():
             context.run_migrations()
 

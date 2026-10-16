@@ -5,8 +5,9 @@ import pytest
 
 from app.atlas.cities import CityIndex, city_key, parse_geonames, province_code
 from app.atlas.occupations import classify
-from app.atlas.permissions import admitted
+from app.atlas.permissions import REGISTRY, admitted
 from app.atlas.windows import REPORTING_TZ, window
+from app.workers.celery_app import celery_app
 
 # ------------------------------------------------------------------ occupations (§6)
 
@@ -170,3 +171,18 @@ def test_admission_requires_evidence_not_just_a_flag():
     assert not admitted(_row(permissions={"derived_stats": True}))[0]  # no public display
     assert not admitted(_row(expires_on=date(2026, 1, 1)), today=date(2026, 10, 14))[0]
     assert not admitted(None)[0]
+
+
+def test_only_licensed_and_public_api_sources_are_registered_and_scheduled():
+    assert {r["key"] for r in REGISTRY} == {
+        "jobbank-open-data",
+        "ats-greenhouse",
+        "ats-lever",
+        "ats-ashby",
+    }
+    assert {r["task"] for r in celery_app.conf.beat_schedule.values()} == {
+        "jobatlas.atlas_sync",
+        "jobatlas.ats_sweep",
+        "jobatlas.ats_discover",
+    }
+    assert celery_app.conf.task_default_queue == "atlas"

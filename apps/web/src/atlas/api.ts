@@ -10,11 +10,9 @@ export type CitiesResponse = components["schemas"]["CitiesResponse"];
 export type City = components["schemas"]["City"];
 export type FrameResponse = components["schemas"]["FrameResponse"];
 export type TimelineResponse = components["schemas"]["TimelineResponse"];
-export type TimelineFrame = components["schemas"]["TimelineFrame"];
 export type SeriesResponse = components["schemas"]["SeriesResponse"];
 export type VersionResponse = components["schemas"]["VersionResponse"];
 export type SourcesResponse = components["schemas"]["SourcesResponse"];
-export type Quality = components["schemas"]["CityCount"]["quality"];
 
 export type Dataset = "real" | "demo";
 export type WindowKey = "1d" | "7d" | "30d";
