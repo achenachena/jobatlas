@@ -79,6 +79,8 @@ jobs:
           last() { gh api "repos/$REPO/deployments?environment=production&task=release:$1&per_page=1" --jq '.[0].sha // empty'; }
           for c in web api; do
             from=$(last "$c")
+            # a rewritten main drops released commits from the checkout: fetch them by SHA
+            [ -z "$from" ] || git cat-file -e "$from^{commit}" 2>/dev/null || git fetch -q --no-tags origin "$from" || true
             if [ -z "$from" ] || ! git cat-file -e "$from^{commit}" 2>/dev/null; then
               need=true; why="no recorded release"
             else

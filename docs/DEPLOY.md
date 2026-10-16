@@ -32,7 +32,8 @@ changed since that component's last successful release:
 The `plan` job compares the commit with the last successful release of each component,
 recorded as GitHub deployments (environment `production`, task `release:web` or
 `release:api`) written only after that component went live; a failed step records nothing. A
-component with no record is released. The steps:
+component with no record is released; a recorded commit that a rewritten `main` no longer
+contains is fetched by SHA and compared as usual. The steps:
 
 1. Web: build once and stage it on Vercel (not live).
 2. API: temporary AWS credentials through GitHub OIDC (role `jobatlas-github-deploy`); over SSM,
