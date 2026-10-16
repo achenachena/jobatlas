@@ -8,14 +8,16 @@ import "@fontsource/m-plus-rounded-1c/700.css";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
-import { atlasGet, type FrameResponse, type TimelineResponse, type WindowKey } from "./api";
+import { ApiError } from "../lib/api";
+import { atlasGet, DATASET_NAME, type FrameResponse, type TimelineResponse, type WindowKey } from "./api";
 import { type GeoData, webglAvailable } from "./scene/AtlasScene";
 import { addDays, DEFAULT_SELECTION, parseSelection, type Selection, serializeSelection } from "./state";
 import s from "./ui/atlas.module.css";
 import { FallbackMap } from "./ui/FallbackMap";
-import { Brand, CityCard, fmtDay, MoreMenu, type MoreItem, RankingList, ScalePanel, SourcesDialog, TimelineBar } from "./ui/parts";
+import { Brand, CityCard, DatasetSwitch, fmtDay, MoreMenu, type MoreItem, RankingList, ScalePanel, SourceLine, SourcesDialog, TimelineBar } from "./ui/parts";
 import { SceneView } from "./ui/SceneView";
 import {
+  capabilitiesQuery,
   useCapabilities,
   useCities,
   useLatestVersion,
@@ -59,6 +61,11 @@ export function AtlasApp() {
 
   const caps = useCapabilities(sel.dataset);
   const info = caps.data;
+  // both parallel datasets' capabilities, for the switch notes (never their numbers together)
+  const realCaps = useCapabilities("real", sel.dataset !== "demo");
+  const atsCaps = useCapabilities("ats", sel.dataset !== "demo");
+  const hourly = info?.refresh === "hourly";
+  const [flash, setFlash] = useState(false);
   const release = info?.release_id ?? null;
   const ready = !!info && info.data_mode !== "not_configured" && !!info.history_start && !!info.data_through;
   const historyStart = info?.history_start ?? null;
@@ -166,15 +173,16 @@ export function AtlasApp() {
   useEffect(() => {
     if (!newer || !version.data) return;
     if (sel.date === null) {
-      // latest mode: move to the new release; crystals animate only through real changes
+      // latest mode: move to the new release; crystals animate only through real changes.
+      // Hourly data (Employer boards) updates silently; the source line says how fresh it is.
       void qc.invalidateQueries({ queryKey: ["atlas", "caps", sel.dataset] });
-      setToast(
+      if (!hourly) setToast(
         version.data.change_kind === "update" && version.data.data_through
           ? `New data through ${fmtDay(version.data.data_through)}`
           : "Data updated (coverage or corrections, not necessarily new postings)",
       );
     }
-  }, [newer, version.data, sel.date, sel.dataset, qc]);
+  }, [newer, version.data, sel.date, sel.dataset, qc, hourly]);
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), 6000);
@@ -211,9 +219,70 @@ export function AtlasApp() {
   }, [overlay, detailsOpen, sel.city, set]);
   const onMore = (item: MoreItem) => (item === "sources" ? setSourcesOpen(true) : setPanel(item));
 
+  // ---------------------------------------------------------------- datasets
+  // Switching keeps what the other dataset also has (date in its range, occupation, city, the
+  // camera) and says what it could not keep. Its capabilities are fetched first, so no request
+  // ever pairs one dataset with the other's release.
+  const switchDataset = async (to: "real" | "ats", occupation = sel.occupation) => {
+    if (to === sel.dataset) return;
+    let next;
+    try {
+      next = await qc.fetchQuery(capabilitiesQuery(to));
+    } catch {
+      return setToast(`${DATASET_NAME[to]} is not available right now.`);
+    }
+    if (!next.history_start || !next.data_through) return setToast(`${DATASET_NAME[to]} is not available yet.`);
+    setPlaying(false);
+    const notes: string[] = [];
+    const patch: Partial<Selection> = { dataset: to, occupation };
+    if (sel.date && (sel.date < next.history_start || sel.date > next.data_through)) {
+      patch.date = null;
+      notes.push(`${DATASET_NAME[to]} starts ${fmtDay(next.history_start)}`);
+    }
+    if (!next.occupations.some((o) => o.id === occupation)) {
+      patch.occupation = "all";
+      notes.push(`${occLabel} is not in ${DATASET_NAME[to]}; showing All jobs`);
+    }
+    if (patch.date === null || sel.date === null) setFlash(true); // the shown day jumps
+    set(patch);
+    setToast(notes.length ? notes.join(" · ") : null);
+  };
+  useEffect(() => {
+    if (!flash) return;
+    const t = setTimeout(() => setFlash(false), 1600);
+    return () => clearTimeout(t);
+  }, [flash]);
+
+  // A city the shown dataset does not have closes its card.
+  useEffect(() => {
+    if (!sel.city || !cities.data || cities.isPlaceholderData) return;
+    if (!cities.data.cities.some((c) => c.city_id === sel.city)) {
+      setDetailsOpen(false);
+      set({ city: null });
+    }
+  }, [sel.city, cities.data, cities.isPlaceholderData, set]);
+
+  // An expired release (404 RELEASE_NOT_FOUND) recovers silently: refetch the capabilities and
+  // bind to the current release; the old bodies stay on screen until the new data arrives.
+  const expired = [tl.error, initial.error, cities.error, national.error, series.error].some(
+    (e) => e instanceof ApiError && e.code === "RELEASE_NOT_FOUND",
+  );
+  useEffect(() => {
+    if (expired) void qc.invalidateQueries({ queryKey: ["atlas", "caps", sel.dataset] });
+  }, [expired, qc, sel.dataset]);
+  // a new release whose range no longer holds the chosen day: back to the latest data
+  useEffect(() => {
+    if (sel.date && historyStart && dataThrough && (sel.date < historyStart || sel.date > dataThrough) && !playing) set({ date: null });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [release]);
+
   // ---------------------------------------------------------------- render
   const demo = info?.data_mode === "demo";
   const status = frame?.quality;
+  // Job Bank has few tech postings: point to Employer boards for an occupation it also covers
+  // (no Employer boards number is shown here)
+  const guideToBoards = sel.dataset === "real" && sel.occupation !== "all"
+    && !!atsCaps.data?.history_start && atsCaps.data.occupations.some((o) => o.id === sel.occupation);
   const busy = ready && tl.isFetching && !frame;
   return (
     <div className={s.app}>
@@ -244,7 +313,20 @@ export function AtlasApp() {
         </div>
       )}
 
-      <Brand caps={info} occupation={sel.occupation} demo={demo} onOccupation={(occupation) => set({ occupation })} />
+      <Brand
+        caps={info}
+        occupation={sel.occupation}
+        demo={demo}
+        onOccupation={(occupation) => set({ occupation })}
+        switcher={sel.dataset !== "demo" && (
+          <DatasetSwitch value={sel.dataset} caps={{ real: realCaps.data, ats: atsCaps.data }} onChange={(d) => void switchDataset(d)} />
+        )}
+        guide={guideToBoards && (
+          <button type="button" className={s.guide} onClick={() => void switchDataset("ats")}>
+            Job Bank has few tech postings. See Employer boards →
+          </button>
+        )}
+      />
       <MoreMenu onPick={onMore} disabled={!ready} />
 
       {panel === "scale" && ready && (
@@ -256,6 +338,7 @@ export function AtlasApp() {
           caps={info}
           publishedAt={version.data?.published_at}
           national={national.data?.national}
+          lowerBound={(national.data?.backfilled_days ?? 0) > 0}
           onClose={() => setPanel(null)}
         />
       )}
@@ -275,7 +358,10 @@ export function AtlasApp() {
           playReason={info?.playback_reason ?? null}
           speed={speed}
           gaps={gaps}
+          backfilled={info?.backfilled ?? []}
           partialDay={latest && !!info?.partial_latest_day}
+          flash={flash}
+          latestLink={hourly}
           onDay={(d) => {
             setPlaying(false);
             set({ date: d === dataThrough ? null : d });
@@ -299,6 +385,8 @@ export function AtlasApp() {
           window={sel.window}
           occupationLabel={occLabel}
           series={series.data}
+          dataset={sel.dataset}
+          lowerBound={(frame?.backfilled_days ?? 0) > 0}
           onClose={() => setDetailsOpen(false)}
         />
       )}
@@ -325,7 +413,7 @@ export function AtlasApp() {
             Data may be stale: last update through {fmtDay(dataThrough!)}.
           </div>
         )}
-        {newer && sel.date !== null && (
+        {newer && sel.date !== null && !hourly && (
           <div className={s.notice} role="status">
             New data available.
             <button type="button" className={s.textBtn} onClick={() => set({ date: null })}>
@@ -364,13 +452,14 @@ export function AtlasApp() {
           )}
         </Banner>
       )}
-      {ready && (tl.isError || cities.isError) && (
+      {ready && !expired && (tl.isError || cities.isError) && (
         <Banner title="Data could not be loaded">
           <button type="button" className={s.textBtn} onClick={() => void qc.invalidateQueries({ queryKey: ["atlas"] })}>
             Retry
           </button>
         </Banner>
       )}
+      {ready && <SourceLine caps={info} publishedAt={version.data?.published_at} />}
       {sourcesOpen && <SourcesDialog sources={sources.data} caps={info} onClose={() => setSourcesOpen(false)} />}
     </div>
   );

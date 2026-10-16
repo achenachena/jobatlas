@@ -38,10 +38,81 @@ function frame(occ: string, d: string, windowDays: number) {
     date: d,
     quality: inGap ? "missing" : avail < windowDays ? "partial" : "complete",
     days_available: avail,
+    backfilled_days: 0,
     counts,
     national: inGap ? null : counts.reduce<number>((s, c) => s + (c ?? 0), 0),
     notes: inGap ? ["fixture gap"] : [],
   };
+}
+
+/** Employer boards (dataset=ats): a parallel dataset with its own range, cities, occupations,
+ * hourly releases and backfilled first days (lower bounds). */
+export const ATS = {
+  start: "2026-09-15",
+  through: "2026-09-29",
+  backfilled: { start: "2026-09-15", end: "2026-09-18", reason: "backfilled at collection start" },
+  employers: 128,
+  attribution: "Postings from employers' own career pages via their job-board platforms (fixture).",
+  cities: CITIES.filter(([id]) => id !== "ca-nt-yellowknife" && id !== "ca-ns-halifax"),
+};
+/** Mutable current Employer boards release; an older id answers 404 RELEASE_NOT_FOUND. */
+export const atsRelease = { id: "ats1", publishedMinutesAgo: 5 };
+const backfilledIn = (days: string[]) => days.filter((x) => x >= ATS.backfilled.start && x <= ATS.backfilled.end).length;
+
+function atsFrame(occ: string, d: string, windowDays: number) {
+  const days = Array.from({ length: windowDays }, (_, i) => day(d, -i)).filter((x) => x >= ATS.start);
+  const counts = ATS.cities.map((_, i) => days.reduce((s, x) => s + Math.round((base[occ] ?? 2) * (6 - i) * (1 + 0.2 * Math.cos(between(ATS.start, x) / 5 + i))), 0));
+  return {
+    date: d,
+    quality: days.length < windowDays ? "partial" : "complete",
+    days_available: days.length,
+    backfilled_days: backfilledIn(days),
+    counts,
+    national: counts.reduce((s, c) => s + c, 0),
+    notes: [],
+  };
+}
+
+async function atsRoute(route: Route, url: URL) {
+  const q = url.searchParams;
+  const json = (body: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
+  const rel = q.get("release");
+  if (rel && rel !== atsRelease.id) return json({ error: { code: "RELEASE_NOT_FOUND", message: "release not served" } }, 404);
+  const head = { dataset_id: "ats", data_mode: "real", release_id: atsRelease.id };
+  if (url.pathname.endsWith("/capabilities"))
+    return json({
+      ...head, reason: null, metrics: ["new_postings"], windows: ["1d", "7d", "30d"], default_window: "7d", geo_levels: ["city"],
+      occupations: [{ id: "all", label: "All jobs", note: "" }, { id: "software_development", label: "Software development", note: "" }, { id: "human_resources", label: "Human resources", note: "" }],
+      history_start: ATS.start, data_through: ATS.through, partial_latest_day: false, gaps: [], playback: true, playback_reason: null,
+      stale: false, publication: "hourly (fixture)", reporting_timezone: "America/Toronto", quality: {},
+      refresh: "hourly", backfilled: [ATS.backfilled], employers: ATS.employers, platforms: ["greenhouse", "lever"], attribution: ATS.attribution,
+    });
+  if (url.pathname.endsWith("/cities"))
+    return json({ ...head, attribution: "GeoNames", cities: ATS.cities.map(([id, name, prov, lat, lon]) => ({ city_id: id, name, province: prov, country: "CA", lat, lon, population: 1, aliases: [], kind: "city", evidence: "fixture" })) });
+  if (url.pathname.endsWith("/timeline")) {
+    const occ = q.get("occupation") ?? "all";
+    const w = { "1d": 1, "7d": 7, "30d": 30 }[q.get("window") ?? "7d"] ?? 7;
+    const start = q.get("start")!, end = q.get("end")!;
+    return json({
+      ...head, metric: "new_postings", occupation: occ, window: q.get("window") ?? "7d", reporting_timezone: "America/Toronto", start, end,
+      city_ids: ATS.cities.map((c) => c[0]), frames: Array.from({ length: between(start, end) + 1 }, (_, i) => atsFrame(occ, day(start, i), w)),
+      max_count: (base[occ] ?? 2) * 6 * w * 1.3,
+    });
+  }
+  if (url.pathname.endsWith("/frame")) {
+    const f = atsFrame(q.get("occupation") ?? "all", q.get("date") ?? ATS.through, { "1d": 1, "7d": 7, "30d": 30 }[q.get("window") ?? "7d"] ?? 7);
+    return json({ ...head, backfilled_days: f.backfilled_days, national: { total_unique: f.national, total_reason: null, city_unconfirmed: 3, remote_canada: 0 }, cities: [], notes: [] });
+  }
+  if (url.pathname.includes("/series")) {
+    const end = q.get("end") ?? ATS.through;
+    const points = Array.from({ length: between(ATS.start, end) + 1 }, (_, i) => day(ATS.start, i)).map((d, i) => ({
+      date: d, count: 20 + i, quality: "complete", backfilled_days: backfilledIn(Array.from({ length: 7 }, (_, k) => day(d, -k))),
+    }));
+    return json({ ...head, city_id: "x", occupation: "all", window: "7d", points });
+  }
+  if (url.pathname.endsWith("/version"))
+    return json({ ...head, data_through: ATS.through, published_at: new Date(Date.now() - atsRelease.publishedMinutesAgo * 60_000).toISOString(), change_kind: "update" });
+  return json({}, 404);
 }
 
 /** Mutable published release (tests flip it to simulate a new data version). */
@@ -54,6 +125,7 @@ export async function atlasFixture(page: Page, mode: "real" | "not_configured" =
   await page.route("http://api.fixture/api/v2/atlas/**", async (route: Route) => {
     const url = new URL(route.request().url());
     const q = url.searchParams;
+    if (q.get("dataset") === "ats") return atsRoute(route, url);
     const demo = q.get("dataset") === "demo";
     const json = (body: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
     const dataMode = demo ? "demo" : mode;
@@ -71,6 +143,8 @@ export async function atlasFixture(page: Page, mode: "real" | "not_configured" =
         data_through: dataMode === "not_configured" ? null : DATA_THROUGH,
         partial_latest_day: false, gaps: dataMode === "not_configured" ? [] : [GAP], playback: dataMode !== "not_configured",
         playback_reason: null, stale: false, publication: "monthly (fixture)", reporting_timezone: "America/Toronto", quality: {},
+        refresh: demo ? "on_request" : "monthly", backfilled: [], employers: null, platforms: [],
+        attribution: demo ? null : "Contains information licensed under the Open Government Licence – Canada.",
       });
     if (dataMode === "not_configured")
       return json({ error: { code: "DATA_SOURCE_NOT_CONFIGURED", message: "not connected" } }, 503);
@@ -91,12 +165,12 @@ export async function atlasFixture(page: Page, mode: "real" | "not_configured" =
       });
     }
     if (url.pathname.endsWith("/frame"))
-      return json({ national: { total_unique: 1234, total_reason: null, city_unconfirmed: 12, remote_canada: 3 }, cities: [], notes: [] });
+      return json({ backfilled_days: 0, national: { total_unique: 1234, total_reason: null, city_unconfirmed: 12, remote_canada: 3 }, cities: [], notes: [] });
     if (url.pathname.includes("/series")) {
       const end = q.get("end") ?? DATA_THROUGH;
       return json({
         dataset_id: "jobbank", data_mode: dataMode, release_id: "fx1", city_id: "x", occupation: "all", window: "7d",
-        points: Array.from({ length: 60 }, (_, i) => ({ date: day(end, i - 59), count: 100 + i, quality: "complete" })),
+        points: Array.from({ length: 60 }, (_, i) => ({ date: day(end, i - 59), count: 100 + i, quality: "complete", backfilled_days: 0 })),
       });
     }
     if (url.pathname.endsWith("/version"))
