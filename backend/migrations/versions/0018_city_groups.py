@@ -7,6 +7,7 @@ Create Date: 2026-10-17
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects import postgresql
 
 revision = "0018"
 down_revision = "0017"
@@ -19,14 +20,18 @@ def upgrade() -> None:
         "atlas_groups",
         sa.Column("id", sa.String(112), primary_key=True),
         sa.Column("version", sa.String(16), nullable=False),
-        sa.Column("name", sa.Text, nullable=False),
+        sa.Column("display_name", sa.Text, nullable=False),
+        sa.Column("official_name", sa.Text),
         sa.Column("kind", sa.String(8), nullable=False),
-        sa.Column("anchor_city_id", sa.String(96), sa.ForeignKey("atlas_cities.id"),
-                  nullable=False),  # fmt: skip
+        sa.Column("provinces", postgresql.JSONB, nullable=False),
+        sa.Column(
+            "anchor_city_id", sa.String(96), sa.ForeignKey("atlas_cities.id"), nullable=False
+        ),
         sa.Column("lat", sa.Float, nullable=False),
         sa.Column("lon", sa.Float, nullable=False),
-        sa.CheckConstraint("kind IN ('cma', 'ca', 'cluster', 'single')",
-                           name="ck_atlas_groups_kind"),  # fmt: skip
+        sa.CheckConstraint(
+            "kind IN ('cma', 'ca', 'cluster', 'single')", name="ck_atlas_groups_kind"
+        ),
     )
     op.create_table(
         "atlas_city_groups",

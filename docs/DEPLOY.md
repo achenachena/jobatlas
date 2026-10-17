@@ -96,12 +96,18 @@ Never run `dc down -v`: it deletes the database and certificate volumes.
 ```sh
 dc stop scheduler worker
 dc run --rm worker jobatlas atlas-cities
+dc run --rm worker jobatlas atlas-groups               # metro groups (readiness needs them)
 dc run --rm worker jobatlas atlas-sync --max-months 3   # first release quickly
 dc run --rm worker jobatlas atlas-sync                  # then the remaining history
 dc start worker scheduler
 ```
 
 The full Job Bank history is about 3.8 million postings and takes hours on this instance.
+
+City groups: every deploy's `migrate` step groups any city that has none, so the first deploy
+and new catalogue entries need nothing manual (about 40 s plus re-scaling the kept releases,
+a few minutes; it reads Statistics Canada's map service). After a change to the grouping rules,
+run `dc run --rm worker jobatlas atlas-groups` once to regroup everything.
 
 ## Backup and restore
 

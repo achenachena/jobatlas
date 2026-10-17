@@ -26,7 +26,7 @@ PLACES = "\n".join(
     ]
 )  # fmt: skip
 TORONTO_CMA = {
-    "properties": {"CMAUID": "535", "CMANAME": "Toronto", "CMATYPE": "B"},
+    "properties": {"CMAUID": "535", "CMANAME": "Toronto", "CMATYPE": "B", "PRUID": "35"},
     "geometry": {"type": "Polygon", "coordinates": [[[-80.0, 43.4], [-79.0, 43.4], [-79.0, 44.2],
                                                       [-80.0, 44.2], [-80.0, 43.4]]]},
 }  # fmt: skip
@@ -84,13 +84,17 @@ def test_groups_and_region_scale(session, released, client):
     assert group_of == {"ca-on-toronto": "cma-535", "ca-on-mississauga": "cma-535",
                         "ca-qc-montreal": "single-ca-qc-montreal"}  # fmt: skip
     assert cities["groups"] == [
-        {"id": "cma-535", "name": "Toronto", "kind": "cma", "lat": 43.7, "lon": -79.42,
-         "members": 2},
-        {"id": "single-ca-qc-montreal", "name": "Montréal", "kind": "single", "lat": 45.51,
-         "lon": -73.59, "members": 1},
+        {"id": "cma-535", "display_name": "Toronto", "official_name": "Toronto", "kind": "cma",
+         "provinces": ["ON"], "lat": 43.7, "lon": -79.42, "members": 2},
+        {"id": "single-ca-qc-montreal", "display_name": "Montréal", "official_name": None,
+         "kind": "single", "provinces": ["QC"], "lat": 45.51, "lon": -73.59, "members": 1},
     ]  # fmt: skip
     attributions = client.get("/api/v2/atlas/sources").json()["attributions"]
-    assert groups.STATCAN_ATTRIBUTION in attributions
+    assert (
+        "Adapted from Statistics Canada, 2021 Census – Boundary files, census metropolitan areas "
+        "and census agglomerations, 2021. This does not constitute an endorsement by Statistics "
+        "Canada of this product."
+    ) in attributions
 
     # The published release was built before the grouping: it gets the region scale unrebuilt.
     assert released.quality["group_scale_max"]["grouping_version"] is None
@@ -151,3 +155,37 @@ def test_atlas_groups_command_rescales_kept_releases(session, released, monkeypa
     # Toronto + Mississauga: 3 on 30 Sep (1d), 6 in a week or a month; Montreal is its own region
     assert stored["grouping_version"] == report["grouping_version"]
     assert stored["values"]["all"] == {"1d": 3, "7d": 6, "30d": 6}
+
+
+def test_readiness_needs_every_city_grouped_and_deploys_group_only_when_needed(
+    session, released, client, monkeypatch
+):
+    import json
+
+    from typer.testing import CliRunner
+
+    from app.cli import app
+
+    def ready():
+        r = client.get("/api/v2/health/ready")
+        return r.status_code, r.json()["checks"].get("grouping")
+
+    assert ready() == (503, "3 cities without a group")
+    fetched = []
+    monkeypatch.setattr(groups, "fetch_features", lambda: fetched.append(1) or iter([TORONTO_CMA]))
+    run = CliRunner().invoke
+    first = json.loads(run(app, ["atlas-groups", "--if-needed"]).output)
+    assert first["groups"] == {"cma": 1, "single": 1} and len(fetched) == 1
+    assert ready()[1] == "ok"  # (redis may be absent in tests; the grouping check is what counts)
+    # every city has a group: a deploy does nothing and reads nothing
+    assert json.loads(run(app, ["atlas-groups", "--if-needed"]).output) == {
+        "skipped": "every city has a group"}  # fmt: skip
+    assert len(fetched) == 1
+    # a new catalogue entry is grouped by the next deploy
+    load_places(session, parse_geonames(["\t".join(map(str, (
+        5907364, "Brampton", "Brampton", "", 43.68, -79.76, "P", "PPL", "CA", "", "08", "", "",
+        "", 600000)))]))  # fmt: skip
+    session.commit()
+    assert ready()[1] == "1 cities without a group"
+    json.loads(run(app, ["atlas-groups", "--if-needed"]).output)
+    assert len(fetched) == 2 and ready()[1] == "ok"

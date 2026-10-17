@@ -96,8 +96,10 @@ class AtlasGroup(Base):
 
     id: Mapped[str] = mapped_column(String(112), primary_key=True)  # "cma-535", "single-…"
     version: Mapped[str] = mapped_column(String(16), nullable=False)
-    name: Mapped[str] = mapped_column(Text, nullable=False)
+    display_name: Mapped[str] = mapped_column(Text, nullable=False)
+    official_name: Mapped[str | None] = mapped_column(Text)  # CMA/CA name as published
     kind: Mapped[str] = mapped_column(String(8), nullable=False)
+    provinces: Mapped[list] = mapped_column(JSONB, nullable=False)  # anchor's first
     anchor_city_id: Mapped[str] = mapped_column(ForeignKey("atlas_cities.id"), nullable=False)
     lat: Mapped[float] = mapped_column(Float, nullable=False)
     lon: Mapped[float] = mapped_column(Float, nullable=False)

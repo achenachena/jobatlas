@@ -42,7 +42,9 @@ services:
     restart: unless-stopped
   migrate:
     <<: *backend
-    command: ["alembic", "upgrade", "head"]
+    # Then group any city without a region (first deploy, new catalogue entries): the API
+    # starts only after this, and its readiness requires every city to have a group.
+    command: ["sh", "-c", "alembic upgrade head && jobatlas atlas-groups --if-needed"]
     restart: "no"
   api:
     <<: *backend

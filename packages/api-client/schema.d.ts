@@ -396,15 +396,25 @@ export interface components {
             /** Id */
             id: string;
             /**
-             * Name
-             * @description official CMA/CA name or the largest city ("{name} area")
+             * Display Name
+             * @description the official CMA/CA name when it names the anchor city (dashes as ' – '), else the anchor city's name; shown as '{display_name} area' except for kind single
              */
-            name: string;
+            display_name: string;
+            /**
+             * Official Name
+             * @description CMA/CA name as published, for a tooltip
+             */
+            official_name: string | null;
             /**
              * Kind
              * @enum {string}
              */
             kind: "cma" | "ca" | "cluster" | "single";
+            /**
+             * Provinces
+             * @description anchor's province first; several across a border
+             */
+            provinces: string[];
             /**
              * Lat
              * @description anchor: the most populous member city's position

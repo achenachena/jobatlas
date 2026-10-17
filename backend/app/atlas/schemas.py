@@ -123,8 +123,13 @@ class City(BaseModel):
 
 class Group(BaseModel):
     id: str
-    name: str = Field(description='official CMA/CA name or the largest city ("{name} area")')
+    display_name: str = Field(
+        description="the official CMA/CA name when it names the anchor city (dashes as ' – '), "
+        "else the anchor city's name; shown as '{display_name} area' except for kind single"
+    )
+    official_name: str | None = Field(description="CMA/CA name as published, for a tooltip")
     kind: Literal["cma", "ca", "cluster", "single"]
+    provinces: list[str] = Field(description="anchor's province first; several across a border")
     lat: float = Field(description="anchor: the most populous member city's position")
     lon: float
     members: int = Field(description="cities of this response in the group")

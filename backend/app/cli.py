@@ -44,7 +44,9 @@ def atlas_cities(file: str = typer.Option(None, help="GeoNames CA.txt; downloads
 
 
 @app.command("atlas-groups")
-def atlas_groups() -> None:
+def atlas_groups(
+    if_needed: bool = typer.Option(False, help="only when a city has no group (deploys)"),
+) -> None:
     """Group the city catalogue by 2021 CMA/CA boundaries (Statistics Canada), clustering the
     rest; replaces the stored grouping and stores every kept release's region scale. Run after
     atlas-cities."""
@@ -54,6 +56,9 @@ def atlas_groups() -> None:
     from app.atlas.metrics import store_group_scales
 
     with sync_session() as session:
+        if if_needed and not groups.ungrouped(session):
+            _echo({"skipped": "every city has a group"})
+            return
         cities = groups.catalogue(session)
         result = groups.compute(cities, groups.parse_areas(groups.fetch_features()))
         version = groups.store(session, result)

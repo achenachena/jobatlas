@@ -191,7 +191,8 @@ def _grouped(release_id: str, dataset: str, grouping: str | None) -> tuple[list,
     cities_out = [{**c, "group_id": group_of.get(c["city_id"])}
                   for c in _cities(release_id, dataset)]  # fmt: skip
     counts = Counter(c["group_id"] for c in cities_out if c["group_id"])
-    groups_out = [{"id": g.id, "name": g.name, "kind": g.kind, "lat": g.lat, "lon": g.lon,
+    groups_out = [{"id": g.id, "display_name": g.display_name, "official_name": g.official_name,
+                   "kind": g.kind, "provinces": g.provinces, "lat": g.lat, "lon": g.lon,
                    "members": counts[g.id]}
                   for gid, g in sorted(stored.items()) if gid in counts]  # fmt: skip
     return cities_out, groups_out
