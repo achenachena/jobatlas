@@ -88,6 +88,30 @@ class AtlasCity(Base):
     evidence: Mapped[str] = mapped_column(Text, nullable=False)
 
 
+class AtlasGroup(Base):
+    """A fixed group of cities drawn as one body in the national view (atlas/groups.py)."""
+
+    __tablename__ = "atlas_groups"
+    __table_args__ = (_in("kind", ("cma", "ca", "cluster", "single"), "ck_atlas_groups_kind"),)
+
+    id: Mapped[str] = mapped_column(String(112), primary_key=True)  # "cma-535", "single-…"
+    version: Mapped[str] = mapped_column(String(16), nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    kind: Mapped[str] = mapped_column(String(8), nullable=False)
+    anchor_city_id: Mapped[str] = mapped_column(ForeignKey("atlas_cities.id"), nullable=False)
+    lat: Mapped[float] = mapped_column(Float, nullable=False)
+    lon: Mapped[float] = mapped_column(Float, nullable=False)
+
+
+class AtlasCityGroup(Base):
+    """Every city belongs to exactly one group."""
+
+    __tablename__ = "atlas_city_groups"
+
+    city_id: Mapped[str] = mapped_column(ForeignKey("atlas_cities.id"), primary_key=True)
+    group_id: Mapped[str] = mapped_column(ForeignKey("atlas_groups.id"), nullable=False, index=True)
+
+
 class AtlasPosting(Base):
     """One source record (posting_observations + city membership + classification, §8).
     Only the minimal fields needed to count and explain a count are kept."""

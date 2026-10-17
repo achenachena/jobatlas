@@ -18,7 +18,13 @@ from datetime import date, datetime, timedelta
 from sqlalchemy import delete, select, text, update
 from sqlalchemy.orm import Session
 
-from app.atlas.models import AtlasCity, AtlasCoverage, AtlasDailyMetric, AtlasRelease
+from app.atlas.models import (
+    AtlasCity,
+    AtlasCoverage,
+    AtlasDailyMetric,
+    AtlasGroup,
+    AtlasRelease,
+)
 from app.atlas.occupations import CLASSIFICATION_VERSION
 from app.atlas.permissions import admitted, source
 from app.atlas.windows import WINDOWS, window
@@ -179,6 +185,8 @@ def build_release(
     q = session.execute(text(QUALITY_SQL), {"keys": keys}).mappings().one()
     release.quality = {
         **dict(q), "scale_max": scale_maxima(session, rid),
+        "group_scale_max": {"grouping_version": grouping_version(session),
+                            "values": scale_maxima(session, rid, GROUP_SCALE_SQL)},
         "build": "incremental" if incremental else "full",
         "recomputed": [f"{a}..{b}" for a, b in zip(starts, ends, strict=True)] if incremental
         else "all",
@@ -198,14 +206,56 @@ SELECT occupation_id, max(total) FROM (
 """
 
 
-def scale_maxima(session: Session, rid: str) -> dict[str, dict[str, int]]:
-    """Largest city count per occupation and window over the whole release: the fixed scale a
-    playback uses (computed once, never per frame)."""
+# The same over region totals: a group's members summed per day (a city without a group is its
+# own region). Region totals are >= any member's count, so one scale serves both levels.
+GROUP_SCALE_SQL = """
+SELECT occupation_id, max(total) FROM (
+  SELECT occupation_id,
+         sum(n) OVER (PARTITION BY occupation_id, region ORDER BY day
+                      RANGE BETWEEN CAST(:span AS interval) PRECEDING AND CURRENT ROW) AS total
+  FROM (
+    SELECT m.occupation_id, coalesce(g.group_id, m.city_id) AS region, m.day, sum(m.count) AS n
+    FROM atlas_daily_metrics m LEFT JOIN atlas_city_groups g ON g.city_id = m.city_id
+    WHERE m.release_id = :rid AND m.metric = 'new_postings' AND m.scope = 'city'
+      AND (CAST(:occ AS text) IS NULL OR m.occupation_id = :occ)
+    GROUP BY 1, 2, 3
+  ) d
+) t GROUP BY occupation_id
+"""
+
+
+def scale_maxima(
+    session: Session, rid: str, sql: str = SCALE_SQL, occupation: str | None = None
+) -> dict[str, dict[str, int]]:
+    """Largest city (or region) count per occupation and window over the whole release: the
+    fixed scale a playback uses (computed once, never per frame)."""
     out: dict[str, dict[str, int]] = {}
     for key, n in WINDOWS.items():
-        for occ, best in session.execute(text(SCALE_SQL), {"rid": rid, "span": f"{n - 1} days"}):
+        params = {"rid": rid, "span": f"{n - 1} days", "occ": occupation}
+        for occ, best in session.execute(text(sql), params):
             out.setdefault(occ, {})[key] = int(best or 0)
     return out
+
+
+def grouping_version(session: Session) -> str | None:
+    return session.scalar(select(AtlasGroup.version).limit(1))
+
+
+def store_group_scales(session: Session) -> int:
+    """Give every kept release the region scale of the current grouping (no rebuild: only the
+    stored scale changes). Returns the number of releases updated."""
+    v = grouping_version(session)
+    releases = session.scalars(select(AtlasRelease).where(AtlasRelease.status != "building")).all()
+    for r in releases:
+        r.quality = {
+            **(r.quality or {}),
+            "group_scale_max": {
+                "grouping_version": v,
+                "values": scale_maxima(session, r.id, GROUP_SCALE_SQL),
+            },
+        }
+        session.commit()  # one release at a time: an interrupted run keeps what it did
+    return len(releases)
 
 
 def publish(session: Session, release: AtlasRelease) -> None:

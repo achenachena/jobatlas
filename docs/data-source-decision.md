@@ -53,6 +53,7 @@
 3. 历史：首次运行回填 2023-01 起的全部月份；回填记为覆盖变化，不触发“新职位”提示。
 4. 城市锚点：GeoNames（CC BY 4.0，需署名“GeoNames”）。省界和海岸：Natural Earth（公有领域）。
 5. 署名：页面固定显示 OGL 署名、GeoNames 署名和 Natural Earth 致谢，不使用政府标志。
+6. 都市区分组（2026-10-17）：Statistics Canada 2021 年人口普查 CMA/CA 制图边界（geo.statcan.gc.ca 地图服务图层 `lcma000b21s_e`，WGS84）。许可：[Statistics Canada Open Licence](https://www.statcan.gc.ca/en/terms-conditions/open-licence)，允许 "use, reproduce, publish, freely distribute, or sell" 信息及加工所得的 Value-added Products。加工后使用须署名 "Adapted from Statistics Canada, name of product, reference date." 并声明 "This does not constitute an endorsement by Statistics Canada of this product."；不得暗示背书、不得歪曲来源、不得使用其名称和标志。"不得与其他数据库合并或关联"一条仅针对"for the purpose of attempting to identify an individual person, business or organization"，城市点与边界的对应不属于此类。open.canada.ca 同一数据集登记为 OGL-Canada，同样允许。署名见 `backend/app/atlas/groups.py`（`STATCAN_ATTRIBUTION`），在 `/api/v2/atlas/sources` 的 `attributions` 中返回。
 
 ## 5 费用与配额
 
