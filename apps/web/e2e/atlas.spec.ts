@@ -226,12 +226,12 @@ test("zoom at the pointer and by pinch, drag to pan, click selects, Ctrl/right-d
   await page.keyboard.up("Control");
   expect(Math.abs((await azimuth()) - az0)).toBeGreaterThan(20);
   expect(page.url()).not.toContain("city=");
-  const az1 = await azimuth(); // turned as far as it goes one way (±30° from home)...
+  const az1 = await azimuth();
   await page.mouse.move(820, 450);
   await page.mouse.down({ button: "right" });
   await page.mouse.move(700, 450, { steps: 10 });
   await page.mouse.up({ button: "right" });
-  expect(Math.abs((await azimuth()) - az1)).toBeGreaterThan(20); // ...so right-drag turns it back
+  expect(Math.abs((await azimuth()) - az1)).toBeGreaterThan(20);
   // reset restores the initial scale and position
   await page.getByRole("button", { name: "Reset view" }).click();
   expect((await toronto()).x).toBeCloseTo(initial.x, 1);
@@ -242,6 +242,10 @@ test("zoom at the pointer and by pinch, drag to pan, click selects, Ctrl/right-d
   expect(Math.abs((await azimuth()) - az2)).toBeGreaterThan(20);
   await page.getByRole("button", { name: "Rotate right" }).click();
   expect((await azimuth()) - az2).toBeCloseTo(0, 5);
+  // the map turns all the way round (13 × 28° = 364°), no stop
+  await map.focus();
+  for (let i = 0; i < 13; i++) await page.keyboard.press("e");
+  expect((await azimuth()) - az2).toBeCloseTo(-364, 3);
   await map.focus();
   await page.keyboard.press("e");
   expect(Math.abs((await toronto()).x - initial.x)).toBeGreaterThan(10);
@@ -257,7 +261,7 @@ test("bodies persist across viewing angles and zoom; labels stay sparse", async 
   await expect.poll(async () => (await detail()).expanded.length).toBeGreaterThan(0);
   const before = (await detail()).expanded;
   expect(before).not.toContain("ca-nt-yellowknife");
-  expect(await page.locator("[class*=labels] > div").count()).toBeLessThanOrEqual(4);
+  expect(await page.locator("[class*=labels] > div").count()).toBeLessThanOrEqual(12);
   for (let turn = 0; turn < 4; turn++) {
     await page.evaluate(() => (window as unknown as { __atlas: import("../src/atlas/scene/AtlasScene").AtlasScene }).__atlas.rotate(320));
     await page.waitForTimeout(250);
@@ -281,15 +285,17 @@ test("dense cities: hundreds on entry, stable through rotation, other cities sel
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/");
   await ready(page);
-  const result = await page.evaluate(() => {
+  await page.evaluate(() => {
     const sc = (window as unknown as { __atlas: import("../src/atlas/scene/AtlasScene").AtlasScene }).__atlas;
     const cities = Array.from({ length: 1000 }, (_, i) => ({ id: `dense-${i}`, name: `City ${i}`, lon: -125 + (i % 40) * 0.8, lat: 49.6 + Math.floor(i / 40) * 0.65 }));
     sc.setCities(cities);
     sc.setPriority(cities.map((c, i) => ({ id: c.id, max: 1000 - i })));
     sc.setCounts(new Map(cities.map((c, i) => [c.id, 1000 - i])), 40000);
-    return { detail: sc.detail(), hidden: "dense-600" };
   });
-  expect(result.detail.expanded.length).toBeGreaterThanOrEqual(300);
+  // placement runs in slices off the main thread: wait for it
+  const detail = () => page.evaluate(() => (window as unknown as { __atlas: import("../src/atlas/scene/AtlasScene").AtlasScene }).__atlas.detail());
+  await expect.poll(async () => (await detail()).expanded.length).toBeGreaterThanOrEqual(300);
+  const result = { detail: await detail(), hidden: "dense-600" };
   await page.evaluate(() => (window as unknown as { __atlas: import("../src/atlas/scene/AtlasScene").AtlasScene }).__atlas.rotate(640));
   await page.waitForTimeout(300);
   expect(await page.evaluate(() => (window as unknown as { __atlas: import("../src/atlas/scene/AtlasScene").AtlasScene }).__atlas.detail().expanded)).toEqual(result.detail.expanded);

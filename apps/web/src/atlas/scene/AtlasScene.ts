@@ -62,7 +62,6 @@ const MAX_BODIES = CEL.detail.bodyLimit + 2; // plus selected and hovered
  * Mississauga, Brampton, Vaughan, Markham) stand clearly apart as separate bodies (measured;
  * they separate from 2.25×). */
 const ZOOM_MAX = 6;
-const AZIMUTH_RANGE = 30;
 
 const ELEVATION_MIN = 30;
 const ELEVATION_MAX = 60;
@@ -81,6 +80,18 @@ interface CameraState {
   zoom: number;
   az: number;
   el: number;
+}
+
+/** Run `cb` in a short slice of main-thread time: when the browser is idle, or soon if `urgent`
+ * (Safari has no requestIdleCallback). */
+type Deadline = { timeRemaining(): number };
+function slice(cb: (d: Deadline) => void, urgent = false): void {
+  if (urgent || !window.requestIdleCallback)
+    window.setTimeout(() => {
+      const end = performance.now() + 8;
+      cb({ timeRemaining: () => end - performance.now() });
+    }, 0);
+  else window.requestIdleCallback(cb, { timeout: 500 });
 }
 
 /** Detail level for a zoom: steps of 1.5× (1, 1.5, 2.25, …). */
@@ -313,6 +324,10 @@ export class AtlasScene {
   private anim: { start: number; ms: number; from: CameraState; to: CameraState } | null = null;
   private landPoints: THREE.Vector3[] = [];
   private land: ReturnType<typeof landField> | null = null;
+  private landPolys: Polygon[] = [];
+  private landDistance() {
+    return (this.land ??= landField(this.landPolys));
+  }
   private lines: LineMaterial[] = [];
   private bodies: Body[] = [];
   private byId = new Map<string, number>();
@@ -338,7 +353,7 @@ export class AtlasScene {
   /** placements per detail level for the current data (placementData) */
   private placements = new Map<number, Map<string, [number, number, number]>>();
   private placementData = "";
-  private precomputing = new Map<number, Generator<void, void>>();
+  private precomputing = new Map<number, { steps: Generator<void, void>; done: (() => void)[] }>();
   /** detail level: footprints, spacing and search distances are divided by it, so zooming in
    * by 1.5× frees room for more cities while bodies keep a similar size on screen */
   private level = 1;
@@ -454,7 +469,11 @@ export class AtlasScene {
     };
 
     const polys = geo.provinces.flatMap((pr) => pr.polygons);
-    this.land = landField(polys);
+    // The land's distance field only matters once zoomed in near a coast: build it when the
+    // browser is idle (or on first need) instead of during the first paint.
+    this.landPolys = polys;
+    this.land = null;
+    slice(() => !this.disposed && this.landDistance());
     this.clearanceAt = landClearance(polys, geo.lakes);
     this.scene.add(slab(polys, top, [landPaint(this.domeMat.uniforms.uLight!.value), landPaint(this.domeMat.uniforms.uLight!.value, true)]));
 
@@ -576,12 +595,16 @@ export class AtlasScene {
     if (dataKey !== this.placementData) {
       this.placementData = dataKey;
       this.placements.clear();
+      this.precomputing.clear(); // jobs for the old data stop on their own
     }
     const placementKey = `${level}|${dataKey}`;
     if (placementKey !== this.placementKey) {
+      // Not computed yet: compute in slices that leave the main thread free, keep the current
+      // bodies meanwhile, and apply it when done.
+      const placed = this.placements.get(level);
+      if (!placed) return this.precompute(level, ranked, dataKey, () => this.updateDetail());
       this.placementKey = placementKey;
       this.level = level;
-      const placed = this.placementAt(level, ranked);
       for (const b of this.bodies) { b.chartX = b.x; b.chartZ = b.z; b.radius = 0; }
       for (const [id, [x, z, radius]] of placed) {
         const b = this.bodies[this.byId.get(id)!]!;
@@ -605,29 +628,27 @@ export class AtlasScene {
       : this.bodies.filter(b => b.to > 0).sort((a, b) => b.to - a.to);
   }
 
-  private placementAt(level: number, ranked: Body[]): Map<string, [number, number, number]> {
-    const cached = this.placements.get(level);
-    if (cached) return cached;
-    // finish an idle precompute already under way rather than starting over
-    const steps = this.precomputing.get(level) ?? this.placementSteps(level, ranked);
-    while (!steps.next().done);
-    this.precomputing.delete(level);
-    return this.placements.get(level)!;
-  }
-
-  private precompute(level: number, ranked: Body[], dataKey: string): void {
-    if (this.placements.has(level) || this.precomputing.has(level)) return;
-    const steps = this.placementSteps(level, ranked);
-    this.precomputing.set(level, steps);
-    const idle = (cb: (d: { timeRemaining(): number }) => void) =>
-      window.requestIdleCallback ? window.requestIdleCallback(cb) : window.setTimeout(() => cb({ timeRemaining: () => 6 }), 30);
-    const run = (deadline: { timeRemaining(): number }) => {
-      if (this.disposed || this.placementData !== dataKey || this.placements.has(level)) return void this.precomputing.delete(level);
+  private precompute(level: number, ranked: Body[], dataKey: string, done?: () => void): void {
+    if (this.placements.has(level)) return void done?.();
+    const running = this.precomputing.get(level);
+    if (running) {
+      if (done) running.done.push(done);
+      return;
+    }
+    const job = { steps: this.placementSteps(level, ranked), done: done ? [done] : [] };
+    this.precomputing.set(level, job);
+    const forget = () => this.precomputing.get(level) === job && this.precomputing.delete(level);
+    const run = (deadline: Deadline) => {
+      if (this.disposed || this.placementData !== dataKey) return void forget();
       while (deadline.timeRemaining() > 2)
-        if (steps.next().done) return void this.precomputing.delete(level);
-      idle(run);
+        if (job.steps.next().done) {
+          forget();
+          for (const cb of job.done) cb();
+          return;
+        }
+      slice(run, job.done.length > 0); // someone is waiting for it: keep going promptly
     };
-    idle(run);
+    slice(run, job.done.length > 0);
   }
 
   /** Feet for one detail level (cached), yielding every few cities so it can run in idle
@@ -851,19 +872,28 @@ export class AtlasScene {
     this.updateCamera();
   }
 
-  /** The nearest allowed camera: zoom in [1, max], azimuth within ±30° of home, elevation
+  /** The nearest allowed camera: zoom in [1, max], any azimuth, elevation
    * 30–60°, and on each screen axis the land either centred (when it fits the safe rectangle)
    * or covering the safe rectangle's full width (no blank margin inside it). */
   private constrain(st: CameraState): CameraState {
     const zoom = THREE.MathUtils.clamp(st.zoom, 1, ZOOM_MAX);
-    const az = THREE.MathUtils.clamp(st.az, CEL.azimuth - AZIMUTH_RANGE, CEL.azimuth + AZIMUTH_RANGE);
+    const az = st.az; // turns freely all the way round
     const el = THREE.MathUtils.clamp(st.el, ELEVATION_MIN, ELEVATION_MAX);
     if (!this.landPoints.length) return { target: st.target.clone(), zoom, az, el };
     const W = this.host.clientWidth || 1, H = this.host.clientHeight || 1;
     const safe = this.safeRect();
     const k = (2 * this.homeHalfH) / zoom / H;
     const { dir, right, up } = this.basis(el, az);
-    const [u0, u1, v0, v1] = this.landExtent(el, az);
+    let [u0, u1, v0, v1] = this.landExtent(el, az);
+    // A selected city's whole body counts as content, so turning the map never leaves it
+    // standing past an edge the land pins to the screen.
+    const picked = this.selected ? this.bodies[this.byId.get(this.selected) ?? -1] : undefined;
+    if (picked && picked.radius > 0)
+      for (const py of [this.landTop, this.landTop + picked.shown * this.heightScale(zoom, el)]) {
+        const p = new THREE.Vector3(picked.chartX, py, picked.chartZ);
+        u0 = Math.min(u0, p.dot(right)); u1 = Math.max(u1, p.dot(right));
+        v0 = Math.min(v0, p.dot(up)); v1 = Math.max(v1, p.dot(up));
+      }
     // camera-plane centre that puts screen position `px` on land coordinate `u`
     const fit = (lo: number, hi: number, safeLo: number, safeLen: number, centre: number, screen: number, sign: 1 | -1, cur: number) => {
       const len = (hi - lo) / k;
@@ -885,7 +915,8 @@ export class AtlasScene {
     // climbing the land's distance field (smooth, so a drag along the limit never jumps). Only
     // deeper steps are taken, so on land thinner than that the centre rests on its spine
     // instead of rocking across it.
-    if (this.land) {
+    const land = zoom > 1 + 1e-6 ? this.landDistance() : this.land;
+    if (land) {
       const inset = 0.15 * Math.min(safe.w, safe.h) * k;
       // never push a selected city's body out of view: a coastal city may show more sea
       const sel = this.selected ? this.bodies[this.byId.get(this.selected) ?? -1] : undefined;
@@ -896,15 +927,15 @@ export class AtlasScene {
         return X >= 0 && X <= W && Y >= 0 && Y <= H;
       });
       // far off land, one long first step; then small steps (≤ 4 km) up the field
-      let x = ground.x, y = -ground.z, d = this.land.distance(x, y);
+      let x = ground.x, y = -ground.z, d = land.distance(x, y);
       const selectedShown = keepsSelected(x, y);
       for (let i = 0; i < 60 && d < inset; i++) {
-        const [gx, gy] = this.land.gradient(x, y);
+        const [gx, gy] = land.gradient(x, y);
         const len = Math.hypot(gx, gy);
         if (len < 1e-3) break;
         const step = d < -8 ? -d : Math.min(inset - d, 4);
         const nx = x + (gx / len) * step, ny = y + (gy / len) * step;
-        const nd = this.land.distance(nx, ny);
+        const nd = land.distance(nx, ny);
         if (nd <= d) break; // the spine of thin land: as deep as it goes
         if (selectedShown && !keepsSelected(nx, ny)) break;
         x = nx; y = ny; d = nd;
@@ -1022,7 +1053,8 @@ export class AtlasScene {
   /** True when the camera is not at the home view (shows "Back to Canada"). */
   isHome(): boolean {
     const k = (2 * this.homeHalfH) / this.zoom / (this.host.clientHeight || 1);
-    return Math.abs(this.zoom - 1) < 0.01 && Math.abs(this.azimuth - CEL.azimuth) < 0.5 && Math.abs(this.elevation - CEL.elevation) < 0.5
+    const turned = Math.abs(((this.azimuth - CEL.azimuth) % 360 + 540) % 360 - 180);
+    return Math.abs(this.zoom - 1) < 0.01 && turned < 0.5 && Math.abs(this.elevation - CEL.elevation) < 0.5
       && this.target.distanceTo(this.homeTarget) / k < 1;
   }
 
@@ -1031,7 +1063,7 @@ export class AtlasScene {
     this.settleTimer = window.setTimeout(() => !this.disposed && this.updateDetail(), CEL.detail.settleMs);
   }
 
-  /** Orbit around the map target (azimuth ±30° from home, elevation 30–60°). */
+  /** Orbit around the map target (all the way round; elevation 30–60°). */
   rotate(dx: number, dy = 0, elastic = false): void {
     const b = elastic ? this.base() : this.state();
     this.commit({ ...b, az: b.az - dx * 0.28, el: b.el + dy * 0.2 }, elastic);

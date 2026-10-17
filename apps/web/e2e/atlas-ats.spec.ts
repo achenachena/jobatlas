@@ -134,16 +134,13 @@ test("an expired release recovers silently, keeping the map", async ({ page }) =
   expect(await page.evaluate(() => (window as unknown as { __atlas: { detail(): { expanded: string[] } } }).__atlas.detail().expanded.length)).toBeGreaterThan(0);
 });
 
-test("Job Bank tech occupations point to Employer boards, keeping the occupation", async ({ page }) => {
+test("the switch stays short: notes are tooltips and read with each option, no pointer line", async ({ page }) => {
   await page.goto("/?occupation=software_development");
   await ready(page);
-  const guide = page.getByRole("button", { name: "Job Bank has few tech postings. See Employer boards →" });
-  await expect(guide).toBeVisible();
-  expect(await guide.textContent()).not.toMatch(/\d/); // no Employer boards numbers here
-  await guide.click();
-  await expect(page).toHaveURL(/occupation=software_development/);
-  await expect(page).toHaveURL(/data=ats/);
-  await expect(guide).toHaveCount(0);
+  const boards = dataset(page).getByRole("radio", { name: /Employer boards/ });
+  await expect(boards).toHaveAttribute("title", "128 employers' career pages · updated hourly · since Sep 15, 2026");
+  expect((await dataset(page).boundingBox())!.height).toBeLessThan(40); // one short row on desktop
+  await expect(page.getByText(/few tech postings/)).toHaveCount(0);
 });
 
 test("phone: the switch fits on one row and is not cut off", async ({ page }) => {
@@ -154,10 +151,7 @@ test("phone: the switch fits on one row and is not cut off", async ({ page }) =>
   const more = await page.getByRole("button", { name: "More" }).boundingBox();
   expect(group!.x + group!.width).toBeLessThanOrEqual(more!.x); // clear of the "…" button
   expect(group!.height).toBeLessThan(56); // one row
-  const note = page.getByText("128 employers' career pages · updated hourly · since Sep 15, 2026");
-  await expect(note.last()).toBeVisible();
-  const box = await note.last().boundingBox();
-  expect(box!.x + box!.width).toBeLessThanOrEqual(390);
+  expect(group!.x).toBeGreaterThanOrEqual(0); // not cut off
 });
 
 test("no WebGL: the 2D map, city list and search work on Employer boards", async ({ page }) => {

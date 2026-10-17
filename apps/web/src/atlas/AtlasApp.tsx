@@ -223,7 +223,8 @@ export function AtlasApp() {
   // Switching keeps what the other dataset also has (date in its range, occupation, city, the
   // camera) and says what it could not keep. Its capabilities are fetched first, so no request
   // ever pairs one dataset with the other's release.
-  const switchDataset = async (to: "real" | "ats", occupation = sel.occupation) => {
+  const switchDataset = async (to: "real" | "ats") => {
+    const occupation = sel.occupation;
     if (to === sel.dataset) return;
     let next;
     try {
@@ -279,10 +280,6 @@ export function AtlasApp() {
   // ---------------------------------------------------------------- render
   const demo = info?.data_mode === "demo";
   const status = frame?.quality;
-  // Job Bank has few tech postings: point to Employer boards for an occupation it also covers
-  // (no Employer boards number is shown here)
-  const guideToBoards = sel.dataset === "real" && sel.occupation !== "all"
-    && !!atsCaps.data?.history_start && atsCaps.data.occupations.some((o) => o.id === sel.occupation);
   const busy = ready && tl.isFetching && !frame;
   return (
     <div className={s.app}>
@@ -320,11 +317,6 @@ export function AtlasApp() {
         onOccupation={(occupation) => set({ occupation })}
         switcher={sel.dataset !== "demo" && (
           <DatasetSwitch value={sel.dataset} caps={{ real: realCaps.data, ats: atsCaps.data }} onChange={(d) => void switchDataset(d)} />
-        )}
-        guide={guideToBoards && (
-          <button type="button" className={s.guide} onClick={() => void switchDataset("ats")}>
-            Job Bank has few tech postings. See Employer boards →
-          </button>
         )}
       />
       <MoreMenu onPick={onMore} disabled={!ready} />
