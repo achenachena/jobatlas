@@ -59,7 +59,12 @@ for (const vp of [{ name: "desktop", width: 1440, height: 900 }, { name: "phone"
         const dot = (p: { x: number; y: number; z: number }, a: number[]) => p.x * a[0]! + p.y * a[1]! + p.z * a[2]!;
         const uc = dot(sc.target, right), vc = dot(sc.target, up);
         let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
-        for (const p of sc.landPoints) {
+        // content = the land, plus a selected city's whole body
+        const content = [...sc.landPoints];
+        const picked = focused ? sc.bodies[sc.byId.get(focused)] : null;
+        if (picked && picked.radius > 0)
+          for (const py of [sc.landTop, sc.landTop + picked.shown * sc.heightScale()]) content.push({ x: picked.chartX, y: py, z: picked.chartZ });
+        for (const p of content) {
           const X = W / 2 + (dot(p, right) - uc) / k, Y = H / 2 - (dot(p, up) - vc) / k;
           x0 = Math.min(x0, X); x1 = Math.max(x1, X); y0 = Math.min(y0, Y); y1 = Math.max(y1, Y);
         }

@@ -90,8 +90,6 @@ export function Brand(p: {
   onOccupation: (id: string) => void;
   /** the dataset switch, always visible next to the brand */
   switcher?: ReactNode;
-  /** a one-line pointer under the occupation (e.g. to the other dataset) */
-  guide?: ReactNode;
 }) {
   const occs = p.caps?.occupations ?? [{ id: "all", label: "All jobs", note: "" }];
   const [open, setOpen] = useState(false);
@@ -141,7 +139,6 @@ export function Brand(p: {
           </div>
         )}
       </div>
-      {p.guide}
       {p.demo && (
         <div className={s.badge} role="status">
           Demo data · 示例数据 — generated, not real postings
@@ -192,18 +189,18 @@ export function DatasetSwitch(p: {
             role="radio"
             aria-checked={current === id}
             aria-describedby={`${noteId}-${id}`}
+            title={note(id)}
             tabIndex={current === id ? 0 : -1}
             disabled={!available(id) && current !== id}
             onClick={() => current !== id && p.onChange(id)}
             onKeyDown={(e) => onKey(e, i)}
           >
-            <span>{DATASET_NAME[id]}</span>
-            <small id={`${noteId}-${id}`} className={s.datasetNote}>{note(id)}</small>
+            {DATASET_NAME[id]}
+            {/* the note stays short of the map: a tooltip, and read with the option */}
+            <span id={`${noteId}-${id}`} className={s.visuallyHidden}>{note(id)}</span>
           </button>
         ))}
       </div>
-      {/* phones: only the chosen dataset's note, full width, below the switch */}
-      <p className={s.datasetNoteNarrow} aria-hidden="true">{note(current)}</p>
     </div>
   );
 }
@@ -244,9 +241,13 @@ export function SourceLine(p: { caps: Capabilities | undefined; publishedAt: str
   if (!p.caps || p.caps.data_mode === "not_configured") return null;
   const minutes = p.publishedAt ? Math.max(0, Math.round((now - Date.parse(p.publishedAt)) / 60_000)) : null;
   const age = minutes == null ? null : minutes < 60 ? `Updated ${minutes} min ago` : `Updated ${Math.round(minutes / 60)} h ago`;
+  // one short line off the map: the attribution's first sentence (the full text is the
+  // tooltip and in Sources & definitions)
+  const full = p.caps.attribution ?? DATASET_NAME[p.caps.data_mode === "demo" ? "demo" : "real"];
+  const first = full.match(/^.*?[.!?](?=\s|$)/)?.[0] ?? full;
   return (
-    <p className={s.sourceLine}>
-      {p.caps.attribution ?? DATASET_NAME[p.caps.data_mode === "demo" ? "demo" : "real"]}
+    <p className={s.sourceLine} title={full}>
+      {first}
       {hourly && age && <> · {age}</>}
     </p>
   );

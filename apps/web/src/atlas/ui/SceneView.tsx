@@ -27,6 +27,11 @@ const HINT_KEY = "atlas.gestureHintSeen";
 const TOUCH = typeof window !== "undefined" && !!window.matchMedia?.("(pointer: coarse)").matches;
 
 type Side = "right" | "left";
+interface References {
+  core: Set<string>;
+  desktop: string[];
+  mobile: string[];
+}
 interface Placed {
   id: string;
   side: Side;
@@ -65,7 +70,7 @@ export function SceneView(p: Props) {
   const refreshLabels = useRef<() => void>(() => {});
   const [away, setAway] = useState(false);
   const names = useRef(new Map<string, string>());
-  const references = useRef<{ desktop: string[]; mobile: string[] }>({ desktop: [], mobile: [] });
+  const references = useRef<References>({ core: new Set(), desktop: [], mobile: [] });
   const selectedRef = useRef(p.selected);
   selectedRef.current = p.selected;
   const onSelectRef = useRef(p.onSelect);
@@ -103,9 +108,25 @@ export function SceneView(p: Props) {
     // Match canonical city IDs, not names: Canada also contains Toronto, PE.
     const available = new Set(p.cities.map(c => c.city_id));
     const ids = (list: string[]) => list.filter(id => available.has(id));
+    // Geographic references only (never a ranking of the current data): core cities spread
+    // across the country that are always named, then other regional centres and the territorial
+    // capitals where there is room, then (zoomed in) the largest cities by population.
+    const core = ids([
+      "ca-bc-vancouver", "ca-ab-calgary", "ca-ab-edmonton", "ca-sk-saskatoon",
+      "ca-on-toronto", "ca-qc-montreal", "ca-qc-quebec", "ca-ns-halifax",
+    ]);
+    const regional = ids(["ca-mb-winnipeg", "ca-on-ottawa", "ca-sk-regina", "ca-nl-st-john-s"]);
+    // one name, one place: a smaller namesake (Toronto, PE) is never named next to the big one
+    const named = new Set(core.map(id => names.current.get(id)));
+    const byPopulation = [...p.cities].sort((a, b) => (b.population ?? 0) - (a.population ?? 0) || (a.city_id < b.city_id ? -1 : 1))
+      .filter(c => core.includes(c.city_id) || (!named.has(c.name) && named.add(c.name))).map(c => c.city_id);
+    const capitals = ids(["ca-yt-whitehorse", "ca-nt-yellowknife", "ca-nu-iqaluit"]);
+    const unique = (list: string[]) => [...new Set(list)];
     references.current = {
-      desktop: ids(["ca-on-toronto", "ca-qc-montreal", "ca-bc-vancouver", "ca-ab-calgary"]),
-      mobile: ids(["ca-on-toronto", "ca-bc-vancouver"]),
+      core: new Set(core),
+      desktop: unique([...core, ...regional, ...capitals, ...byPopulation.slice(0, 80)]),
+      // phones name only a few: the largest first
+      mobile: unique([...ids(["ca-on-toronto", "ca-bc-vancouver", "ca-qc-montreal", "ca-ab-calgary"]), ...core, ...byPopulation.slice(0, 40)]),
     };
     scene.current?.setCities(p.cities.map((c) => ({ id: c.city_id, name: c.name, lon: c.lon, lat: c.lat })));
   }, [p.cities]);
@@ -379,15 +400,18 @@ function Note(p: { a: Anchor; side: Side; dy?: number; lines: string[]; strong?:
 
 /** Choose by importance first, then place: busy centres must not lose their identity merely
  * because their coast cannot fit a body or the first label slot intersects another column. */
-function placeLabels(sc: AtlasScene, el: HTMLElement, names: Map<string, string>, references: { desktop: string[]; mobile: string[] }): Placed[] {
+function placeLabels(sc: AtlasScene, el: HTMLElement, names: Map<string, string>, references: References): Placed[] {
   const w = el.clientWidth, h = el.clientHeight;
   // Geographic references, never a changing ranking of the current occupation/date.
   // Missing cities remain absent; zero/unknown cities keep their geographic name.
-  const candidates = w < 760 ? references.mobile : references.desktop;
+  const mobile = w < 760, regional = sc.detail().regional;
+  const limit = mobile ? (regional ? 6 : 4) : regional ? 18 : 15;
+  const candidates = mobile ? references.mobile : references.desktop;
   const anchors = new Map(sc.anchors(new Set(candidates)).map(a => [a.id, a]));
   const boxes: { x0: number; x1: number; y0: number; y1: number }[] = [];
   const out: Placed[] = [];
   for (const id of candidates) {
+    if (out.length >= limit) break;
     const a = anchors.get(id);
     if (!a || a.bx < 0 || a.bx > w || a.by < 0 || a.by > h) continue;
     const textW = 12 + (names.get(id) ?? id).length * 7.5;
@@ -408,8 +432,9 @@ function placeLabels(sc: AtlasScene, el: HTMLElement, names: Map<string, string>
         if (!best || score < best.score) best = { side, dy, box, score };
       }
     }
-    if (best) { boxes.push(best.box); out.push({ id, side: best.side, dy: best.dy }); }
-    else out.push({ id, side: sideFor(a, w), dy: Math.max(100 - a.by, Math.min(24, h - 104 - a.by)) });
+    // the core cities are always named; the others only where a clear spot exists
+    if (best && (best.score < 1000 || references.core.has(id))) { boxes.push(best.box); out.push({ id, side: best.side, dy: best.dy }); }
+    else if (references.core.has(id)) out.push({ id, side: sideFor(a, w), dy: Math.max(100 - a.by, Math.min(24, h - 104 - a.by)) });
   }
   return out;
 }
