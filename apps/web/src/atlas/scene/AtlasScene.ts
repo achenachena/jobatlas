@@ -1,9 +1,12 @@
 /** The Canada atlas scene ("Clear Cel", docs/design/atlas-cel). Orbitable orthographic camera
- * over a pale extruded land board with ink coast and province lines. Every city with postings
- * is drawn as a round-topped body (one revolved profile, shaped per instance in the vertex
- * shader so the cap never stretches) with painted cel shading and a thin ink outline; cities
- * with zero or unknown counts are not drawn (search reaches them). The render loop only runs
- * while something changes (camera, tween, resize), so an idle map costs nothing. */
+ * over a pale extruded land board with ink coast and province lines. Postings are drawn as
+ * round-topped bars (one revolved profile, shaped per instance in the vertex shader so the cap
+ * never stretches) with painted cel shading and a thin ink outline, in two fixed layers: zoomed
+ * out, one bar per city group (a metro area or nearby cities, the sum of its members' known
+ * counts; a city alone is its own bar); zoomed in, one bar per city. Bars stand at their true
+ * coordinates with one screen width at every zoom and may hide each other; zero or unknown
+ * counts are not drawn (search reaches them). The render loop only runs while something
+ * changes (camera, tween, resize), so an idle map costs nothing. */
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { LineMaterial } from "three/addons/lines/LineMaterial.js";
@@ -13,7 +16,7 @@ import { LineSegmentsGeometry } from "three/addons/lines/LineSegmentsGeometry.js
 import { project } from "../projection";
 import { heightFor, MAX_HEIGHT } from "../scale";
 import { CEL } from "./palette";
-import { landClearance, landField, separatedRadius } from "./footprints";
+import { landField } from "./footprints";
 
 
 type Ring = [number, number][];
@@ -29,10 +32,19 @@ export interface SceneCity {
   name: string;
   lon: number;
   lat: number;
+  group?: string | null;
+}
+/** A city group; its anchor is the most populous member's position. A "single" group is its
+ * city alone. */
+export interface SceneGroup {
+  id: string;
+  kind: string;
+  lon: number;
+  lat: number;
 }
 export interface Anchor {
   id: string;
-  /** body tip (or base when not drawn), base point and on-screen body radius, CSS px */
+  /** bar tip (or base when not drawn), base point and on-screen bar radius, CSS px */
   x: number;
   y: number;
   bx: number;
@@ -41,26 +53,29 @@ export interface Anchor {
   height: number;
   count: number | null;
   body: boolean;
-  displaced: boolean;
 }
-interface Body {
+interface Bar {
   id: string;
+  /** true ground position (city, or group anchor) */
   x: number;
   z: number;
+  count: number | null;
   from: number;
   to: number;
   shown: number;
-  count: number | null;
-  clearance: number;
-  radius: number;
-  chartX: number;
-  chartZ: number;
+  /** a group of cities (zoomed-out layer only); its member city bars */
+  members: Bar[] | null;
+  /** a city's group bar; null when the city is its own bar in both layers */
+  parent: Bar | null;
 }
 
-const MAX_BODIES = CEL.detail.bodyLimit + 2; // plus selected and hovered
+/** Bar width on screen, CSS px: the same at every zoom and in both layers. */
+export const BAR_PX = 8;
+/** Region ↔ city layer split or merge (ms). */
+const SPLIT_MS = 250;
+const MAX_BARS = 8000; // every city plus the group bars drawn during a split
 /** Camera limits. The deepest zoom is set by geography: at 6× the GTA cities (Toronto,
- * Mississauga, Brampton, Vaughan, Markham) stand clearly apart as separate bodies (measured;
- * they separate from 2.25×). */
+ * Mississauga, Brampton, Vaughan, Markham) stand clearly apart on a desktop screen. */
 const ZOOM_MAX = 6;
 
 const ELEVATION_MIN = 30;
@@ -94,9 +109,6 @@ function slice(cb: (d: Deadline) => void, urgent = false): void {
   else window.requestIdleCallback(cb, { timeout: 500 });
 }
 
-/** Detail level for a zoom: steps of 1.5× (1, 1.5, 2.25, …). */
-const levelFor = (zoom: number) => Math.pow(1.5, Math.floor(Math.log(zoom + 1e-9) / Math.log(1.5)));
-
 /** Zoom interpolates linearly in 1/zoom (the view's scale) alongside the target, so a point the
  * two states share on screen (the pointer of a zoom) stays put all the way. */
 function lerpState(a: CameraState, b: CameraState, t: number): CameraState {
@@ -115,6 +127,7 @@ const CAP_RINGS = 10;
 // height is fixed; it turns with the camera around the vertical so every angle reads the same.
 const LIGHT = new THREE.Vector3(-0.68, 0.65, 0.34).normalize();
 const ease = (t: number) => 1 - Math.pow(1 - t, 3);
+const clamp01 = (t: number) => Math.min(1, Math.max(0, t));
 
 /** Unit revolved profile: aProf = (profile parameter, angle). Parameter -1 is the bottom
  * centre, -0.5 the bottom rim, 0..1 the side, 1..2 the shoulder arc, 3 the top centre. */
@@ -148,10 +161,8 @@ export function domeGeometry(segments = SEGMENTS, capRings = CAP_RINGS): THREE.I
   // three.js needs a position attribute to size draws; the shader ignores it
   g.setAttribute("position", new THREE.Float32BufferAttribute(new Float32Array(prof.length * 1.5), 3));
   g.setIndex(index);
-  g.setAttribute("iPos", new THREE.InstancedBufferAttribute(new Float32Array(MAX_BODIES * 3), 3).setUsage(THREE.DynamicDrawUsage));
-  g.setAttribute("iH", new THREE.InstancedBufferAttribute(new Float32Array(MAX_BODIES), 1).setUsage(THREE.DynamicDrawUsage));
-  g.setAttribute("iR", new THREE.InstancedBufferAttribute(new Float32Array(MAX_BODIES), 1).setUsage(THREE.DynamicDrawUsage));
-  g.setAttribute("iLine", new THREE.InstancedBufferAttribute(new Float32Array(MAX_BODIES), 1).setUsage(THREE.DynamicDrawUsage));
+  for (const [name, size] of [["iPos", 3], ["iH", 1], ["iLine", 1], ["iA", 1], ["iRing", 1]] as const)
+    g.setAttribute(name, new THREE.InstancedBufferAttribute(new Float32Array(MAX_BARS * size), size).setUsage(THREE.DynamicDrawUsage));
   g.instanceCount = 0;
   return g;
 }
@@ -163,16 +174,18 @@ attribute vec2 aProf;
 attribute vec3 iPos;
 attribute float iH;
 attribute float iLine;
-attribute float iR;
+attribute float iA;
 varying vec3 vN;
 varying vec3 vV;
 varying float vBodyT;
-// Profile for a body of height H and base radius uR: a straight side leaning slightly inward
-// (more for taller bodies, so the base is a little wider) and a wide round top: an arc tangent
-// to the side and to the top whose radius is set by the width, never stretched by H.
+varying float vA;
+// Profile for a bar of height H and base radius uR (the same for every bar): a straight side
+// leaning slightly inward and a round top: an arc tangent to the side and to the top whose
+// radius is set by the width, never stretched by H; a short bar gets a flatter top.
 void main() {
+  vA = iA;
   float H = max(iH, 1.0);
-  float R = min(min(uR, iR), H * 0.62);
+  float R = uR;
   // Same monotone silhouette at every height: broad grounded foot, rounded
   // shoulder, hemispherical cap. Both first derivatives meet at the shoulder.
   float shoulder = R * 0.90;
@@ -216,9 +229,10 @@ uniform vec3 uInk;
 varying vec3 vN;
 varying vec3 vV;
 varying float vBodyT;
+varying float vA;
 void main() {
 #ifdef OUTLINE
-  gl_FragColor = vec4(uShade, 1.0);
+  gl_FragColor = vec4(uShade, vA);
 #else
   vec3 n = normalize(vN);
   // A1 painted volume: broad mint face, short softened cel transitions and a
@@ -250,7 +264,7 @@ void main() {
   float edge = 1.0 - smoothstep(0.0, max(fwidth(facing) * 1.6, 0.035), facing);
   float foot = 1.0 - smoothstep(fwidth(vBodyT) * 0.4, fwidth(vBodyT) * 1.7, vBodyT);
   paint = mix(paint, uInk, max(edge, foot));
-  gl_FragColor = vec4(paint, 1.0);
+  gl_FragColor = vec4(paint, vA);
 #endif
   #include <colorspace_fragment>
 }`;
@@ -280,21 +294,37 @@ function landPaint(light: THREE.Vector3, side = false): THREE.ShaderMaterial {
 }
 
 const CONTACT_VERTEX = /* glsl */ `
-attribute vec3 iPos; attribute float iH; attribute float iR;
-uniform float uR; varying vec2 vUv;
+attribute vec3 iPos; attribute float iA;
+uniform float uR; varying vec2 vUv; varying float vA;
 void main() {
   vUv = position.xy;
-  float R = min(min(uR, iR), max(iH, 1.0) * 0.62);
-  vec3 P = iPos + vec3(position.x * R * 1.16 + R * 0.04, 1.0, position.y * R * 1.16 + R * 0.04);
+  vA = iA;
+  vec3 P = iPos + vec3(position.x * uR * 1.16 + uR * 0.04, 1.0, position.y * uR * 1.16 + uR * 0.04);
   gl_Position = projectionMatrix * viewMatrix * vec4(P, 1.0);
 }`;
 const CONTACT_FRAGMENT = /* glsl */ `
-varying vec2 vUv; uniform vec3 uColor;
+varying vec2 vUv; varying float vA; uniform vec3 uColor;
 void main() {
   float r = length(vUv);
-  float alpha = (1.0 - smoothstep(0.90, 1.0, r)) * 0.65;
+  float alpha = (1.0 - smoothstep(0.90, 1.0, r)) * 0.65 * vA;
   if (alpha < 0.002) discard;
   gl_FragColor = vec4(uColor, alpha);
+  #include <colorspace_fragment>
+}`;
+
+/** A group bar's mark: a small flat ink ring floating just above its top. */
+const RING_VERTEX = /* glsl */ `
+attribute vec3 iPos; attribute float iH; attribute float iA; attribute float iRing;
+uniform float uR; varying float vA;
+void main() {
+  vA = iA;
+  vec3 P = iPos + vec3(position.x * uR * iRing, max(iH, 1.0) + uR * 1.6, -position.y * uR * iRing);
+  gl_Position = projectionMatrix * viewMatrix * vec4(P, 1.0);
+}`;
+const RING_FRAGMENT = /* glsl */ `
+varying float vA; uniform vec3 uColor;
+void main() {
+  gl_FragColor = vec4(uColor, vA);
   #include <colorspace_fragment>
 }`;
 
@@ -329,39 +359,32 @@ export class AtlasScene {
     return (this.land ??= landField(this.landPolys));
   }
   private lines: LineMaterial[] = [];
-  private bodies: Body[] = [];
-  private byId = new Map<string, number>();
+  /** one bar per city, the group bars, and the zoomed-out layer (group bars and cities that
+   * are their own group); all fixed when the cities load */
+  private cities: Bar[] = [];
+  private groups: Bar[] = [];
+  private regions: Bar[] = [];
+  private byId = new Map<string, Bar>();
   private scaleMax = 1;
-  private priority: { id: string; max: number }[] = [];
-  private expanded = new Set<string>();
-  private regional = false;
-  private frozen = false;
-  private settleTimer = 0;
+  /** the city layer is on (zoomed in); `mix` runs 0 (groups) → 1 (cities) over SPLIT_MS */
+  private cityLayer = false;
+  private mix = 0;
+  private mixAt = 0;
   private selected: string | null = null;
   private hovered: string | null = null;
   private tweenStart = 0;
-  /** Bodies need rebuilding when data, selection, hover or zoom change, or while a
-   * tween runs; panning and turning only re-render. */
+  /** Bars need rewriting when data, selection, hover, the camera's height scale or the layer
+   * change, or while a tween runs. */
   private layoutDirty = true;
   private raf = 0;
   private disposed = false;
   private listeners = new Set<() => void>();
-  private settleListeners = new Set<() => void>();
   private resizeObserver: ResizeObserver;
   private domeGeo = domeGeometry();
-  private placementKey = "";
-  /** placements per detail level for the current data (placementData) */
-  private placements = new Map<number, Map<string, [number, number, number]>>();
-  private placementData = "";
-  private precomputing = new Map<number, { steps: Generator<void, void>; done: (() => void)[] }>();
-  /** detail level: footprints, spacing and search distances are divided by it, so zooming in
-   * by 1.5× frees room for more cities while bodies keep a similar size on screen */
-  private level = 1;
-  private clearanceAt: (x: number, y: number) => number = () => 0;
   private contactGeo = new THREE.InstancedBufferGeometry();
+  private ringGeo = new THREE.InstancedBufferGeometry();
   private domeMat: THREE.ShaderMaterial;
   private outlineMat: THREE.ShaderMaterial;
-  private leaders = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: CEL.inkMuted, transparent: true, opacity: 0.65 }));
 
   constructor(
     private host: HTMLElement,
@@ -373,11 +396,10 @@ export class AtlasScene {
     this.renderer.domElement.style.display = "block";
     host.appendChild(this.renderer.domElement);
     this.scene.background = new THREE.Color(CEL.paper);
-    this.scene.add(this.leaders);
     this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, -20000, 20000);
 
     const uniforms = {
-      uR: { value: CEL.bodyDiameter / 2 },
+      uR: { value: 1 },
       uPx: { value: 1 },
       uLight: { value: LIGHT.clone() },
       uLit: { value: new THREE.Color(CEL.dataLight) },
@@ -386,13 +408,15 @@ export class AtlasScene {
       uInk: { value: new THREE.Color(CEL.dataInk) },
       uShade: { value: new THREE.Color(CEL.dataShadow) },
     };
-    this.domeMat = new THREE.ShaderMaterial({ uniforms, vertexShader: DOME_VERTEX, fragmentShader: DOME_FRAGMENT });
+    // transparent only so a bar can fade during a reduced-motion layer change (alpha is 1 otherwise)
+    this.domeMat = new THREE.ShaderMaterial({ uniforms, vertexShader: DOME_VERTEX, fragmentShader: DOME_FRAGMENT, transparent: true });
     this.outlineMat = new THREE.ShaderMaterial({
       uniforms: { ...uniforms, uShade: { value: new THREE.Color(CEL.dataInk) } },
       vertexShader: DOME_VERTEX,
       fragmentShader: DOME_FRAGMENT,
       defines: { OUTLINE: 1 },
       side: THREE.BackSide,
+      transparent: true,
       // The shell must occlude later background surfaces at overlapping silhouettes.
       // Without depth writes the batched fill pass erases foreground ink boundaries.
       depthWrite: true,
@@ -404,12 +428,22 @@ export class AtlasScene {
       mesh.renderOrder = mat === this.outlineMat ? 1.5 : 2;
       this.scene.add(mesh);
     }
-    // Ground clearance already reserves >1.4 radii and neighbouring feet have
-    // an 18-unit gap; 1.16-radius shadows therefore stay on land and independent.
     const plane = new THREE.PlaneGeometry(2, 2);
     this.contactGeo.index = plane.index;
     this.contactGeo.setAttribute("position", plane.getAttribute("position"));
-    for (const name of ["iPos", "iH", "iR"]) this.contactGeo.setAttribute(name, this.domeGeo.getAttribute(name));
+    for (const name of ["iPos", "iA"]) this.contactGeo.setAttribute(name, this.domeGeo.getAttribute(name));
+    const ring = new THREE.RingGeometry(1.0, 1.5, 24);
+    this.ringGeo.index = ring.index;
+    this.ringGeo.setAttribute("position", ring.getAttribute("position"));
+    for (const name of ["iPos", "iH", "iA", "iRing"]) this.ringGeo.setAttribute(name, this.domeGeo.getAttribute(name));
+    const marks = new THREE.Mesh(this.ringGeo, new THREE.ShaderMaterial({
+      uniforms: { uR: uniforms.uR, uColor: { value: new THREE.Color(CEL.dataInk) } },
+      vertexShader: RING_VERTEX, fragmentShader: RING_FRAGMENT,
+      transparent: true, side: THREE.DoubleSide,
+    }));
+    marks.frustumCulled = false;
+    marks.renderOrder = 2.5;
+    this.scene.add(marks);
     const contact = new THREE.Mesh(this.contactGeo, new THREE.ShaderMaterial({
       uniforms: { uR: uniforms.uR, uColor: { value: new THREE.Color("#4385c1") } },
       vertexShader: CONTACT_VERTEX, fragmentShader: CONTACT_FRAGMENT,
@@ -474,7 +508,6 @@ export class AtlasScene {
     this.landPolys = polys;
     this.land = null;
     slice(() => !this.disposed && this.landDistance());
-    this.clearanceAt = landClearance(polys, geo.lakes);
     this.scene.add(slab(polys, top, [landPaint(this.domeMat.uniforms.uLight!.value), landPaint(this.domeMat.uniforms.uLight!.value, true)]));
 
     // Edges shared by two provinces are borders (drawn once, thin); the rest is coast.
@@ -518,58 +551,54 @@ export class AtlasScene {
     performance.measure("atlas:geography", { start: started });
   }
 
-  // ------------------------------------------------------------ cities
+  // ------------------------------------------------------------ bars
 
-  setCities(cities: SceneCity[]): void {
+  /** The cities and their groups: both layers are built here, once per city list. */
+  setCities(cities: SceneCity[], groups: SceneGroup[] = []): void {
     const started = performance.now();
-    this.bodies = cities.map((c) => {
-      const [x, y] = project(c.lon, c.lat);
-      return { id: c.id, x, z: -y, from: 0, to: 0, shown: 0, count: null, clearance: this.clearanceAt(x, y), radius: 0, chartX: x, chartZ: -y };
+    const bar = (id: string, lon: number, lat: number): Bar => {
+      const [x, y] = project(lon, lat);
+      return { id, x, z: -y, count: null, from: 0, to: 0, shown: 0, members: null, parent: null };
+    };
+    this.cities = cities.map((c) => bar(c.id, c.lon, c.lat));
+    const groupBars = new Map(groups.filter((g) => g.kind !== "single").map((g) => [g.id, { ...bar(g.id, g.lon, g.lat), members: [] as Bar[] }]));
+    cities.forEach((c, i) => {
+      const g = c.group ? groupBars.get(c.group) : undefined;
+      if (g) (g.members.push(this.cities[i]!), (this.cities[i]!.parent = g));
     });
-    this.byId = new Map(this.bodies.map((b, i) => [b.id, i]));
+    this.groups = [...groupBars.values()].filter((g) => g.members.length);
+    this.regions = [...this.groups, ...this.cities.filter((c) => !c.parent)];
+    this.byId = new Map([...this.cities, ...this.groups].map((b) => [b.id, b]));
     performance.measure("atlas:cities", { start: started });
-    this.expanded.clear();
     this.layoutDirty = true;
     this.invalidate();
   }
 
-  /** New counts; heights tween from what is shown now (only real changes move). */
-  setCounts(counts: Map<string, number | null>, scaleMax: number, priority?: { id: string; max: number }[]): void {
-    if (priority) this.priority = priority;
-    const firstData = !this.bodies.some(b => b.count != null);
+  /** New counts; heights tween from what is shown now (only real changes move). A group's
+   * count is the sum of its members' known counts, unknown only when all are unknown (the
+   * API's scale uses the same rule). */
+  setCounts(counts: Map<string, number | null>, scaleMax: number): void {
+    const firstData = !this.cities.some((b) => b.count != null);
     const rescaled = scaleMax !== this.scaleMax;
     this.scaleMax = scaleMax;
-    for (const b of this.bodies) {
-      const c = counts.has(b.id) ? counts.get(b.id)! : null;
-      b.count = c;
+    for (const c of this.cities) c.count = counts.get(c.id) ?? null;
+    for (const g of this.groups) {
+      const known = g.members!.filter((m) => m.count != null);
+      g.count = known.length ? known.reduce((s, m) => s + m.count!, 0) : null;
+    }
+    for (const b of this.byId.values()) {
       b.from = b.shown;
-      b.to = heightFor(c, scaleMax);
+      b.to = heightFor(b.count, scaleMax);
       if (firstData) b.shown = b.from = b.to;
     }
     this.tweenStart = performance.now();
     this.layoutDirty = true;
     if (rescaled) this.fitHome(!this.interacted);
-    if (!this.frozen) this.updateDetail();
     this.invalidate();
-  }
-
-  /** Stable drawing order for the level of detail: highest known count in the loaded data
-   * first (ties by city id). Frozen by the caller during playback. */
-  setPriority(list: { id: string; max: number }[]): void {
-    this.priority = list;
-    this.fitHome(!this.interacted);
-    this.updateDetail();
-  }
-
-  /** While playing, the expanded set does not follow each frame's counts. */
-  setFrozen(frozen: boolean): void {
-    this.frozen = frozen;
-    if (!frozen) this.updateDetail();
   }
 
   setSelected(id: string | null): void {
     this.selected = id;
-    this.updateFootprints();
     this.layoutDirty = true;
     this.invalidate();
   }
@@ -577,183 +606,80 @@ export class AtlasScene {
   setHovered(id: string | null): void {
     if (id === this.hovered) return;
     this.hovered = id;
-    this.updateFootprints();
     this.layoutDirty = true;
     this.invalidate();
   }
 
-  /** Cities with postings become bodies in data-rank order wherever a footprint fits on land
-   * without touching another; the rest appear as zooming in frees room (no dots, no overlap).
-   * The set is independent of the view angle, so it holds through rotation. */
-  private updateDetail(): void {
+  /** Zoomed in past enterCities the city layer turns on, back below exitCities the groups
+   * return (the gap keeps a zoom near the threshold from flickering). Called on every camera
+   * change, so a layer changes the moment its threshold is crossed. */
+  private updateLayer(): void {
     const d = CEL.detail;
-    if (this.zoom >= d.enterRegional) this.regional = true;
-    else if (this.zoom < d.exitRegional) this.regional = false;
-    const level = levelFor(this.zoom);
-    const ranked = this.rankedBodies();
-    const dataKey = ranked.map(b => `${b.id}:${Math.round(b.to)}`).join("|");
-    if (dataKey !== this.placementData) {
-      this.placementData = dataKey;
-      this.placements.clear();
-      this.precomputing.clear(); // jobs for the old data stop on their own
-    }
-    const placementKey = `${level}|${dataKey}`;
-    if (placementKey !== this.placementKey) {
-      // Not computed yet: compute in slices that leave the main thread free, keep the current
-      // bodies meanwhile, and apply it when done.
-      const placed = this.placements.get(level);
-      if (!placed) return this.precompute(level, ranked, dataKey, () => this.updateDetail());
-      this.placementKey = placementKey;
-      this.level = level;
-      for (const b of this.bodies) { b.chartX = b.x; b.chartZ = b.z; b.radius = 0; }
-      for (const [id, [x, z, radius]] of placed) {
-        const b = this.bodies[this.byId.get(id)!]!;
-        b.chartX = x; b.chartZ = z; b.radius = radius;
-      }
-      this.expanded = new Set(placed.keys());
-      this.updateFootprints();
-    }
-    // Precompute the neighbouring levels in small idle slices, so the next zoom step across a
-    // level does not stall on placement and no slice blocks input.
-    for (const next of [level * 1.5, level / 1.5])
-      if (next >= 1 && next <= ZOOM_MAX * 1.5) this.precompute(next, ranked, dataKey);
+    const city = this.zoom >= d.enterCities ? true : this.zoom < d.exitCities ? false : this.cityLayer;
+    if (city === this.cityLayer) return;
+    this.cityLayer = city;
+    this.mixAt = performance.now();
     this.layoutDirty = true;
-    this.invalidate();
-    for (const cb of this.settleListeners) cb();
   }
 
-  private rankedBodies(): Body[] {
-    return this.priority.length
-      ? this.priority.map(p => this.bodies[this.byId.get(p.id) ?? -1]).filter((b): b is Body => !!b && b.to > 0)
-      : this.bodies.filter(b => b.to > 0).sort((a, b) => b.to - a.to);
+  /** In the current layer (its target, during a split or merge). */
+  private inLayer(b: Bar): boolean {
+    return this.cityLayer ? !b.members : !b.parent;
   }
 
-  private precompute(level: number, ranked: Body[], dataKey: string, done?: () => void): void {
-    if (this.placements.has(level)) return void done?.();
-    const running = this.precomputing.get(level);
-    if (running) {
-      if (done) running.done.push(done);
-      return;
-    }
-    const job = { steps: this.placementSteps(level, ranked), done: done ? [done] : [] };
-    this.precomputing.set(level, job);
-    const forget = () => this.precomputing.get(level) === job && this.precomputing.delete(level);
-    const run = (deadline: Deadline) => {
-      if (this.disposed || this.placementData !== dataKey) return void forget();
-      while (deadline.timeRemaining() > 2)
-        if (job.steps.next().done) {
-          forget();
-          for (const cb of job.done) cb();
-          return;
-        }
-      slice(run, job.done.length > 0); // someone is waiting for it: keep going promptly
-    };
-    slice(run, job.done.length > 0);
+  private drawn(b: Bar): boolean {
+    return b.to > 0 && this.inLayer(b);
   }
 
-  /** Feet for one detail level (cached), yielding every few cities so it can run in idle
-   * slices: in rank order, each city takes the largest footprint that fits on land without
-   * touching another, at its own point or a nearby spot (a ground leader shows the shift).
-   * Sizes, gaps and search rings are divided by the level. */
-  private *placementSteps(level: number, ranked: Body[]): Generator<void, void> {
-    const started = performance.now();
-    const CELL = 120 / level; // wider than the largest foot + gap + foot
-    const grid = new Map<string, [number, number, number][]>();
-    const blocked = (x: number, z: number, radius: number, gap: number) => {
-      const gx = Math.floor(x / CELL), gz = Math.floor(z / CELL);
-      for (let dx = -1; dx <= 1; dx++)
-        for (let dz = -1; dz <= 1; dz++)
-          for (const [ox, oz, or] of grid.get(`${gx + dx},${gz + dz}`) ?? [])
-            if (Math.hypot(x - ox, z - oz) < radius + or + gap) return true;
-      return false;
-    };
-    const out = new Map<string, [number, number, number]>();
-    const sizes = [42, 32, 24, 16].map((size) => size / level);
-    const gap = 18 / level;
-    for (const [rank, b] of ranked.entries()) {
-      if (out.size >= CEL.detail.bodyLimit) break;
-      if (rank % 32 === 31) yield;
-      // Near rings shrink with the level. A city whose point falls just off the simplified
-      // coast also searches the original reach, so it can stand on the nearest land; major
-      // centres look further for a legible round body.
-      const reach = rank < 24 ? 144 : 48;
-      const distances = new Set<number>();
-      for (let d = 24; d <= reach; d += 24) {
-        distances.add(d / level);
-        if (b.clearance <= 0) distances.add(d);
-      }
-      const candidates: [number, number][] = [[b.x, b.z]];
-      for (const distance of [...distances].sort((x, y) => x - y))
-        for (let angle = 0; angle < 16; angle++) candidates.push([b.x + distance * Math.cos(angle * Math.PI / 8), b.z + distance * Math.sin(angle * Math.PI / 8)]);
-      search: for (const radius of sizes)
-        for (const [x, z] of candidates) {
-          if (blocked(x, z, radius, gap) || this.clearanceAt(x, -z) < radius / 0.7) continue;
-          out.set(b.id, [x, z, radius]);
-          const key = `${Math.floor(x / CELL)},${Math.floor(z / CELL)}`;
-          const cell = grid.get(key);
-          if (cell) cell.push([x, z, radius]);
-          else grid.set(key, [[x, z, radius]]);
-          break search;
-        }
-    }
-    this.placements.set(level, out);
-    performance.measure("atlas:placement", { start: started });
+  /** The layer mix now: it moves towards the current layer at a constant rate, so a reversal
+   * mid-way continues from where the bars are. */
+  private stepMix(now: number): number {
+    const step = (now - this.mixAt) / SPLIT_MS;
+    this.mixAt = now;
+    this.mix = this.cityLayer ? Math.min(1, this.mix + step) : Math.max(0, this.mix - step);
+    return this.mix;
   }
 
-  private updateFootprints(): void {
-    const segments: number[] = [];
-    for (const b of this.bodies) {
-      if (!this.expanded.has(b.id)) {
-        b.chartX = b.x; b.chartZ = b.z; b.radius = 0;
-        if ((b.id === this.selected || b.id === this.hovered) && b.to > 0) {
-          let nearest = Infinity;
-          for (const other of this.bodies) if (this.expanded.has(other.id)) nearest = Math.min(nearest, Math.hypot(b.x - other.chartX, b.z - other.chartZ) - other.radius);
-          b.radius = separatedRadius(b.clearance, nearest, 22 / this.level);
-        }
-      }
-      if (b.radius > 0 && Math.hypot(b.x - b.chartX, b.z - b.chartZ) > 1)
-        segments.push(b.x, this.landTop + 2, b.z, b.chartX, this.landTop + 2, b.chartZ);
-    }
-    this.leaders.geometry.dispose();
-    this.leaders.geometry = new THREE.BufferGeometry();
-    this.leaders.geometry.setAttribute("position", new THREE.Float32BufferAttribute(segments, 3));
-  }
-
-  private isBody(b: Body): boolean {
-    return b.shown > 0 && b.radius > 0 && (this.expanded.has(b.id) || b.id === this.selected || b.id === this.hovered);
-  }
-
+  /** Writes the bars to draw. During a split a group bar shrinks while its members grow at
+   * the group's anchor, then slide to their own positions (a merge plays it backwards); with
+   * reduced motion they only cross-fade in place. */
   private layout(now: number): boolean {
-    if (!this.bodies.length) return false;
-    const R = this.bodyRadius();
-    const px = this.worldPerPx();
-    this.domeMat.uniforms.uR!.value = R;
-    this.domeMat.uniforms.uPx!.value = px;
     const pos = this.domeGeo.getAttribute("iPos") as THREE.InstancedBufferAttribute;
-    const radii = this.domeGeo.getAttribute("iR") as THREE.InstancedBufferAttribute;
     const hAttr = this.domeGeo.getAttribute("iH") as THREE.InstancedBufferAttribute;
     const lineAttr = this.domeGeo.getAttribute("iLine") as THREE.InstancedBufferAttribute;
-    let moving = false;
-    let n = 0;
+    const alpha = this.domeGeo.getAttribute("iA") as THREE.InstancedBufferAttribute;
+    const ring = this.domeGeo.getAttribute("iRing") as THREE.InstancedBufferAttribute;
+    const reduced = this.opts.reducedMotion;
+    const t = reduced ? 1 : clamp01((now - this.tweenStart) / CEL.motion.height);
+    for (const b of this.byId.values()) b.shown = b.from + (b.to - b.from) * ease(t);
+    const p = this.stepMix(now);
     const scale = this.heightScale();
-    this.bodies.forEach((b) => {
-      const t = this.opts.reducedMotion ? 1 : Math.min(1, Math.max(0, (now - this.tweenStart) / CEL.motion.height));
-      if (t < 1) moving = true;
-      b.shown = b.from + (b.to - b.from) * ease(t);
+    let n = 0;
+    const put = (b: Bar, x: number, z: number, h: number, a: number) => {
+      if (h <= 0 || a <= 0 || n >= MAX_BARS) return;
       const marked = b.id === this.selected || b.id === this.hovered;
-      if (this.isBody(b) && n < MAX_BODIES) {
-        pos.setXYZ(n, b.chartX, this.landTop, b.chartZ);
-        hAttr.setX(n, b.shown * scale);
-        const radius = Math.min(R, b.radius);
-        radii.setX(n, b.radius);
-        lineAttr.setX(n, Math.min(marked ? CEL.line.selected : CEL.line.data, radius / px * 0.22));
-        n++;
+      pos.setXYZ(n, x, this.landTop, z);
+      hAttr.setX(n, h * scale);
+      lineAttr.setX(n, marked ? CEL.line.selected : CEL.line.data);
+      alpha.setX(n, a);
+      ring.setX(n, b.members ? 1 : 0);
+      n++;
+    };
+    const grow = reduced ? 1 : ease(clamp01(p / 0.5));
+    const shrink = reduced ? 1 : 1 - grow;
+    const slide = reduced ? 1 : ease(clamp01((p - 0.4) / 0.6));
+    for (const b of this.regions) {
+      if (!b.members) put(b, b.x, b.z, b.shown, 1); // the same bar in both layers
+      else if (p < 1) put(b, b.x, b.z, b.shown * shrink, reduced ? 1 - p : 1);
+    }
+    if (p > 0)
+      for (const c of this.cities) {
+        const g = c.parent;
+        if (g) put(c, g.x + (c.x - g.x) * slide, g.z + (c.z - g.z) * slide, c.shown * grow, reduced ? p : 1);
       }
-    });
-    this.domeGeo.instanceCount = n;
-    this.contactGeo.instanceCount = n;
-    pos.needsUpdate = radii.needsUpdate = hAttr.needsUpdate = lineAttr.needsUpdate = true;
-    return moving;
+    this.domeGeo.instanceCount = this.contactGeo.instanceCount = this.ringGeo.instanceCount = n;
+    pos.needsUpdate = hAttr.needsUpdate = lineAttr.needsUpdate = alpha.needsUpdate = ring.needsUpdate = true;
+    return t < 1 || p !== (this.cityLayer ? 1 : 0);
   }
 
   // ------------------------------------------------------------ camera
@@ -762,9 +688,9 @@ export class AtlasScene {
     return (this.camera.top - this.camera.bottom) / (this.host.clientHeight || 1);
   }
 
-  /** Narrow common footprint keeps hundreds of bodies readable; height still encodes count. */
-  private bodyRadius(): number {
-    return CEL.bodyDiameter / 2;
+  /** Bar radius in world units: BAR_PX wide on screen at any zoom. */
+  private barRadius(): number {
+    return (BAR_PX / 2) * this.worldPerPx();
   }
 
   /** The safe rectangle in CSS px: [left, top, width, height], and where the home view centres. */
@@ -797,7 +723,6 @@ export class AtlasScene {
     this.fitHome(!this.interacted);
     if (this.interacted) this.commit(this.state(), false);
     this.layoutDirty = true;
-    this.scheduleSettle();
     this.invalidate();
   }
 
@@ -856,8 +781,9 @@ export class AtlasScene {
     this.camera.updateProjectionMatrix();
     this.camera.updateMatrixWorld();
     this.domeMat.uniforms.uPx!.value = this.worldPerPx();
-    this.domeMat.uniforms.uR!.value = this.bodyRadius();
-    this.layoutDirty = true; // body heights follow the camera's height scale
+    this.domeMat.uniforms.uR!.value = this.barRadius();
+    this.layoutDirty = true; // bar heights follow the camera's height scale
+    this.updateLayer();
   }
 
   private state(): CameraState {
@@ -885,12 +811,13 @@ export class AtlasScene {
     const k = (2 * this.homeHalfH) / zoom / H;
     const { dir, right, up } = this.basis(el, az);
     let [u0, u1, v0, v1] = this.landExtent(el, az);
-    // A selected city's whole body counts as content, so turning the map never leaves it
+    // A selected city's whole bar counts as content, so turning the map never leaves it
     // standing past an edge the land pins to the screen.
-    const picked = this.selected ? this.bodies[this.byId.get(this.selected) ?? -1] : undefined;
-    if (picked && picked.radius > 0)
-      for (const py of [this.landTop, this.landTop + picked.shown * this.heightScale(zoom, el)]) {
-        const p = new THREE.Vector3(picked.chartX, py, picked.chartZ);
+    const picked = this.selected ? this.byId.get(this.selected) : undefined;
+    const sel = picked && this.drawn(picked) ? picked : undefined;
+    if (sel)
+      for (const py of [this.landTop, this.landTop + sel.shown * this.heightScale(zoom, el)]) {
+        const p = new THREE.Vector3(sel.x, py, sel.z);
         u0 = Math.min(u0, p.dot(right)); u1 = Math.max(u1, p.dot(right));
         v0 = Math.min(v0, p.dot(up)); v1 = Math.max(v1, p.dot(up));
       }
@@ -918,11 +845,10 @@ export class AtlasScene {
     const land = zoom > 1 + 1e-6 ? this.landDistance() : this.land;
     if (land) {
       const inset = 0.15 * Math.min(safe.w, safe.h) * k;
-      // never push a selected city's body out of view: a coastal city may show more sea
-      const sel = this.selected ? this.bodies[this.byId.get(this.selected) ?? -1] : undefined;
+      // never push a selected city's bar out of view: a coastal city may show more sea
       const tip = sel ? this.landTop + sel.shown * this.heightScale(zoom, el) : 0;
-      const keepsSelected = (cx: number, cy: number) => !sel || sel.radius <= 0 || [this.landTop, tip].every((py) => {
-        const p = new THREE.Vector3(sel.chartX, py, sel.chartZ), g = new THREE.Vector3(cx, this.landTop, -cy);
+      const keepsSelected = (cx: number, cy: number) => !sel || [this.landTop, tip].every((py) => {
+        const p = new THREE.Vector3(sel.x, py, sel.z), g = new THREE.Vector3(cx, this.landTop, -cy);
         const X = W / 2 + (p.dot(right) - g.dot(right)) / k, Y = H / 2 - (p.dot(up) - g.dot(up)) / k;
         return X >= 0 && X <= W && Y >= 0 && Y <= H;
       });
@@ -1003,7 +929,6 @@ export class AtlasScene {
       if (!this.gesture) this.releaseTimer = window.setTimeout(() => this.release(true), 120);
     }
     this.interacted = true;
-    this.scheduleSettle();
     this.invalidate();
   }
 
@@ -1056,11 +981,6 @@ export class AtlasScene {
     const turned = Math.abs(((this.azimuth - CEL.azimuth) % 360 + 540) % 360 - 180);
     return Math.abs(this.zoom - 1) < 0.01 && turned < 0.5 && Math.abs(this.elevation - CEL.elevation) < 0.5
       && this.target.distanceTo(this.homeTarget) / k < 1;
-  }
-
-  private scheduleSettle(): void {
-    clearTimeout(this.settleTimer);
-    this.settleTimer = window.setTimeout(() => !this.disposed && this.updateDetail(), CEL.detail.settleMs);
   }
 
   /** Orbit around the map target (all the way round; elevation 30–60°). */
@@ -1120,23 +1040,45 @@ export class AtlasScene {
     this.raw = null;
     this.fitHome(true);
     this.interacted = false;
-    this.scheduleSettle();
     this.invalidate();
   }
 
-  /** Bring a city into view, its whole body inside the viewport (320 ms ease, none when reduced). */
+  /** Bring a city into view, its whole bar inside the viewport (320 ms ease, none when reduced). */
   focusCity(id: string, zoom = 3): void {
-    const i = this.byId.get(id);
-    if (i === undefined) return;
-    const b = this.bodies[i]!;
+    const b = this.byId.get(id);
+    if (!b) return;
     const toZoom = THREE.MathUtils.clamp(Math.max(this.zoom, zoom), 1, ZOOM_MAX);
     const h = Math.max(b.to, b.shown) * this.heightScale(toZoom);
-    const to = this.constrain({ target: new THREE.Vector3(b.chartX, this.landTop + h / 2, b.chartZ), zoom: toZoom, az: this.azimuth, el: this.elevation });
+    this.flyTo({ target: new THREE.Vector3(b.x, this.landTop + h / 2, b.z), zoom: toZoom, az: this.azimuth, el: this.elevation });
+  }
+
+  /** Zoom to a group's cities, into the city layer. */
+  focusGroup(id: string): void {
+    const g = this.byId.get(id);
+    if (!g?.members) return;
+    const { right, up } = this.basis(this.elevation, this.azimuth);
+    let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+    const centre = new THREE.Vector3();
+    for (const m of g.members) {
+      const p = new THREE.Vector3(m.x, this.landTop, m.z);
+      u0 = Math.min(u0, p.dot(right)); u1 = Math.max(u1, p.dot(right));
+      v0 = Math.min(v0, p.dot(up)); v1 = Math.max(v1, p.dot(up));
+      centre.add(p);
+    }
+    centre.divideScalar(g.members.length);
+    // the members' spread takes about half the safe rectangle
+    const safe = this.safeRect();
+    const k = Math.max((u1 - u0) / (safe.w * 0.5), (v1 - v0) / (safe.h * 0.5), 1e-9);
+    const zoom = THREE.MathUtils.clamp((2 * this.homeHalfH) / ((this.host.clientHeight || 1) * k), CEL.detail.enterCities * 1.1, ZOOM_MAX);
+    this.flyTo({ target: centre, zoom, az: this.azimuth, el: this.elevation });
+  }
+
+  private flyTo(st: CameraState): void {
+    const to = this.constrain(st);
     this.interacted = true;
     this.raw = null;
     if (this.opts.reducedMotion) this.setState(to);
     else this.anim = { start: performance.now(), ms: CEL.motion.focus, from: this.state(), to };
-    this.scheduleSettle();
     this.invalidate();
   }
 
@@ -1147,7 +1089,6 @@ export class AtlasScene {
     this.setState(lerpState(a.from, a.to, ease(t)));
     if (t < 1) return true;
     this.anim = null;
-    this.scheduleSettle();
     return false;
   }
 
@@ -1168,27 +1109,21 @@ export class AtlasScene {
     return [((p.x + 1) / 2) * this.host.clientWidth, ((1 - p.y) / 2) * this.host.clientHeight];
   }
 
-  /** Nearest body (base-to-top, or its ground leader) within a few pixels of a screen point. */
+  /** Nearest bar of the current layer (base to top) within a few pixels of a screen point. */
   pick(clientX: number, clientY: number): string | null {
     const rect = this.renderer.domElement.getBoundingClientRect();
     const x = clientX - rect.left;
     const y = clientY - rect.top;
-    const rPx = this.bodyRadius() / this.worldPerPx();
+    const scale = this.heightScale();
     let best: string | null = null;
     let bestD = 8;
-    for (const b of this.bodies) {
-      if (!this.isBody(b)) continue;
-      const [bx, by] = this.toScreen(b.chartX, this.landTop, b.chartZ);
-      if (Math.hypot(b.x - b.chartX, b.z - b.chartZ) > 1) {
-        const [ax, ay] = this.toScreen(b.x, this.landTop, b.z);
-        const t = Math.max(0, Math.min(1, ((x - ax) * (bx - ax) + (y - ay) * (by - ay)) / ((bx - ax) ** 2 + (by - ay) ** 2 || 1)));
-        const leaderDistance = Math.hypot(x - ax - t * (bx - ax), y - ay - t * (by - ay));
-        if (leaderDistance < bestD) { bestD = leaderDistance; best = b.id; }
-      }
+    for (const b of this.byId.values()) {
+      if (!this.drawn(b)) continue;
+      const [bx, by] = this.toScreen(b.x, this.landTop, b.z);
       if (Math.abs(x - bx) > 60 || y > by + 20) continue;
-      const [tx, ty] = this.toScreen(b.chartX, this.landTop + b.shown * this.heightScale(), b.chartZ);
-      const t = Math.max(0, Math.min(1, ((x - bx) * (tx - bx) + (y - by) * (ty - by)) / ((tx - bx) ** 2 + (ty - by) ** 2 || 1)));
-      const d = Math.max(0, Math.hypot(x - (bx + t * (tx - bx)), y - (by + t * (ty - by))) - Math.min(rPx, b.radius / this.worldPerPx()) * 0.85);
+      const [tx, ty] = this.toScreen(b.x, this.landTop + b.shown * scale, b.z);
+      const t = clamp01(((x - bx) * (tx - bx) + (y - by) * (ty - by)) / ((tx - bx) ** 2 + (ty - by) ** 2 || 1));
+      const d = Math.max(0, Math.hypot(x - (bx + t * (tx - bx)), y - (by + t * (ty - by))) - (BAR_PX / 2) * 0.85);
       if (d < bestD) {
         bestD = d;
         best = b.id;
@@ -1197,47 +1132,43 @@ export class AtlasScene {
     return best;
   }
 
-  /** Screen positions of every city on screen (for HTML labels and tests). */
+  /** Screen positions of cities and groups on screen (for HTML labels and tests); `body` when
+   * drawn in the current layer. */
   anchors(ids?: ReadonlySet<string>): Anchor[] {
     const w = this.host.clientWidth;
     const h = this.host.clientHeight;
-    const r = this.bodyRadius() / this.worldPerPx();
     const out: Anchor[] = [];
-    for (const b of this.bodies) {
-      if (ids && !ids.has(b.id)) continue;
+    for (const b of ids ? [...ids].map((id) => this.byId.get(id)).filter((b): b is Bar => !!b) : this.byId.values()) {
       const [bx, by] = this.toScreen(b.x, this.landTop, b.z);
       if (bx < -50 || by < -50 || bx > w + 50 || by > h + 50) continue;
-      const body = this.isBody(b);
-      // labels are placed when bodies settle, possibly before they have grown: use the target
-      const tall = ((this.expanded.has(b.id) || body) && b.to > 0 ? Math.max(b.shown, b.to) : 0) * this.heightScale();
-      const [x, y] = tall ? this.toScreen(b.chartX, this.landTop + tall, b.chartZ) : [bx, by];
-      out.push({ id: b.id, x, y, bx, by, r: body ? Math.min(r, b.radius / this.worldPerPx()) : r, height: b.shown, count: b.count, body, displaced: Math.hypot(b.chartX - b.x, b.chartZ - b.z) > 1 });
+      const body = this.drawn(b);
+      // labels may be placed before a bar has grown: use its target height
+      const tall = body ? Math.max(b.shown, b.to) * this.heightScale() : 0;
+      const [x, y] = tall ? this.toScreen(b.x, this.landTop + tall, b.z) : [bx, by];
+      out.push({ id: b.id, x, y, bx, by, r: BAR_PX / 2, height: b.shown, count: b.count, body });
     }
     return out;
   }
 
-  /** Cities drawn as bodies in priority order, and whether the regional level is on. */
-  detail(): { expanded: string[]; regional: boolean } {
-    return { expanded: this.priority.map((p) => p.id).filter((id) => this.expanded.has(id)), regional: this.regional };
+  /** "cities" when the city layer is on (or turning on), else "groups". */
+  layer(): "cities" | "groups" {
+    return this.cityLayer ? "cities" : "groups";
   }
 
-  /** Data priority is independent of whether a coastal city fits a physical body. */
-  labelCandidates(): string[] { return this.priority.map(p => p.id); }
+  /** The bar standing for a city in the current layer: the city, or its group zoomed out. */
+  barOf(id: string): string {
+    const b = this.byId.get(id);
+    return !this.cityLayer && b?.parent ? b.parent.id : id;
+  }
 
-  /** World-space footprint audit, also useful to verify rendered boundary/spacing invariants. */
-  footprints(): { id: string; x: number; z: number; radius: number; clearance: number }[] {
-    return this.bodies.filter(b => this.isBody(b)).map(b => ({ id: b.id, x: b.chartX, z: b.chartZ, radius: Math.min(this.bodyRadius(), b.radius), clearance: this.clearanceAt(b.chartX, -b.chartZ) }));
+  /** The bars of the current layer: id, count and true ground position (tests, audits). */
+  bars(): { id: string; count: number; x: number; z: number; group: boolean }[] {
+    return [...this.byId.values()].filter((b) => this.drawn(b)).map((b) => ({ id: b.id, count: b.count!, x: b.x, z: b.z, group: !!b.members }));
   }
 
   onFrame(cb: () => void): () => void {
     this.listeners.add(cb);
     return () => this.listeners.delete(cb);
-  }
-
-  /** Called when the body set is rebuilt (camera settled, new data or priority). */
-  onSettle(cb: () => void): () => void {
-    this.settleListeners.add(cb);
-    return () => this.settleListeners.delete(cb);
   }
 
   // ------------------------------------------------------------ loop
@@ -1262,7 +1193,6 @@ export class AtlasScene {
   dispose(): void {
     this.disposed = true;
     cancelAnimationFrame(this.raf);
-    clearTimeout(this.settleTimer);
     clearTimeout(this.releaseTimer);
     this.resizeObserver.disconnect();
     this.scene.traverse((o) => {
@@ -1278,7 +1208,6 @@ export class AtlasScene {
     this.renderer.dispose();
     this.renderer.domElement.remove();
     this.listeners.clear();
-    this.settleListeners.clear();
   }
 }
 

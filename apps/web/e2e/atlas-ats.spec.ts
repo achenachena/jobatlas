@@ -105,7 +105,7 @@ test("hourly releases update silently; history mode keeps only a quiet Latest", 
   await page.goto("/?data=ats");
   await ready(page);
   await expect(page.getByText(/Updated 5 min ago/)).toBeVisible();
-  await expect(page.getByText(/via their job-board platforms/).first()).toBeVisible(); // attribution
+  await expect(page.getByRole("button", { name: /^Sources: Greenhouse · Lever/ })).toBeVisible(); // its platforms
   const caps = page.waitForRequest((r) => r.url().includes("/capabilities") && r.url().includes("dataset=ats"));
   atsRelease.id = "ats2"; // a new hourly release
   await caps; // refetched silently
@@ -131,7 +131,7 @@ test("an expired release recovers silently, keeping the map", async ({ page }) =
   await page.getByRole("button", { name: /^Toronto,/ }).click(); // series for the old release: 404
   await expect(page.getByRole("region", { name: "Toronto details" }).getByRole("img", { name: /Trend over/ })).toBeVisible();
   await expect(page.getByRole("alert")).toHaveCount(0);
-  expect(await page.evaluate(() => (window as unknown as { __atlas: { detail(): { expanded: string[] } } }).__atlas.detail().expanded.length)).toBeGreaterThan(0);
+  expect(await page.evaluate(() => (window as unknown as { __atlas: { bars(): unknown[] } }).__atlas.bars().length)).toBeGreaterThan(0);
 });
 
 test("the switch stays short: notes are tooltips and read with each option, no pointer line", async ({ page }) => {

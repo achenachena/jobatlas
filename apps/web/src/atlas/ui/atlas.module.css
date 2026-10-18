@@ -987,6 +987,21 @@
   z-index: 3;
 }
 
+.sourceBtn {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+
+.sourceBtn:hover {
+  color: var(--ink);
+}
+
 @media (max-width: 759px) {
   .top {
     max-width: calc(100vw - 32px);

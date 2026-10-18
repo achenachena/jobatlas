@@ -1,21 +1,22 @@
 /** Hosts the Three.js scene: pointer orbit/pan/zoom/pick, keyboard (arrows pan, Q/E rotate,
- * +/- zoom, 0 reset), map controls, and stable geographic reference labels (four desktop, two mobile),
- * one hover name with its count, and the selected city's note. */
+ * +/- zoom, 0 reset), map controls, stable geographic reference labels with their counts (a
+ * group's when zoomed out), one hover note, and the selected city's note. A click on a group
+ * bar zooms into its cities. */
 import { useEffect, useRef, useState } from "react";
 
-import type { City } from "../api";
+import type { City, Group } from "../api";
 import { type Anchor, AtlasScene, type GeoData } from "../scene/AtlasScene";
+import { CEL } from "../scene/palette";
 import s from "./atlas.module.css";
 import { fmtNum, Icon } from "./parts";
 
 interface Props {
   geo: GeoData;
   cities: City[];
+  groups: Group[];
   counts: Map<string, number | null>;
   scaleMax: number;
   countsKey: string;
-  priority: { id: string; max: number }[];
-  playing: boolean;
   reducedMotion: boolean;
   selected: string | null;
   focus: { id: string } | null;
@@ -24,6 +25,8 @@ interface Props {
 }
 
 const HINT_KEY = "atlas.gestureHintSeen";
+/** a city chosen in the list or search is shown in the city layer */
+const CITY_ZOOM = Math.max(3, CEL.detail.enterCities * 1.15);
 const TOUCH = typeof window !== "undefined" && !!window.matchMedia?.("(pointer: coarse)").matches;
 
 type Side = "right" | "left";
@@ -70,6 +73,10 @@ export function SceneView(p: Props) {
   const refreshLabels = useRef<() => void>(() => {});
   const [away, setAway] = useState(false);
   const names = useRef(new Map<string, string>());
+  const groups = useRef(new Map<string, Group>());
+  const members = useRef(new Map<string, string[]>());
+  const counts = useRef(p.counts);
+  counts.current = p.counts;
   const references = useRef<References>({ core: new Set(), desktop: [], mobile: [] });
   const selectedRef = useRef(p.selected);
   selectedRef.current = p.selected;
@@ -85,7 +92,7 @@ export function SceneView(p: Props) {
     // Commit candidate identities and their projected anchors in the same callback.
     // No extra RAF: an idle scene may never produce another frame after React commits.
     const refresh = () => {
-      const placed = placeLabels(sc, el, names.current, references.current);
+      const placed = placeLabels(sc, el, (id, count) => labelText(id, names.current, groups.current, count), references.current);
       const ids = new Set([...placed.map(l => l.id), ...[hoverRef.current, selectedRef.current].filter((id): id is string => !!id)]);
       setAuto(placed);
       setAnchors(new Map(sc.anchors(ids).map(a => [a.id, a])));
@@ -93,10 +100,8 @@ export function SceneView(p: Props) {
     };
     refreshLabels.current = refresh;
     const offFrame = sc.onFrame(refresh);
-    const offSettle = sc.onSettle(refresh);
     return () => {
       offFrame();
-      offSettle();
       refreshLabels.current = () => {};
       sc.dispose();
       scene.current = null;
@@ -105,6 +110,9 @@ export function SceneView(p: Props) {
 
   useEffect(() => {
     names.current = new Map(p.cities.map((c) => [c.city_id, c.name]));
+    groups.current = new Map(p.groups.map((g) => [g.id, g]));
+    members.current = new Map();
+    for (const c of p.cities) if (c.group_id) members.current.set(c.group_id, [...(members.current.get(c.group_id) ?? []), c.city_id]);
     // Match canonical city IDs, not names: Canada also contains Toronto, PE.
     const available = new Set(p.cities.map(c => c.city_id));
     const ids = (list: string[]) => list.filter(id => available.has(id));
@@ -128,23 +136,25 @@ export function SceneView(p: Props) {
       // phones name only a few: the largest first
       mobile: unique([...ids(["ca-on-toronto", "ca-bc-vancouver", "ca-qc-montreal", "ca-ab-calgary"]), ...core, ...byPopulation.slice(0, 40)]),
     };
-    scene.current?.setCities(p.cities.map((c) => ({ id: c.city_id, name: c.name, lon: c.lon, lat: c.lat })));
-  }, [p.cities]);
+    scene.current?.setCities(
+      p.cities.map((c) => ({ id: c.city_id, name: c.name, lon: c.lon, lat: c.lat, group: c.group_id })),
+      p.groups.map((g) => ({ id: g.id, kind: g.kind, lon: g.lon, lat: g.lat })),
+    );
+  }, [p.cities, p.groups]);
 
   useEffect(() => {
-    scene.current?.setCounts(p.counts, p.scaleMax, p.priority);
+    scene.current?.setCounts(p.counts, p.scaleMax);
     // countsKey changes exactly when the shown data does
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [p.countsKey, p.scaleMax, p.cities, p.priority]);
+  }, [p.countsKey, p.scaleMax, p.cities, p.groups]);
 
-  useEffect(() => scene.current?.setFrozen(p.playing), [p.playing]);
   useEffect(() => {
     scene.current?.setSelected(p.selected);
     refreshLabels.current();
   }, [p.selected]);
   useEffect(() => { scene.current?.setHovered(hover); refreshLabels.current(); }, [hover]);
   useEffect(() => {
-    if (p.focus) scene.current?.focusCity(p.focus.id);
+    if (p.focus) scene.current?.focusCity(p.focus.id, CITY_ZOOM);
   }, [p.focus]);
 
   // Drag pans (the grabbed point follows the pointer); right/Shift-drag orbits; two fingers
@@ -199,7 +209,11 @@ export function SceneView(p: Props) {
     const onUp = (e: PointerEvent) => {
       pointers.delete(e.pointerId);
       if (pointers.size < 2) pinch = 0;
-      if (e.type !== "pointercancel" && e.button === 0 && down && !down.moved && !down.orbit && scene.current) onSelectRef.current(scene.current.pick(e.clientX, e.clientY));
+      if (e.type !== "pointercancel" && e.button === 0 && down && !down.moved && !down.orbit && scene.current) {
+        const id = scene.current.pick(e.clientX, e.clientY);
+        if (id && groups.current.has(id)) scene.current.focusGroup(id);
+        else onSelectRef.current(id);
+      }
       if (pointers.size === 0) {
         scene.current?.endGesture(); // spring back inside the limits
         down = null;
@@ -297,7 +311,7 @@ export function SceneView(p: Props) {
         className={s.stage}
         tabIndex={0}
         role="img"
-        aria-label="3D map of Canada. Body height shows new job postings per city on a square-root scale. The national overview shows hundreds of cities as bodies, with a stable set at every viewing angle. Search to inspect any city. Select a city on the map or in the city list for exact values. Drag to pan; Ctrl-drag, Shift-drag or right-drag to rotate; scroll or pinch to zoom at the pointer; on touch, drag to pan and use two fingers to zoom and turn. Q/E or the rotate buttons rotate, arrow keys pan, plus and minus zoom, 0 resets."
+        aria-label="3D map of Canada. Bar height shows new job postings on a square-root scale. Zoomed out, a bar with a ring stands for a metro area or nearby cities (their known postings added up); select it or zoom in to see each city. Search to inspect any city. Select a city on the map or in the city list for exact values. Drag to pan; Ctrl-drag, Shift-drag or right-drag to rotate; scroll or pinch to zoom at the pointer; on touch, drag to pan and use two fingers to zoom and turn. Q/E or the rotate buttons rotate, arrow keys pan, plus and minus zoom, 0 resets."
         onKeyDown={onKey}
         style={{ cursor: hover ? "pointer" : "grab", touchAction: "none" }}
       />
@@ -349,9 +363,9 @@ export function SceneView(p: Props) {
       <div className={s.labels} aria-hidden="true">
         {autoShown.map((l) => {
           const a = anchors.get(l.id)!;
-          return <Note key={l.id} a={a} side={l.side} dy={l.dy} lines={[name(l.id)]} />;
+          return <Note key={l.id} a={a} side={l.side} dy={l.dy} lines={[labelText(l.id, names.current, groups.current, a.count)]} group={groups.current.has(l.id)} />;
         })}
-        {hov && <Note a={hov} side={sideFor(hov, host.current?.clientWidth ?? 0)} lines={[name(hov.id), countText(hov.count)]} detail />}
+        {hov && <Note a={hov} side={sideFor(hov, host.current?.clientWidth ?? 0)} lines={hoverLines(hov, names.current, groups.current.get(hov.id), members.current, p.counts)} group={groups.current.has(hov.id)} detail />}
       </div>
       {sel && (
         <Note
@@ -359,7 +373,6 @@ export function SceneView(p: Props) {
           side={sideFor(sel, host.current?.clientWidth ?? 0)}
           lines={[name(sel.id), countText(sel.count)]}
           detail
-          hint={sel.displaced ? "The ground line connects this body to the city’s geographic location." : undefined}
           strong
           onClick={p.onOpenDetails}
         />
@@ -372,10 +385,27 @@ function countText(n: number | null): string {
   return n == null ? "Unknown" : `${fmtNum(n)} ${n === 1 ? "job" : "jobs"}`;
 }
 
+/** Map label: "{name} · {count}", a group as "{display_name} area · {count}" unless its name
+ * is an official multi-city name ("Kitchener – Cambridge – Waterloo"). */
+function labelText(id: string, names: Map<string, string>, groups: Map<string, Group>, count: number | null): string {
+  const g = groups.get(id);
+  const name = g ? (g.display_name.includes(" – ") ? g.display_name : `${g.display_name} area`) : (names.get(id) ?? id);
+  return `${name} · ${count == null ? "unknown" : fmtNum(count)}`;
+}
+
+/** Hover note: a city's name and count; a group's name and province(s), count, its Statistics
+ * Canada name when that differs, and how many of its cities have postings. */
+function hoverLines(a: Anchor, names: Map<string, string>, g: Group | undefined, members: Map<string, string[]>, counts: Map<string, number | null>): string[] {
+  if (!g) return [names.get(a.id) ?? a.id, countText(a.count)];
+  const official = g.official_name && g.official_name.replace(/ - /g, " – ") !== g.display_name ? [`Statistics Canada: ${g.official_name}`] : [];
+  const n = (members.get(g.id) ?? []).filter((id) => (counts.get(id) ?? 0) > 0).length;
+  return [`${g.display_name}, ${g.provinces.join("/")}`, countText(a.count), ...official, `${n} ${n === 1 ? "city" : "cities"} with postings`];
+}
+
 const sideFor = (a: Anchor, width: number): Side => (a.bx + a.r + 140 > width - 16 ? "left" : "right");
 
 /** A note beside the city's base with a short leader line; two lines when selected/hovered. */
-function Note(p: { a: Anchor; side: Side; dy?: number; lines: string[]; strong?: boolean; detail?: boolean; hint?: string; onClick?: () => void }) {
+function Note(p: { a: Anchor; side: Side; dy?: number; lines: string[]; group?: boolean; strong?: boolean; detail?: boolean; onClick?: () => void }) {
   const style = { left: p.a.bx, top: p.a.by + (p.dy ?? 0), "--gap": `${p.a.body ? p.a.r + 8 : 8}px`, "--anchor-display": p.dy ? "none" : "block" } as React.CSSProperties;
   const cls = `${s.note} ${p.side === "left" ? s.noteLeft : ""} ${p.strong ? s.noteStrong : ""} ${p.detail ? s.noteDetail : ""}`;
   const body = (
@@ -389,24 +419,25 @@ function Note(p: { a: Anchor; side: Side; dy?: number; lines: string[]; strong?:
   );
   if (!p.onClick) return <>
     {!!p.dy && <svg className={s.labelLeader} width="100%" height="100%"><path d={`M ${p.a.bx} ${p.a.by} L ${p.a.bx} ${p.a.by + p.dy}`} /><circle cx={p.a.bx} cy={p.a.by} r="2.5" /></svg>}
-    <div className={cls} style={style} data-city-id={p.a.id}>{body}</div>
+    <div className={cls} style={style} {...{ [p.group ? "data-group-id" : "data-city-id"]: p.a.id }}>{body}</div>
   </>;
   return (
-    <button type="button" className={cls} style={style} data-city-id={p.a.id} title={p.hint} onClick={p.onClick} aria-label={`${p.lines.join(", ")}. Open details`}>
+    <button type="button" className={cls} style={style} data-city-id={p.a.id} onClick={p.onClick} aria-label={`${p.lines.join(", ")}. Open details`}>
       {body}
     </button>
   );
 }
 
 /** Choose by importance first, then place: busy centres must not lose their identity merely
- * because their coast cannot fit a body or the first label slot intersects another column. */
-function placeLabels(sc: AtlasScene, el: HTMLElement, names: Map<string, string>, references: References): Placed[] {
+ * because the first label slot intersects another column. */
+function placeLabels(sc: AtlasScene, el: HTMLElement, text: (id: string, count: number | null) => string, references: References): Placed[] {
   const w = el.clientWidth, h = el.clientHeight;
-  // Geographic references, never a changing ranking of the current occupation/date.
-  // Missing cities remain absent; zero/unknown cities keep their geographic name.
-  const mobile = w < 760, regional = sc.detail().regional;
-  const limit = mobile ? (regional ? 6 : 4) : regional ? 18 : 15;
-  const candidates = mobile ? references.mobile : references.desktop;
+  // Geographic references, never a changing ranking of the current occupation/date; zoomed
+  // out a city is named through its group's bar. Missing cities remain absent.
+  const mobile = w < 760, cities = sc.layer() === "cities";
+  const limit = mobile ? (cities ? 6 : 4) : cities ? 18 : 15;
+  const candidates = [...new Set((mobile ? references.mobile : references.desktop).map((id) => sc.barOf(id)))];
+  const core = new Set([...references.core].map((id) => sc.barOf(id)));
   const anchors = new Map(sc.anchors(new Set(candidates)).map(a => [a.id, a]));
   const boxes: { x0: number; x1: number; y0: number; y1: number }[] = [];
   const out: Placed[] = [];
@@ -414,7 +445,7 @@ function placeLabels(sc: AtlasScene, el: HTMLElement, names: Map<string, string>
     if (out.length >= limit) break;
     const a = anchors.get(id);
     if (!a || a.bx < 0 || a.bx > w || a.by < 0 || a.by > h) continue;
-    const textW = 12 + (names.get(id) ?? id).length * 7.5;
+    const textW = 12 + text(id, a.count).length * 7.5;
     // Calgary sits inland behind the southern body cluster; its reference note
     // needs a longer leader to reach the quiet margin, without changing identity.
     const preferredDy = id === "ca-ab-calgary" ? 64 : 24;
@@ -433,8 +464,8 @@ function placeLabels(sc: AtlasScene, el: HTMLElement, names: Map<string, string>
       }
     }
     // the core cities are always named; the others only where a clear spot exists
-    if (best && (best.score < 1000 || references.core.has(id))) { boxes.push(best.box); out.push({ id, side: best.side, dy: best.dy }); }
-    else if (references.core.has(id)) out.push({ id, side: sideFor(a, w), dy: Math.max(100 - a.by, Math.min(24, h - 104 - a.by)) });
+    if (best && (best.score < 1000 || core.has(id))) { boxes.push(best.box); out.push({ id, side: best.side, dy: best.dy }); }
+    else if (core.has(id)) out.push({ id, side: sideFor(a, w), dy: Math.max(100 - a.by, Math.min(24, h - 104 - a.by)) });
   }
   return out;
 }
