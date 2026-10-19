@@ -367,14 +367,14 @@ export function ScalePanel(p: {
         </button>
       </div>
       <ul className={s.key}>
-        <li><span className={s.keyDot} /> Bar with a small ring: a metro area or nearby cities</li>
+        <li><span className={s.keyDot} /> Postings, city not drawn as a body</li>
         <li><span className={s.keyZero} /> 0 postings (covered)</li>
         <li><span className={s.keyRing} /> Unknown: not covered or data gap</li>
       </ul>
       <p className={s.small}>
-        Zoomed out, a bar with a ring adds up the known postings of a metro area or nearby cities; zoom in or select it to see each city.
+        The national overview draws only some cities as bodies; zoom in or search to see the rest.
         <br />
-        <span lang="zh">缩小时，带圆环的柱子是一个都市区或相邻城市的已知职位之和；放大或点击查看各城市。</span>
+        <span lang="zh">全国概览仅展开部分城市，放大或检索查看其余城市。</span>
       </p>
       {p.caps?.data_through && (
         <p className={s.small}>

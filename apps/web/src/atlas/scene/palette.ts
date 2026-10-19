@@ -20,15 +20,22 @@ export const CEL = {
   elevation: 38,
   azimuth: -12,
   landDepth: 45,
+  /** Common world-space footprint; zoom scales the complete object uniformly. */
+  bodyDiameter: 200,
   shadowOpacity: 0.45,
   cel: { threshold: 0.22, feather: 0.025 },
   /** normalised [x, y, w, h] the land and body tips fit into, and where the map centres */
   safeDesktop: [0.005, 0.065, 0.99, 0.85],
   centreDesktop: [0.5, 0.485],
   safeMobile: [0.005, 0.1, 0.99, 0.76],
-  /** Zoom at which the city layer replaces the groups, and below which the groups return.
-   * Measured at 1440×900, default angle: the GTA cities' closest pair is 10.7 px apart at 3×
-   * and 9.0 px at 2.5×, so 8 px bars stand apart across the whole hysteresis band. */
-  detail: { enterCities: 3, exitCities: 2.5 },
+  detail: {
+    bodyLimit: 6000, // every city with postings is a body (the gazetteer has ~5,700 cities)
+    nationalLabels: 4,
+    regionalLabels: 6,
+    mobileLabels: 2,
+    enterRegional: 2.2,
+    exitRegional: 1.8,
+    settleMs: 180,
+  },
   motion: { height: 450, focus: 320 },
 } as const;

@@ -127,7 +127,7 @@ test("occupation menu: arrow keys move, Escape closes and returns focus", async 
   expect(opener).toHaveFocus();
 });
 
-test("height scale explains the square-root scale, the group bars and what the map leaves out", async () => {
+test("height scale explains the square-root scale, the city overview and what the map leaves out", async () => {
   mockApi("real");
   renderApp();
   await screen.findByRole("img", { name: /2D view/ });
@@ -135,7 +135,7 @@ test("height scale explains the square-root scale, the group bars and what the m
   await userEvent.click(screen.getByRole("menuitem", { name: "Height scale & data" }));
   const panel = screen.getByRole("region", { name: "Height scale and data" });
   expect(panel).toHaveTextContent("twice as tall = four times the postings");
-  expect(panel).toHaveTextContent("a bar with a ring adds up the known postings of a metro area or nearby cities");
+  expect(panel).toHaveTextContent("全国概览仅展开部分城市，放大或检索查看其余城市");
   expect(panel).toHaveTextContent("On the map: cities only · + 5 remote or city unconfirmed");
   expect(panel).toHaveTextContent("Data through Sep 30, 2026");
   expect(panel).not.toHaveTextContent(/colou?r/i);
