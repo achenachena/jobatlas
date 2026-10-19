@@ -174,10 +174,12 @@ class Group:
 
     @property
     def display_name(self) -> str:
-        """The official name when it names the anchor city ("Kitchener – Cambridge – Waterloo"),
-        else the anchor city's name ("Cape Breton" -> "Sydney")."""
+        """The official name when it names the anchor city ("Kitchener – Cambridge – Waterloo")
+        or is the name of one of its cities ("Bathurst", anchored on Belle-Baie); else the
+        anchor city's name ("Cape Breton" -> "Sydney")."""
         o = self.official_name
-        if o and f" {_words(self.anchor.name)} " in f" {_words(o)} ":
+        if o and (f" {_words(self.anchor.name)} " in f" {_words(o)} "
+                  or any(_words(c.name) == _words(o) for c in self.members)):  # fmt: skip
             return o.replace(" - ", " – ")
         return self.anchor.name
 

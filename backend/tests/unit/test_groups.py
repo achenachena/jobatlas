@@ -33,6 +33,8 @@ FEATURES = [
     # the official name does not name the most populous place
     _feature("225", "Cape Breton", "K", "12", _square(-60.5, 45.9, -59.8, 46.4)),
     _feature("428", "Thetford Mines", "D", "24", _square(-71.4, 46.0, -71.2, 46.2)),
+    # named after a member city that is not the most populous one
+    _feature("328", "Bathurst", "K", "13", _square(-65.9, 47.4, -65.5, 47.8)),
     # a CA with a hole (a lake) and a second, separate part
     _feature("999", "Lakeside", "D", "24",
              _square(-70.0, 47.0, -69.0, 48.0, hole=[[-69.6, 47.4], [-69.4, 47.4], [-69.4, 47.6],
@@ -53,6 +55,8 @@ CITIES = [
     City("ca-ab-edmonton", "Edmonton", "AB", 1_000_000, 53.55, -113.49),
     City("ca-ns-sydney", "Sydney", "NS", 30_000, 46.14, -60.18),
     City("ca-qc-thetford-mines", "Thetford-Mines", "QC", 26_000, 46.09, -71.30),
+    City("ca-nb-belle-baie", "Belle-Baie", "NB", 14_000, 47.70, -65.70),
+    City("ca-nb-bathurst", "Bathurst", "NB", 12_000, 47.62, -65.65),
     City("ca-qc-shore", "Shore", "QC", 900, 47.5, -69.8),  # in Lakeside
     City("ca-qc-in-lake", "In Lake", "QC", 50, 47.5, -69.5),  # in the hole: not in Lakeside
     City("ca-qc-far-part", "Far Part", "QC", 10, 47.1, -67.9),  # second part of Lakeside
@@ -99,8 +103,12 @@ def test_display_names():
     by = _by_city(compute(CITIES, parse_areas(FEATURES)))
     kcw = by["ca-on-kitchener"]
     assert kcw.display_name == "Kitchener – Cambridge – Waterloo"
-    breton = by["ca-ns-sydney"]  # the official name does not name the anchor city
+    # the official name names neither the anchor city nor any member: the anchor city
+    breton = by["ca-ns-sydney"]
     assert (breton.display_name, breton.official_name) == ("Sydney", "Cape Breton")
+    # the official name is a member city's name: kept, although Belle-Baie is the anchor
+    bathurst = by["ca-nb-bathurst"]
+    assert bathurst.anchor.id == "ca-nb-belle-baie" and bathurst.display_name == "Bathurst"
     thetford = by["ca-qc-thetford-mines"]  # punctuation does not matter
     assert thetford.display_name == "Thetford Mines"
 
