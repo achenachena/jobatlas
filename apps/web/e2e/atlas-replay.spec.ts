@@ -6,6 +6,12 @@ test("ten-second overview uses one frame for map and national numbers, then reve
   await atlasFixture(page,"real","complete");
   const errors: string[] = [];page.on("pageerror",e=>errors.push(e.message));
   await page.goto("/");
+  const timeline = page.getByRole("region", { name: "Timeline", exact: true });
+  await expect(timeline.getByRole("button", { name: "Watch changes · 10 sec" })).toBeVisible();
+  const canvas = await page.locator("canvas").first().boundingBox();
+  expect(canvas!.width).toBe(page.viewportSize()!.width);
+  const summaryBox = await page.getByRole("complementary", { name: "Postings summary" }).boundingBox();
+  expect(summaryBox!.width).toBeLessThan(250);
   await page.getByRole("button",{name:"Watch changes · 10 sec"}).click();
   await expect(page.getByRole("button",{name:"Pause overview"})).toBeVisible({timeout:30000});
   const start=Date.now();

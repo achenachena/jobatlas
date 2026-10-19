@@ -1022,52 +1022,52 @@
   }
 }
 
-/* History overview: compact controls and aligned, real-frame numbers. */
-.replayControls { position: absolute; z-index: 2; left: 40px; top: 172px; display: flex; flex-direction: column; gap: 8px; max-width: 280px; padding: 12px; border: 1px solid #d5e3eb; border-radius: 14px; background: rgb(255 254 251 / .96); }
-.watchButton { border: 0; border-radius: 22px; padding: 11px 17px; color: white !important; background: var(--ink); cursor: pointer; }
-.replayControls label { font-size: 12px; display: flex; justify-content: space-between; gap: 8px; align-items: center; }
-.replayControls select { border: 1px solid var(--line); border-radius: 8px; background: white; padding: 3px; }
-.replayControls small { font-size: 10px; line-height: 1.5; }
-.replayControls p { font-size: 12px; margin: 0; }
-.replayPanel { position: absolute; right: 40px; top: 94px; z-index: 3; width: 300px; padding: 16px; border: 1px solid #d5e3eb; border-radius: 14px; background: rgb(255 254 251 / .96); font-variant-numeric: tabular-nums; }
-.replayHeading { display: flex; justify-content: space-between; font-size: 11px; gap: 10px; margin-bottom: 6px; }
-.replayTotal { font-size: 36px; line-height: 1.3; font-weight: 700; }
-.replayDelta { font-size: 12px; min-height: 20px; }
-.replayPanel table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 11px; margin: 10px 0; }
+/* Keep playback in the timeline and let the map use the entire canvas. */
+.playbackGroup { grid-area: play; display: flex; align-items: center; gap: 5px; }
+.timeline { grid-template-columns: auto auto 1fr; }
+.playbackDuration { width: 65px; min-height: 44px; padding: 0; border: 0; background: transparent; color: var(--ink); font-size: 12px; cursor: pointer; }
+.replayPanel { position: absolute; right: 40px; top: 92px; z-index: 3; width: 208px; padding: 10px 12px; border-radius: 10px; background: rgb(255 254 251 / .90); font-variant-numeric: tabular-nums; }
+.replayHeading { display: flex; justify-content: space-between; font-size: 10px; gap: 10px; }
+.replayTotal { font-size: 25px; line-height: 1.4; font-weight: 700; }
+.replayDelta { font-size: 10px; line-height: 1.5; }
+.replayPanel table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 10px; margin: 6px 0; }
 .replayPanel th { text-align: left; font-weight: 500; }
 .replayPanel td, .replayPanel thead th:not(:first-child) { text-align: right; }
-.replayPanel td, .replayPanel th { padding: 5px 0; }
-.replayPanel thead { font-size: 10px; text-transform: uppercase; color: var(--ink-muted); }
-.replayPanel td:last-child { font-size: 10px; }
-.replayFootnote { margin-bottom: 0; font-size: 10px; line-height: 1.5; }
-.compareToggle { display: flex; gap: 6px; align-items: center; font-size: 12px; margin: 8px 0; }
-.replayDetails { font-size: 10px; line-height: 1.5; margin-top: 6px; }
+.replayPanel td, .replayPanel th { padding: 3px 0; }
+.replayPanel thead { font-size: 9px; text-transform: uppercase; color: var(--ink-muted); }
+.replayPanel td:last-child { font-size: 9px; }
+.replayPanel .small { font-size: 10px; }
+.replayFootnote { margin-bottom: 0; line-height: 1.5; }
+.compareToggle { display: flex; gap: 4px; align-items: center; font-size: 11px; margin: 5px 0; }
+.replayDetails { font-size: 10px; line-height: 1.5; margin-top: 4px; }
 .replayDetails summary { cursor: pointer; }
 .replayExpand { display: none; }
 @media (max-width: 759px) {
-  .replayControls { left: 14px; top: 154px; padding: 8px; max-width: 215px; gap: 5px; }
-  .watchButton { padding: 8px 12px; font-size: 12px !important; }
-  .replayControls label { font-size: 10px; }
-  .replayControls small { display: none; }
-  .replayPanel { top: auto; bottom: calc(132px + var(--safe-bottom)); left: 12px; right: 12px; width: auto; padding: 8px 12px; max-height: 38vh; overflow: auto; }
-  .replayPanel .replayHeading { margin: 0; }
-  .replayPanel .replayTotal { font-size: 25px; float: right; margin-top: -28px; }
-  .replayPanel table { margin: 3px 0; font-size: 10px; }
-  .replayPanel td, .replayPanel th { padding: 2px 0; }
-  .replayExtra, .replayFootnote, .replayDetails { display: none; }
+  .timeline { grid-template-columns: auto 1fr; }
+  .playbackGroup { gap: 2px; }
+  .playbackDuration { width: 57px; font-size: 11px; }
+  .when { margin-right: 0; }
+  .mapTools { bottom: calc(100px + var(--safe-bottom)); }
+  .replayPanel { top: auto; bottom: calc(151px + var(--safe-bottom)); left: 16px; right: 16px; width: auto; padding: 6px 8px; max-height: 35vh; overflow: auto; }
+  .replayHeading { justify-content: flex-start; gap: 8px; }
+  .replayPanel .replayTotal { font-size: 21px; position: absolute; right: 8px; top: 3px; }
+  .replayPanel table { margin: 5px 0 0; font-size: 10px; }
+  .replayPanel td, .replayPanel th { padding: 1px 0; }
+  .replayPanel thead { display: none; }
+  .replayExtra, .replayDetails { display: none; }
   .replayExpanded .replayExtra { display: table-row; }
-  .replayExpanded .replayFootnote, .replayExpanded .replayDetails { display: block; }
-  .replayExpand { display: block; border: 0; background: none; padding: 2px 0; font-size: 10px !important; text-decoration: underline; }
-  .replayPanel .small { font-size: 10px; }
-  .compareToggle { font-size: 10px; margin: 3px 0; }
+  .replayExpanded .replayDetails { display: block; }
+  .replayExpand { display: block; border: 0; background: none; padding: 5px 0; font-size: 10px !important; text-decoration: underline; min-height: 28px; }
+  .compareToggle { font-size: 10px; margin: 2px 0; }
+  .replayDelta { padding-top: 5px; }
 }
-@media (max-width: 759px) {
-  .stage { bottom: 180px; }
-  .replayControls .textBtn { font-size: 10px; padding: 0; border: 0; min-height: 20px; }
-}
-.compareLabels .noteCount { animation: revealComparison 1s ease-out both; }
+.compareLabels .noteCount { animation: revealComparison 1s ease-out both; font-size: 11px; line-height: 1.3; }
 @keyframes revealComparison { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .compareLabels .noteCount { animation: none; } }
-@media (min-width: 760px) { .stage { right: 360px; } }
-.compareLabels .noteCount { font-size: 11px; line-height: 1.3; }
 @media (max-width: 759px) { .compareLabels .noteCount { font-size: 10px; } }
+
+@media (max-width: 759px) {
+  .replayBaseline { display: none; }
+  .replayExpanded .replayBaseline { display: block; }
+  .sourceLine { bottom: calc(1px + var(--safe-bottom)); font-size: 8px; }
+}

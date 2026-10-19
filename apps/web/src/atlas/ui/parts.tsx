@@ -407,6 +407,8 @@ export function ScalePanel(p: {
 
 export function TimelineBar(p: {
   overview?: boolean;
+  playLabel?: string;
+  playbackOptions?: ReactNode;
   historyStart: string;
   dataThrough: string;
   day: string;
@@ -441,16 +443,19 @@ export function TimelineBar(p: {
   const label = windowLabel(p.day, p.window);
   return (
     <section className={s.timeline} aria-label="Timeline">
+      <div className={s.playbackGroup}>
       <button
         type="button"
         className={`${s.iconBtn} ${s.play}`}
         onClick={p.onPlay}
         disabled={!p.canPlay}
-        title={p.canPlay ? undefined : p.playReason ?? undefined}
-        aria-label={p.playing ? "Pause" : p.overview ? "Continue overview" : "Play history"}
+        title={p.canPlay ? p.playLabel : p.playReason ?? undefined}
+        aria-label={p.playLabel ?? (p.playing ? "Pause" : p.overview ? "Continue overview" : "Play history")}
       >
         <Icon name={p.playing ? "pause" : "play"} />
       </button>
+      {p.playbackOptions}
+      </div>
       <div className={s.when}>
         <button ref={btn} type="button" className={`${s.dateBtn} ${p.flash ? s.dateFlash : ""}`} id={id} aria-label={label} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
           <span>{fmtDay(p.day)}</span>

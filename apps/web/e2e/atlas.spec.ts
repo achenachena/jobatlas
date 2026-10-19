@@ -58,6 +58,7 @@ test("timeline: drag to a past day, play, pause, back to latest; stops at a data
   // jump near the gap and play into it: playback stops there and says why
   await page.goto("/?date=2026-08-08");
   await ready(page).catch(() => undefined);
+  await page.getByRole("combobox", { name: "Playback duration" }).selectOption("daily");
   await page.getByRole("button", { name: "Play history" }).click();
   await expect(page.getByText(/Stopped at a data gap/)).toBeVisible({ timeout: 15_000 });
   await expect(page.getByText(/No data for this window/)).toBeVisible();

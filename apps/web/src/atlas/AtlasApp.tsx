@@ -75,6 +75,7 @@ export function AtlasApp() {
   const replayKey = `${sel.dataset}|${release}|${sel.occupation}|${sel.window}|${sel.scale}`;
   const replay = useReplay(replayKey, reducedMotion);
   const [launchReplay, setLaunchReplay] = useState(false);
+  const [dailyPlayback, setDailyPlayback] = useState(false);
   const quick = replay.active;
   const quickPlaying = !!quick && replay.phase === "playing";
   const day = replay.frame?.date ?? clampDay(sel.date ?? dataThrough, historyStart, dataThrough);
@@ -348,19 +349,6 @@ export function AtlasApp() {
         )}
       />
       <MoreMenu onPick={onMore} disabled={!ready} />
-      {ready && sel.dataset === "real" && <section className={s.replayControls} aria-label="Historical overview">
-        <button type="button" className={s.watchButton} disabled={replay.phase === "loading" || replay.phase === "ready"} onClick={() => {
-          if (quickPlaying) replay.pause();
-          else if (quick && replay.phase === "paused") replay.begin();
-          else if (quick && replay.phase === "ended") replay.replay();
-          else startReplay();
-        }}>{replay.phase === "loading" || replay.phase === "ready" ? "Preparing history…" : quickPlaying ? "Pause overview" : quick && replay.phase === "paused" ? "Continue" : quick && replay.phase === "ended" ? "Replay" : `Watch changes · ${replay.duration} sec`}</button>
-        <label>Playback duration <select aria-label="Playback duration" value={replay.duration} disabled={quickPlaying || replay.phase === "loading" || replay.phase === "ready"} onChange={e => replay.setDuration(Number(e.target.value))}>{[10,20,40].map(n => <option key={n} value={n}>{n} sec</option>)}</select></label>
-        <small>Job Bank · Past 30 days · {reducedMotion ? "Reduced motion: view start/end comparison" : "From first complete window to latest data"}</small>
-        {replay.error && <p role="alert">{replay.error} <button onClick={startReplay}>Retry</button></p>}
-        {replay.phase === "gap" && <p role="status">Data gap at {day}. Not interpolated. <button onClick={replay.continueGap}>Continue to next complete window</button></p>}
-        {quick && <button className={s.textBtn} onClick={() => { const date = day; replay.cancel(); set({date}); }}>Explore daily / exit comparison</button>}
-      </section>}
       {ready && <ReplayPanel day={day} windowDays={WINDOW_DAYS[sel.window]} counts={sameSelection && frame ? counts : new Map()} national={sameSelection ? frame?.national : null} baseline={replay.baseline} timeline={quick?.timeline} selected={selectedCity} dataset={DATASET_NAME[sel.dataset]} compare={replay.compare} onCompare={replay.setCompare} ended={!!quick && replay.phase === "ended"} /> }
 
       {panel === "scale" && ready && (
@@ -402,7 +390,23 @@ export function AtlasApp() {
             if (quick && d >= quick.timeline.start && d <= quick.timeline.end) replay.seek(d);
             else { replay.cancel(); set({ date: d === dataThrough ? null : d }); }
           }}
-          onPlay={togglePlay}
+          playLabel={sel.dataset !== "real" || dailyPlayback ? undefined : replay.phase === "loading" || replay.phase === "ready" ? "Preparing history…" : quickPlaying ? "Pause overview" : quick && replay.phase === "paused" ? "Continue" : quick && replay.phase === "ended" ? "Replay" : `Watch changes · ${replay.duration} sec`}
+          playbackOptions={sel.dataset === "real" && <select className={s.playbackDuration} aria-label="Playback duration" title="History overview · Job Bank · Past 30 days" value={dailyPlayback ? "daily" : replay.duration} disabled={quickPlaying || replay.phase === "loading" || replay.phase === "ready"} onChange={e => {
+            setPlaying(false); setLaunchReplay(false);
+            if (e.target.value === "daily" || dailyPlayback) replay.cancel();
+            setDailyPlayback(e.target.value === "daily");
+            if (e.target.value !== "daily") replay.setDuration(Number(e.target.value));
+          }}>
+            {[10,20,40].map(n => <option key={n} value={n}>{n} sec</option>)}
+            <option value="daily">Daily</option>
+          </select>}
+          onPlay={() => {
+            if (sel.dataset !== "real" || dailyPlayback) togglePlay();
+            else if (quickPlaying) replay.pause();
+            else if (quick && replay.phase === "paused") replay.begin();
+            else if (quick && replay.phase === "ended") replay.replay();
+            else startReplay();
+          }}
           onSpeed={setSpeed}
           onLatest={() => {
             setPlaying(false);
@@ -430,7 +434,10 @@ export function AtlasApp() {
 
       {/* short status lines above the timeline: gap, partial, stale, newer release, toast, loading */}
       <div className={s.statusBar}>
-        {ready && status === "missing" && (
+        {(replay.phase === "loading" || replay.phase === "ready") && <div className={s.notice} role="status">Preparing history…</div>}
+        {replay.error && <div className={s.notice} role="alert">{replay.error} <button onClick={startReplay}>Retry</button></div>}
+        {replay.phase === "gap" && <div className={s.notice} role="status">Data gap at {day}. Unknown, not zero. <button onClick={replay.continueGap}>Continue to next complete window</button></div>}
+        {ready && status === "missing" && replay.phase !== "gap" && (
           <div className={s.notice} role="status">
             No data for this window ({gapTouching(day!, gaps, WINDOW_DAYS[sel.window])}). Unknown, not zero.
             <button type="button" className={s.textBtn} onClick={() => quick ? replay.continueGap() : set({ date: skipGap(day!, gaps, dataThrough!, WINDOW_DAYS[sel.window]) })}>

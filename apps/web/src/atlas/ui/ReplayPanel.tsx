@@ -16,9 +16,8 @@ export function ReplayPanel(p: {
   if (p.selected && !rows.some(([id]) => id === p.selected!.city_id)) rows.push([p.selected.city_id, p.selected.name]);
   const delta = p.baseline?.national != null && p.national != null ? p.national - p.baseline.national : null;
   return <aside className={`${s.replayPanel} ${expanded ? s.replayExpanded : ""}`} aria-label="Postings summary">
-    <div className={s.replayHeading}><strong>CANADA</strong><span>{p.ended ? "How postings changed" : "New postings"}</span></div>
-    <div className={s.small}>New postings · Past {p.windowDays} days</div>
-    <time className={s.small}>{p.day ? fmtDay(p.day) : "Loading date…"}</time>
+    <div className={s.replayHeading}><strong>CANADA</strong><span>Past {p.windowDays} days</span></div>
+
     <div className={s.replayTotal} data-testid="national-total">{p.national == null ? "—" : fmtNum(p.national)}</div>
     {p.national == null && <div className={s.small}>No complete total available for this frame</div>}
     {p.baseline && <div className={s.replayDelta} data-testid="national-change">{delta == null ? "Not comparable" : `${delta > 0 ? "+" : delta < 0 ? "−" : ""}${fmtNum(Math.abs(delta))} · ${changeLabel(p.baseline.national, p.national)}`} vs start</div>}
@@ -29,9 +28,8 @@ export function ReplayPanel(p: {
     </tbody></table>
     <button type="button" className={s.replayExpand} onClick={() => setExpanded(!expanded)} aria-expanded={expanded}>{expanded ? "Fewer cities" : "Show all cities & details"}</button>
     {p.baseline && <><label className={s.compareToggle}><input type="checkbox" checked={p.compare} onChange={e => p.onCompare(e.target.checked)} />Compare with start</label>
-      <div className={s.small}>Outline = start · Solid = current</div>
-      <div className={s.small}>Compared with {fmtDay(p.baseline.date)}</div>
+      <div className={`${s.small} ${s.replayBaseline}`}>Compared with {fmtDay(p.baseline.date)}</div>
       <details className={s.replayDetails}><summary>Comparison dates & meaning</summary><p>Start: {addDays(p.baseline.date,-29)} – {p.baseline.date}<br/>Current: {p.day && addDays(p.day,-29)} – {p.day}</p><p>Outline = start; solid = current. Teal above start means increase; orange hollow section means decrease. Window differences are not seasonally adjusted trends.</p></details></>}
-    <p className={`${s.small} ${s.replayFootnote}`}>Source: {p.dataset}. National totals include records without a confirmed city. Counts are new advertisements, not people hired or active jobs.</p>
+    <details className={s.replayDetails}><summary>Source & counting details</summary><p className={`${s.small} ${s.replayFootnote}`}>As of {p.day ? fmtDay(p.day) : "loading"}. New postings. Source: {p.dataset}. National totals include records without a confirmed city. Counts are new advertisements, not people hired or active jobs.</p></details>
   </aside>;
 }

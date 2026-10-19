@@ -19,7 +19,7 @@ test("phone: map stays visible; controls in rows; city details as a bottom card"
   expect(card!.width).toBeGreaterThan(vp.width * 0.85); // bottom card, full width
   expect(card!.y).toBeGreaterThan(vp.height * 0.5); // a drawer of at most ~45vh, never the whole map
   // every control is a 44 px touch target
-  for (const name of ["Play history", "Reset view", "Zoom in", "Zoom out", "More"]) {
+  for (const name of ["Watch changes · 10 sec", "Reset view", "Zoom in", "Zoom out", "More"]) {
     const b = await page.getByRole("button", { name }).boundingBox();
     expect(b!.width).toBeGreaterThanOrEqual(44);
     expect(b!.height).toBeGreaterThanOrEqual(44);
