@@ -1020,11 +1020,11 @@ export class AtlasScene {
    * the view shows it rubber-banded past the limits; other moves, and reduced motion, are
    * clamped outright. */
   private commit(next: CameraState, elastic: boolean): void {
-    const from = this.state();
     const to = elastic && !this.opts.reducedMotion ? this.display(next) : this.constrain(next);
+    // Direct manipulation must reach the next rendered frame without chasing a tween.
+    // Keep animation for focus and boundary spring-back, independent of body transitions.
     this.anim = null;
-    if (this.opts.reducedMotion) this.setState(to);
-    else this.anim = { start: performance.now(), ms: this.gesture ? 75 : 130, from, to };
+    this.setState(to);
     if (!elastic || this.opts.reducedMotion) {
       this.raw = null;
     } else {
@@ -1040,7 +1040,7 @@ export class AtlasScene {
 
   /** The camera an elastic move starts from: the gesture's raw camera, or the view. */
   private base(): CameraState {
-    const base = this.raw ?? this.anim?.to ?? this.state();
+    const base = this.raw ?? this.state();
     return { ...base, target: base.target.clone() };
   }
 
