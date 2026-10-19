@@ -66,6 +66,10 @@ export function landClearance(polygons: Polygon[], lakes: Polygon[]) {
   };
 }
 
+export function separatedRadius(clearance: number, nearest: number, nominal: number): number {
+  return Math.max(0, Math.min(nominal, clearance * 0.7, nearest * 0.32));
+}
+
 /** Signed distance to the land's outer edge on a ~8 km raster (km; positive on land, negative
  * off it; lakes count as land), with its gradient, for keeping the camera over land smoothly.
  * Exact Euclidean distance transform (Felzenszwalb & Huttenlocher). */

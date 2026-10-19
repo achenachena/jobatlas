@@ -14,6 +14,7 @@ import {
   type VersionResponse,
   type WindowKey,
 } from "./api";
+import { cityScaleMax } from "./scale";
 import { addDays, daysBetween } from "./state";
 
 export const CHUNK_DAYS = 120;
@@ -101,14 +102,16 @@ export function useTimelineChunk(a: TimelineArgs, date: string | null, prefetchN
 
 /** Fixed scale for a whole playback: the largest city count of the "all" occupation (shared)
  * or of the selected occupation (fit), over the whole release history. */
-export function useScaleMax(a: TimelineArgs, mode: "shared" | "fit") {
+export function useScaleMax(a: TimelineArgs, mode: "shared" | "fit", caps: Capabilities | undefined) {
   const occ = mode === "shared" ? "all" : a.occupation;
+  const cityMax = caps && caps.release_id === a.release ? cityScaleMax(caps.quality, occ, a.window) : null;
   const q = useQuery({
     ...timelineQuery({ ...a, occupation: occ }, [a.dataThrough ?? "", a.dataThrough ?? ""]),
-    enabled: !!a.release && !!a.dataThrough,
+    enabled: cityMax == null && !!a.release && !!a.dataThrough,
     placeholderData: keepPreviousData, // keep the map on screen until the new scale arrives
   });
-  return q.data?.max_count ?? null;
+  // Demo/legacy responses without published city metadata keep their existing scale.
+  return cityMax ?? q.data?.max_count ?? null;
 }
 
 export function useSeries(

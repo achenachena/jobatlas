@@ -40,14 +40,14 @@ function timeline(occupation: string) {
 }
 
 let calls: string[] = [];
-function mockApi(mode: "real" | "demo" | "not_configured") {
+function mockApi(mode: "real" | "demo" | "not_configured", quality: Record<string, unknown> = {}) {
   calls = [];
   vi.stubGlobal("fetch", vi.fn(async (input: string) => {
     const url = new URL(String(input), "http://localhost");
     calls.push(url.pathname + url.search);
     const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
     if (url.pathname === "/atlas/canada-geo.json") return json(GEO);
-    if (url.pathname.endsWith("/capabilities")) return json(caps(mode));
+    if (url.pathname.endsWith("/capabilities")) return json({ ...caps(mode), quality });
     if (mode === "not_configured" && url.searchParams.get("dataset") !== "demo")
       return json({ error: { code: "DATA_SOURCE_NOT_CONFIGURED", message: "not connected" } }, 503);
     if (url.pathname.endsWith("/cities")) return json({ ...CITIES, data_mode: mode });
@@ -127,7 +127,7 @@ test("occupation menu: arrow keys move, Escape closes and returns focus", async 
   expect(opener).toHaveFocus();
 });
 
-test("height scale explains the square-root scale, the group bars and what the map leaves out", async () => {
+test("height scale explains the square-root scale, the city overview and what the map leaves out", async () => {
   mockApi("real");
   renderApp();
   await screen.findByRole("img", { name: /2D view/ });
@@ -135,7 +135,7 @@ test("height scale explains the square-root scale, the group bars and what the m
   await userEvent.click(screen.getByRole("menuitem", { name: "Height scale & data" }));
   const panel = screen.getByRole("region", { name: "Height scale and data" });
   expect(panel).toHaveTextContent("twice as tall = four times the postings");
-  expect(panel).toHaveTextContent("a bar with a ring adds up the known postings of a metro area or nearby cities");
+  expect(panel).toHaveTextContent("全国概览仅展开部分城市，放大或检索查看其余城市");
   expect(panel).toHaveTextContent("On the map: cities only · + 5 remote or city unconfirmed");
   expect(panel).toHaveTextContent("Data through Sep 30, 2026");
   expect(panel).not.toHaveTextContent(/colou?r/i);
@@ -154,4 +154,22 @@ test("city list is keyboard reachable and shows exact counts", async () => {
   // a search reaches every city, zero ones included
   await userEvent.type(screen.getByRole("searchbox", { name: "Search cities" }), "mont");
   expect(screen.getByRole("button", { name: /Montréal, QC\s*0/ })).toBeInTheDocument();
+});
+
+
+test("published city maxima drive shared and occupation-fit scales instead of the regional timeline maximum", async () => {
+  mockApi("real", { scale_max: { all: { "7d": 1600 }, bartender: { "7d": 100 } } });
+  renderApp();
+  await screen.findByRole("img", { name: /2D view/ });
+  await userEvent.click(screen.getByRole("button", { name: "Occupation: All jobs" }));
+  await userEvent.click(screen.getByRole("menuitemradio", { name: "Bartender" }));
+  await userEvent.click(screen.getByRole("button", { name: "More" }));
+  await userEvent.click(screen.getByRole("menuitem", { name: "Height scale & data" }));
+  const panel = screen.getByRole("region", { name: "Height scale and data" });
+  expect(panel.querySelector("svg[class*=domes]")?.textContent).toContain("1,600");
+  await userEvent.click(screen.getByRole("radio", { name: "Fit to occupation" }));
+  expect(panel.querySelector("svg[class*=domes]")?.textContent).toContain("100");
+  expect(panel.querySelector("svg[class*=domes]")?.textContent).not.toContain("1,600");
+  await userEvent.click(screen.getByRole("radio", { name: "Shared" }));
+  expect(panel.querySelector("svg[class*=domes]")?.textContent).toContain("1,600");
 });
