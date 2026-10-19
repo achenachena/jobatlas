@@ -19,3 +19,14 @@ export function legendTicks(scaleMax: number, steps = 4): number[] {
   }
   return out;
 }
+
+/** Published city maxima remain in capabilities even when timeline.max_count describes
+ * regions. Read only finite, nonnegative numbers from the extensible quality metadata. */
+export function cityScaleMax(quality: Record<string, unknown> | undefined, occupation: string, window: string): number | null {
+  const scales = quality?.scale_max;
+  if (!scales || typeof scales !== "object") return null;
+  const windows = (scales as Record<string, unknown>)[occupation];
+  if (!windows || typeof windows !== "object") return null;
+  const value = (windows as Record<string, unknown>)[window];
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+}

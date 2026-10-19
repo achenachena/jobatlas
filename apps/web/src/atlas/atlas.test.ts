@@ -1,5 +1,5 @@
 import { project } from "./projection";
-import { heightFor, legendTicks, MAX_HEIGHT } from "./scale";
+import { cityScaleMax, heightFor, legendTicks, MAX_HEIGHT } from "./scale";
 import { addDays, daysBetween, DEFAULT_SELECTION, parseSelection, serializeSelection } from "./state";
 import { windowLabel } from "./ui/parts";
 import { chunkFor, CHUNK_DAYS } from "./useAtlasData";
@@ -85,4 +85,15 @@ test("date range labels are compact and keep day granularity", () => {
   expect(windowLabel("2026-09-06", "7d")).toBe("Aug 31 – Sep 6, 2026");
   expect(windowLabel("2026-01-03", "7d")).toBe("Dec 28, 2025 – Jan 3, 2026");
   expect(windowLabel("2026-09-30", "1d")).toBe("Sep 30, 2026");
+});
+
+
+test("city scale uses occupation/window maxima and preserves zero without accepting invalid metadata", () => {
+  const quality = { scale_max: { all: { "7d": 2929, "30d": 9699 }, cook: { "7d": 105, "1d": 0 } }, group_scale_max: { values: { all: { "7d": 10832 } } } };
+  expect(cityScaleMax(quality, "all", "7d")).toBe(2929);
+  expect(cityScaleMax(quality, "all", "30d")).toBe(9699);
+  expect(cityScaleMax(quality, "cook", "7d")).toBe(105);
+  expect(cityScaleMax(quality, "cook", "1d")).toBe(0);
+  for (const value of [undefined, {}, { scale_max: null }, { scale_max: { all: { "7d": "2929" } } }, { scale_max: { all: { "7d": -1 } } }, { scale_max: { all: { "7d": Infinity } } }])
+    expect(cityScaleMax(value, "all", "7d")).toBeNull();
 });

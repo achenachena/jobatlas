@@ -81,7 +81,7 @@ export function AtlasApp() {
   const cities = useCities(sel.dataset, release);
   const args = { dataset: sel.dataset, release, occupation: sel.occupation, window: sel.window, historyStart, dataThrough };
   const tl = useTimelineChunk(args, day, playing);
-  const scaleMax = useScaleMax(args, sel.scale);
+  const scaleMax = useScaleMax(args, sel.scale, info);
   const sources = useSources();
 
   // Render a real single-day response without waiting for the playback chunk.
