@@ -21,6 +21,11 @@ async def ready(session: AsyncSession = Depends(get_async_session)) -> JSONRespo
     try:
         head = (await session.execute(text("SELECT version_num FROM alembic_version"))).scalar()
         checks["database"] = "ok" if head else "no_migrations"
+        # every city has its region (atlas-groups), so the map's grouping is never missing
+        ungrouped = (await session.execute(text(
+            "SELECT count(*) FROM atlas_cities c WHERE NOT EXISTS "
+            "(SELECT 1 FROM atlas_city_groups g WHERE g.city_id = c.id)"))).scalar()  # fmt: skip
+        checks["grouping"] = "ok" if not ungrouped else f"{ungrouped} cities without a group"
     except Exception as exc:  # noqa: BLE001 - report any dependency failure as not ready
         checks["database"] = f"error:{type(exc).__name__}"
     try:

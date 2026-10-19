@@ -76,7 +76,7 @@ def client(engine):
     caches = (
         config.get_settings, dbs.get_sync_engine, dbs._sync_factory, dbs.get_async_engine,
         dbs._async_factory, routes._city_ids, routes._cities, routes.scale_max,
-        routes._ats_occupations,
+        routes._ats_occupations, routes._grouped,
     )  # fmt: skip
     for fn in caches:
         fn.cache_clear()

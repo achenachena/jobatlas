@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { landClearance, separatedRadius } from "./footprints";
+import { landClearance } from "./footprints";
 const square = (x: number, y: number, size: number): [number, number][][] => [[[x,y],[x+size,y],[x+size,y+size],[x,y+size],[x,y]]];
 test("footprints respect the rendered country and lakes, but not shared province edges", () => {
   const clearance = landClearance([square(0,0,10), square(10,0,10)], []);
@@ -10,14 +10,6 @@ test("footprints respect the rendered country and lakes, but not shared province
   expect(lake(10,10)).toBe(0);
   expect(lake(7,10)).toBe(1);
 });
-test("body footprints leave room for outline and neighbour separation", () => {
-  const r = separatedRadius(100,10,22);
-  expect(2 * r * 1.15).toBeLessThan(10);
-  expect(separatedRadius(2,100,22) * 1.15).toBeLessThan(2);
-  expect(separatedRadius(0,100,22)).toBe(0);
-  expect(separatedRadius(100,0,22)).toBe(0);
-});
-
 test("indexed clearance matches exact distances across a coastline and lake", () => {
   const outer = square(0, 0, 100), lake = square(40, 40, 20);
   const clearance = landClearance([outer], [lake]);

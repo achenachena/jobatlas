@@ -7,6 +7,7 @@ ranges are bounded.
 
 from __future__ import annotations
 
+from collections import Counter, defaultdict
 from collections.abc import Iterator
 from datetime import date, timedelta
 from functools import lru_cache
@@ -15,10 +16,10 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy.orm import Session
 
-from app.atlas import ats, jobbank
+from app.atlas import ats, groups, jobbank
 from app.atlas import datasets as ds
 from app.atlas.cities import GEONAMES_ATTRIBUTION
-from app.atlas.metrics import current_release
+from app.atlas.metrics import GROUP_SCALE_SQL, current_release, grouping_version, scale_maxima
 from app.atlas.models import AtlasSource
 from app.atlas.occupations import PUBLIC_IDS
 from app.atlas.permissions import OGL_ATTRIBUTION, admitted, source
@@ -161,9 +162,11 @@ def cities(
 ):
     d = _open(session, dataset, release)
     info = d.info()
+    grouping = grouping_version(session)
+    cities_out, groups_out = _grouped(info.release_id, dataset, grouping)
     return CitiesResponse(dataset_id=info.dataset_id, data_mode=info.data_mode,
-                          release_id=info.release_id, cities=_cities(info.release_id, dataset),
-                          attribution=GEONAMES_ATTRIBUTION)  # fmt: skip
+                          release_id=info.release_id, cities=cities_out, groups=groups_out,
+                          grouping_version=grouping, attribution=GEONAMES_ATTRIBUTION)  # fmt: skip
 
 
 @lru_cache(maxsize=32)
@@ -176,6 +179,23 @@ def _cities(release_id: str, dataset: str) -> list[dict]:
 @lru_cache(maxsize=256)
 def _city_ids(release_id: str, dataset: str) -> tuple[str, ...]:
     return tuple(c["city_id"] for c in _cities(release_id, dataset))
+
+
+@lru_cache(maxsize=32)
+def _grouped(release_id: str, dataset: str, grouping: str | None) -> tuple[list, list]:
+    """The release's cities with their group, and the groups they fall in (members: how many
+    of these cities each holds)."""
+    with sync_session() as session:
+        group_of = groups.membership(session)
+        stored = groups.stored_groups(session)
+    cities_out = [{**c, "group_id": group_of.get(c["city_id"])}
+                  for c in _cities(release_id, dataset)]  # fmt: skip
+    counts = Counter(c["group_id"] for c in cities_out if c["group_id"])
+    groups_out = [{"id": g.id, "display_name": g.display_name, "official_name": g.official_name,
+                   "kind": g.kind, "provinces": g.provinces, "lat": g.lat, "lon": g.lon,
+                   "members": counts[g.id]}
+                  for gid, g in sorted(stored.items()) if gid in counts]  # fmt: skip
+    return cities_out, groups_out
 
 
 @router.get("/frame", response_model=FrameResponse)
@@ -245,26 +265,37 @@ def timeline(
                               days_available=f.days_available,
                               counts=[f.cities.get(c) for c in ids], national=f.national,
                               notes=f.notes, backfilled_days=f.backfilled_days) for f in fr],
-        max_count=scale_max(dataset, info.release_id, occupation, window_key),
+        max_count=scale_max(dataset, info.release_id, occupation, window_key,
+                            grouping_version(session)),
     )  # fmt: skip
 
 
 @lru_cache(maxsize=128)
-def scale_max(dataset: str, release_id: str, occupation: str, window_key: str) -> int:
-    """Largest city count over the whole history of a release: one fixed scale for a whole
-    playback (never re-normalised per frame). Real releases store it at build time."""
+def scale_max(
+    dataset: str, release_id: str, occupation: str, window_key: str, grouping: str | None
+) -> int:
+    """Largest region total over the whole history of a release: one fixed scale for a whole
+    playback (never re-normalised per frame), shared by regions and their cities. A region
+    total sums its members' known counts; it is null only when all are null. Releases built
+    under the current grouping store it; others are computed once here."""
     with sync_session() as session:
         d = _open(session, dataset, None if dataset == "demo" else release_id)
         info = d.info()
-        stored = (info.quality or {}).get("scale_max", {}).get(occupation, {}).get(window_key)
-        if stored is not None:
-            return int(stored)
+        stored = (info.quality or {}).get("group_scale_max")
+        if stored and stored.get("grouping_version") == grouping:
+            return int(stored["values"].get(occupation, {}).get(window_key, 0))
+        if dataset != "demo":
+            found = scale_maxima(session, info.release_id, GROUP_SCALE_SQL, occupation)
+            return found.get(occupation, {}).get(window_key, 0)
+        group_of = groups.membership(session)
         ids = list(_city_ids(info.release_id, dataset))
         best = 0
         for f in d.frames(occupation, window_key, info.history_start, info.data_through, ids):
-            for v in f.cities.values():
-                if v is not None and v > best:
-                    best = v
+            totals: dict[str, int] = defaultdict(int)
+            for c, v in f.cities.items():
+                if v is not None:
+                    totals[group_of.get(c, c)] += v
+            best = max(best, *totals.values(), 0)
         return best
 
 
@@ -361,5 +392,6 @@ def sources(session: Session = Depends(get_session)) -> SourcesResponse:
             "does not cover it (gap, not covered).",
             "coverage": "Job Bank postings only — not the whole Canadian job market.",
         },
-        attributions=[OGL_ATTRIBUTION, GEONAMES_ATTRIBUTION, NATURAL_EARTH],
+        attributions=[OGL_ATTRIBUTION, GEONAMES_ATTRIBUTION, NATURAL_EARTH]
+        + ([groups.STATCAN_ATTRIBUTION] if grouping_version(session) else []),
     )

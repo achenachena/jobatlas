@@ -230,7 +230,16 @@ export function coverageText(caps: Capabilities | undefined): string {
 }
 
 /** The map corner's source line: the dataset's attribution and, for hourly data, its age. */
-export function SourceLine(p: { caps: Capabilities | undefined; publishedAt: string | null | undefined }) {
+/** Reference data named in the source line when /sources attributes it. */
+const REFERENCE_SOURCES: [string, RegExp][] = [["Statistics Canada", /Statistics Canada/], ["GeoNames", /GeoNames/], ["Natural Earth", /Natural Earth/]];
+
+export function SourceLine(p: {
+  dataset: Dataset;
+  caps: Capabilities | undefined;
+  sources: SourcesResponse | undefined;
+  publishedAt: string | null | undefined;
+  onOpen: () => void;
+}) {
   const [now, setNow] = useState(() => Date.now());
   const hourly = p.caps?.refresh === "hourly";
   useEffect(() => {
@@ -241,13 +250,16 @@ export function SourceLine(p: { caps: Capabilities | undefined; publishedAt: str
   if (!p.caps || p.caps.data_mode === "not_configured") return null;
   const minutes = p.publishedAt ? Math.max(0, Math.round((now - Date.parse(p.publishedAt)) / 60_000)) : null;
   const age = minutes == null ? null : minutes < 60 ? `Updated ${minutes} min ago` : `Updated ${Math.round(minutes / 60)} h ago`;
-  // one short line off the map: the attribution's first sentence (the full text is the
-  // tooltip and in Sources & definitions)
-  const full = p.caps.attribution ?? DATASET_NAME[p.caps.data_mode === "demo" ? "demo" : "real"];
-  const first = full.match(/^.*?[.!?](?=\s|$)/)?.[0] ?? full;
+  // one short line off the map: the shown dataset's source (Employer boards: its platforms),
+  // then the reference data /sources attributes; the full attributions are in the dialog
+  const own = p.dataset === "ats" && p.caps.platforms.length ? p.caps.platforms : [DATASET_NAME[p.dataset]];
+  const all = p.sources?.attributions ?? [];
+  const names = [...own, ...REFERENCE_SOURCES.filter(([, re]) => all.some((a) => re.test(a))).map(([name]) => name)];
   return (
-    <p className={s.sourceLine} title={full}>
-      {first}
+    <p className={s.sourceLine}>
+      <button type="button" className={s.sourceBtn} onClick={p.onOpen} aria-haspopup="dialog">
+        Sources: {names.join(" · ")}
+      </button>
       {hourly && age && <> · {age}</>}
     </p>
   );
@@ -319,7 +331,7 @@ export function ScalePanel(p: {
   onMode: (m: "shared" | "fit") => void;
   caps: Capabilities | undefined;
   publishedAt: string | null | undefined;
-  national: { total_unique: number | null; city_unconfirmed: number | null } | undefined;
+  national: { total_unique: number | null; city_unconfirmed: number | null; remote_canada: number | null } | undefined;
   /** the national total includes backfilled days (a lower bound) */
   lowerBound: boolean;
   onClose: () => void;
@@ -355,14 +367,14 @@ export function ScalePanel(p: {
         </button>
       </div>
       <ul className={s.key}>
-        <li><span className={s.keyDot} /> Postings, city not drawn as a body</li>
+        <li><span className={s.keyDot} /> Bar with a small ring: a metro area or nearby cities</li>
         <li><span className={s.keyZero} /> 0 postings (covered)</li>
         <li><span className={s.keyRing} /> Unknown: not covered or data gap</li>
       </ul>
       <p className={s.small}>
-        The national overview draws only some cities as bodies; zoom in or search to see the rest.
+        Zoomed out, a bar with a ring adds up the known postings of a metro area or nearby cities; zoom in or select it to see each city.
         <br />
-        <span lang="zh">全国概览仅展开部分城市，放大或检索查看其余城市。</span>
+        <span lang="zh">缩小时，带圆环的柱子是一个都市区或相邻城市的已知职位之和；放大或点击查看各城市。</span>
       </p>
       {p.caps?.data_through && (
         <p className={s.small}>
@@ -377,7 +389,12 @@ export function ScalePanel(p: {
               <br />
               Canada: <strong>{p.national.total_unique == null ? "unknown" : fmtNum(p.national.total_unique)}</strong> postings
               {p.lowerBound && p.national.total_unique != null && <> <LowerBound /></>}
-              {p.national.city_unconfirmed ? <> · {fmtNum(p.national.city_unconfirmed)} city unconfirmed</> : null}
+              {(p.national.remote_canada ?? 0) + (p.national.city_unconfirmed ?? 0) > 0 && (
+                <>
+                  <br />
+                  On the map: cities only · + {fmtNum((p.national.remote_canada ?? 0) + (p.national.city_unconfirmed ?? 0))} remote or city unconfirmed
+                </>
+              )}
             </>
           )}
         </p>

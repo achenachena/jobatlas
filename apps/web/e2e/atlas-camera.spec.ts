@@ -46,7 +46,7 @@ for (const vp of [{ name: "desktop", width: 1440, height: 900 }, { name: "phone"
         else if (kind === "tilt") sc.rotate(0, (random() < 0.5 ? -1 : 1) * H * 0.4, true);
         else if (kind === "key") pick([() => sc.pan(60, 0), () => sc.pan(0, -60), () => sc.zoomAt(1.25), () => sc.zoomAt(0.8), () => sc.rotate(-100), () => sc.rotate(100)])();
         else {
-          const ids = sc.detail().expanded as string[];
+          const ids = (sc.bars() as { id: string; group: boolean }[]).filter((b) => !b.group).map((b) => b.id);
           focused = ids.length ? ids[Math.floor(random() * ids.length)]! : null;
           if (focused) { sc.setSelected(focused); sc.focusCity(focused); }
         }
@@ -59,11 +59,11 @@ for (const vp of [{ name: "desktop", width: 1440, height: 900 }, { name: "phone"
         const dot = (p: { x: number; y: number; z: number }, a: number[]) => p.x * a[0]! + p.y * a[1]! + p.z * a[2]!;
         const uc = dot(sc.target, right), vc = dot(sc.target, up);
         let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
-        // content = the land, plus a selected city's whole body
+        // content = the land, plus a selected city's whole bar
         const content = [...sc.landPoints];
-        const picked = focused ? sc.bodies[sc.byId.get(focused)] : null;
-        if (picked && picked.radius > 0)
-          for (const py of [sc.landTop, sc.landTop + picked.shown * sc.heightScale()]) content.push({ x: picked.chartX, y: py, z: picked.chartZ });
+        const picked = focused ? sc.byId.get(focused) : null;
+        if (picked && sc.drawn(picked))
+          for (const py of [sc.landTop, sc.landTop + picked.shown * sc.heightScale()]) content.push({ x: picked.x, y: py, z: picked.z });
         for (const p of content) {
           const X = W / 2 + (dot(p, right) - uc) / k, Y = H / 2 - (dot(p, up) - vc) / k;
           x0 = Math.min(x0, X); x1 = Math.max(x1, X); y0 = Math.min(y0, Y); y1 = Math.max(y1, Y);
@@ -82,13 +82,12 @@ for (const vp of [{ name: "desktop", width: 1440, height: 900 }, { name: "phone"
         const maxPx = (maxHeight * sc.heightScale() * Math.cos((sc.elevation * Math.PI) / 180)) / k;
         if (maxPx > safe.h * 0.5 + 0.5) fail(`d: ${maxPx.toFixed(1)}px > ${(safe.h / 2).toFixed(1)}px`);
         if (Math.abs(sc.zoom - 6) < 1e-6) deepest = true;
-        // e) a focused city's body is on screen from foot to top
+        // e) a focused city's bar is on screen from foot to top
         if (focused) {
-          // the body itself (a displaced body stands at its chart position, with a leader)
-          const b = sc.bodies[sc.byId.get(focused)];
-          if (b.radius > 0 && b.shown > 0) {
+          const b = sc.byId.get(focused);
+          if (sc.drawn(b) && b.shown > 0) {
             const tip = sc.landTop + b.shown * sc.heightScale();
-            const out = [sc.landTop, tip].map((py: number) => sc.toScreen(b.chartX, py, b.chartZ))
+            const out = [sc.landTop, tip].map((py: number) => sc.toScreen(b.x, py, b.z))
               .some(([px, py]: [number, number]) => px < 0 || px > W || py < 0 || py > H);
             if (out) fail(`e: ${focused} body cut`);
           }

@@ -81,7 +81,11 @@ class TimelineResponse(BaseModel):
     end: str
     city_ids: list[str]
     frames: list[TimelineFrame]
-    max_count: int = Field(description="largest count in this range, for a fixed scale")
+    max_count: int = Field(
+        description="largest region total over the release's whole history (a region sums its "
+        "member cities' known counts; null only when all are null): one fixed scale for regions "
+        "and cities alike"
+    )
 
 
 class SeriesPoint(BaseModel):
@@ -112,6 +116,23 @@ class City(BaseModel):
     aliases: list[str]
     kind: str
     evidence: str
+    group_id: str | None = Field(
+        description="the city's region (CitiesResponse.groups); null before a grouping exists"
+    )
+
+
+class Group(BaseModel):
+    id: str
+    display_name: str = Field(
+        description="the official CMA/CA name when it names the anchor city (dashes as ' – '), "
+        "else the anchor city's name; shown as '{display_name} area' except for kind single"
+    )
+    official_name: str | None = Field(description="CMA/CA name as published, for a tooltip")
+    kind: Literal["cma", "ca", "cluster", "single"]
+    provinces: list[str] = Field(description="anchor's province first; several across a border")
+    lat: float = Field(description="anchor: the most populous member city's position")
+    lon: float
+    members: int = Field(description="cities of this response in the group")
 
 
 class CitiesResponse(BaseModel):
@@ -119,6 +140,10 @@ class CitiesResponse(BaseModel):
     data_mode: DataMode
     release_id: str
     cities: list[City]
+    groups: list[Group] = Field(description="the regions these cities fall in")
+    grouping_version: str | None = Field(
+        description="changes whenever the grouping changes; null before a grouping exists"
+    )
     attribution: str
 
 

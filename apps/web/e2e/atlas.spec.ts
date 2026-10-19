@@ -253,25 +253,6 @@ test("zoom at the pointer and by pinch, drag to pan, click selects, Ctrl/right-d
   expect((await toronto()).x).toBeCloseTo(initial.x, 1);
 });
 
-test("bodies persist across viewing angles and zoom; labels stay sparse", async ({ page }) => {
-  await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.goto("/");
-  await ready(page);
-  const detail = () => page.evaluate(() => (window as unknown as { __atlas: import("../src/atlas/scene/AtlasScene").AtlasScene }).__atlas.detail());
-  await expect.poll(async () => (await detail()).expanded.length).toBeGreaterThan(0);
-  const before = (await detail()).expanded;
-  expect(before).not.toContain("ca-nt-yellowknife");
-  expect(await page.locator("[class*=labels] > div").count()).toBeLessThanOrEqual(12);
-  for (let turn = 0; turn < 4; turn++) {
-    await page.evaluate(() => (window as unknown as { __atlas: import("../src/atlas/scene/AtlasScene").AtlasScene }).__atlas.rotate(320));
-    await page.waitForTimeout(250);
-    expect((await detail()).expanded).toEqual(before);
-  }
-  await page.evaluate(() => (window as unknown as { __atlas: import("../src/atlas/scene/AtlasScene").AtlasScene }).__atlas.zoomAt(3));
-  await page.waitForTimeout(250);
-  expect((await detail()).expanded).toEqual(before);
-});
-
 test("legacy page is retired without requesting v1 data", async ({ page }) => {
   const retired: string[] = [];
   page.on("request", (r) => { if (r.url().includes("/api/v1/")) retired.push(r.url()); });
@@ -281,36 +262,27 @@ test("legacy page is retired without requesting v1 data", async ({ page }) => {
 });
 
 
-test("dense cities: hundreds on entry, stable through rotation, other cities selectable", async ({ page }) => {
+test("dense cities: every one a bar in the city layer, one draw batch, rotation changes nothing", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/");
   await ready(page);
-  await page.evaluate(() => {
-    const sc = (window as unknown as { __atlas: import("../src/atlas/scene/AtlasScene").AtlasScene }).__atlas;
+  type Scene = import("../src/atlas/scene/AtlasScene").AtlasScene;
+  const bars = await page.evaluate(() => {
+    const sc = (window as unknown as { __atlas: Scene }).__atlas;
     const cities = Array.from({ length: 1000 }, (_, i) => ({ id: `dense-${i}`, name: `City ${i}`, lon: -125 + (i % 40) * 0.8, lat: 49.6 + Math.floor(i / 40) * 0.65 }));
     sc.setCities(cities);
-    sc.setPriority(cities.map((c, i) => ({ id: c.id, max: 1000 - i })));
     sc.setCounts(new Map(cities.map((c, i) => [c.id, 1000 - i])), 40000);
+    const before = JSON.stringify(sc.bars());
+    sc.rotate(640);
+    return { n: sc.bars().length, same: JSON.stringify(sc.bars()) === before };
   });
-  // placement runs in slices off the main thread: wait for it
-  const detail = () => page.evaluate(() => (window as unknown as { __atlas: import("../src/atlas/scene/AtlasScene").AtlasScene }).__atlas.detail());
-  await expect.poll(async () => (await detail()).expanded.length).toBeGreaterThanOrEqual(300);
-  const result = { detail: await detail(), hidden: "dense-600" };
-  await page.evaluate(() => (window as unknown as { __atlas: import("../src/atlas/scene/AtlasScene").AtlasScene }).__atlas.rotate(640));
-  await page.waitForTimeout(300);
-  expect(await page.evaluate(() => (window as unknown as { __atlas: import("../src/atlas/scene/AtlasScene").AtlasScene }).__atlas.detail().expanded)).toEqual(result.detail.expanded);
-  await page.evaluate(id => {
-    const sc = (window as unknown as { __atlas: import("../src/atlas/scene/AtlasScene").AtlasScene }).__atlas;
-    sc.setSelected(id);
-    sc.focusCity(id);
-  }, result.hidden);
-  await expect.poll(() => page.evaluate(id => (window as unknown as { __atlas: import("../src/atlas/scene/AtlasScene").AtlasScene }).__atlas.anchors().find(a => a.id === id)?.body, result.hidden)).toBe(true);
-  const calls = await page.evaluate(() => (window as unknown as { __atlas: import("../src/atlas/scene/AtlasScene").AtlasScene }).__atlas.renderer.info.render.calls);
+  expect(bars).toEqual({ n: 1000, same: true });
+  await page.waitForTimeout(100);
+  const calls = await page.evaluate(() => (window as unknown as { __atlas: Scene }).__atlas.renderer.info.render.calls);
   expect(calls).toBeLessThan(25);
 });
 
-
-test("crisp gestures and separated footprints contained on land", async ({ page }) => {
+test("rendering stays at native pixel ratio while rotating", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/");
   await ready(page);
@@ -321,36 +293,22 @@ test("crisp gestures and separated footprints contained on land", async ({ page 
     return { before, during: sc.renderer.getPixelRatio() };
   });
   expect(quality.during).toBe(quality.before);
-  await page.waitForTimeout(250);
-  const bodies = await page.evaluate(() => (window as unknown as { __atlas: import("../src/atlas/scene/AtlasScene").AtlasScene }).__atlas.footprints());
-  expect(bodies.length).toBeGreaterThan(0);
-  // collect violations first: one expect per pair is too many calls with every city drawn
-  const offLand = bodies.filter((a) => a.radius * 1.15 >= a.clearance).map((a) => a.id);
-  const touching: string[] = [];
-  for (const a of bodies) for (const b of bodies)
-    if (a.id < b.id && (a.radius + b.radius) * 1.15 >= Math.hypot(a.x - b.x, a.z - b.z)) touching.push(`${a.id}/${b.id}`);
-  expect(offLand).toEqual([]);
-  expect(touching).toEqual([]);
 });
 
 
-test("major coastal cities keep bodies and default labels through rotation", async ({ page }) => {
+test("major metro areas keep bars and default labels through rotation", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/");
   await ready(page);
-  const scene = () => page.evaluate(() => {
-    const sc = (window as unknown as { __atlas: import("../src/atlas/scene/AtlasScene").AtlasScene }).__atlas;
-    return { bodies: sc.footprints().map(b => b.id), anchors: sc.anchors() };
-  });
-  for (const id of ["ca-on-toronto", "ca-qc-montreal", "ca-bc-vancouver"])
-    await expect.poll(async () => (await scene()).bodies).toContain(id);
+  const bars = () => page.evaluate(() => (window as unknown as { __atlas: import("../src/atlas/scene/AtlasScene").AtlasScene }).__atlas.bars().map(b => b.id));
+  for (const id of ["cma-535", "cma-462", "cma-933"]) await expect.poll(bars).toContain(id);
   const picked = await page.evaluate(() => {
     const sc = (window as unknown as { __atlas: import("../src/atlas/scene/AtlasScene").AtlasScene }).__atlas;
-    const a = sc.anchors().find(a => a.id === "ca-on-toronto")!;
+    const a = sc.anchors().find(a => a.id === "cma-535")!;
     const rect = sc.renderer.domElement.getBoundingClientRect();
     return sc.pick(rect.left + a.bx, rect.top + a.by);
   });
-  expect(picked).toBe("ca-on-toronto");
+  expect(picked).toBe("cma-535");
   const labels = page.locator("[class*=labels]");
   for (const name of ["Toronto", "Montréal", "Vancouver"]) await expect(labels).toContainText(name);
   await page.evaluate(() => (window as unknown as { __atlas: import("../src/atlas/scene/AtlasScene").AtlasScene }).__atlas.rotate(90));
@@ -397,14 +355,14 @@ test("geographic labels stay fixed across idle hover, selection, data, and offsc
 
 test("reference labels distinguish duplicate names using canonical geography", async ({ page }) => {
   await page.route("**/api/v2/atlas/cities?*", route => route.fulfill({ json: {
-    dataset_id: "jobbank", data_mode: "real", release_id: "fx1", attribution: "fixture",
+    dataset_id: "jobbank", data_mode: "real", release_id: "fx1", attribution: "fixture", grouping_version: null, groups: [],
     cities: [
       ["ca-on-toronto", "Toronto", "ON", 43.7, -79.42],
       ["ca-qc-montreal", "Montréal", "QC", 45.51, -73.59],
       ["ca-bc-vancouver", "Vancouver", "BC", 49.25, -123.12],
       ["ca-ab-calgary", "Calgary", "AB", 51.05, -114.07],
       ["ca-pe-toronto", "Toronto", "PE", 46.3, -63.5],
-    ].map(([city_id, name, province, lat, lon]) => ({ city_id, name, province, lat, lon, country: "CA", population: 1, aliases: [], kind: "city", evidence: "fixture" })),
+    ].map(([city_id, name, province, lat, lon]) => ({ city_id, name, province, lat, lon, country: "CA", population: 1, aliases: [], kind: "city", evidence: "fixture", group_id: null })),
   } }));
   await page.goto("/"); await ready(page);
   await expect(page.locator("[class*=labels] [data-city-id='ca-on-toronto']")).toBeVisible();
@@ -425,40 +383,11 @@ test("initial real bodies do not wait for the playback chunk", async ({ page }) 
       const s = (window as any).__atlas;
       return s?.domeGeo.instanceCount > 0;
     }, {}, { timeout: 10000 });
-    const before = await page.evaluate(() => [...(window as any).__atlas.expanded].sort());
+    const before = await page.evaluate(() => (window as any).__atlas.bars().map((b: { id: string }) => b.id).sort());
     releaseChunk();
     await page.waitForTimeout(600);
-    expect(await page.evaluate(() => [...(window as any).__atlas.expanded].sort())).toEqual(before);
+    expect(await page.evaluate(() => (window as any).__atlas.bars().map((b: { id: string }) => b.id).sort())).toEqual(before);
   } finally { releaseChunk(); }
-});
-
-test("zoom keeps footprints within a detail level; every level is separated and on land", async ({ page }) => {
-  await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.goto("/");
-  await ready(page);
-  type Scene = import("../src/atlas/scene/AtlasScene").AtlasScene;
-  const read = () => page.evaluate(() => (window as unknown as { __atlas: Scene }).__atlas.footprints().sort((a, b) => a.id.localeCompare(b.id)));
-  const zoomBy = async (f: number) => {
-    await page.evaluate((f) => (window as unknown as { __atlas: Scene }).__atlas.zoomAt(f), f);
-    await page.waitForTimeout(400); // the body set is rebuilt once the camera settles
-  };
-  const problems = (fp: Awaited<ReturnType<typeof read>>) => {
-    const out: string[] = [];
-    for (const a of fp) {
-      if (a.radius * 1.15 >= a.clearance) out.push(`${a.id} off land`);
-      for (const b of fp) if (a.id < b.id && a.radius + b.radius >= Math.hypot(a.x - b.x, a.z - b.z)) out.push(`${a.id}/${b.id} touch`);
-    }
-    return out;
-  };
-  const before = await read();
-  expect(before.length).toBeGreaterThan(0);
-  expect(problems(before)).toEqual([]);
-  await zoomBy(1.3); // same level (1–1.5×): the same bodies, same feet
-  expect(await read()).toEqual(before);
-  await zoomBy(4); // deeper levels: more cities fit, still none touching, all on land
-  const deep = await read();
-  expect(deep.length).toBeGreaterThanOrEqual(before.length);
-  expect(problems(deep)).toEqual([]);
 });
 
 for (const deviceScaleFactor of [2, 3]) {
@@ -505,10 +434,10 @@ test("foreground ink survives a background body's fill in a deterministic overla
     for (const [i, x, z, height] of [[0, -30, 100, 150], [1, 0, 0, 400]]) {
       g.getAttribute("iPos").setXYZ(i, x, 0, z);
       g.getAttribute("iH").setX(i, height);
-      g.getAttribute("iR").setX(i, 60);
       g.getAttribute("iLine").setX(i, 1.5);
+      g.getAttribute("iA").setX(i, 1);
     }
-    for (const key of ["iPos", "iH", "iR", "iLine"]) g.getAttribute(key).needsUpdate = true;
+    for (const key of ["iPos", "iH", "iLine", "iA"]) g.getAttribute(key).needsUpdate = true;
     g.instanceCount = 2;
     sc.renderer.render(sc.scene, sc.camera);
     const canvas = document.createElement("canvas"), source = sc.renderer.domElement;

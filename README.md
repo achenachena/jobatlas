@@ -48,6 +48,7 @@ GitHub Actions, Vercel, AWS (Docker Compose, Caddy)
 cp .env.example .env
 docker compose -f infra/compose.yaml up -d --build
 docker compose -f infra/compose.yaml exec worker jobatlas atlas-cities
+docker compose -f infra/compose.yaml exec worker jobatlas atlas-groups   # metro groups
 docker compose -f infra/compose.yaml exec worker jobatlas atlas-sync   # ~30 min, ~2 GB
 ```
 

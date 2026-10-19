@@ -8,6 +8,7 @@ import { API_BASE_URL, ApiError } from "../lib/api";
 export type Capabilities = components["schemas"]["Capabilities"];
 export type CitiesResponse = components["schemas"]["CitiesResponse"];
 export type City = components["schemas"]["City"];
+export type Group = components["schemas"]["Group"];
 export type FrameResponse = components["schemas"]["FrameResponse"];
 export type TimelineResponse = components["schemas"]["TimelineResponse"];
 export type SeriesResponse = components["schemas"]["SeriesResponse"];

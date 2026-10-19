@@ -108,23 +108,6 @@ export function AtlasApp() {
   }
   const counts = lastGood.current.counts;
 
-  // Seed priority from the first real response for this paused selection. Full chunk
-  // arrival cannot reshuffle the overview; a newly selected date gets fresh priorities.
-  // Playback freezes the order until paused.
-  const prio = useRef<{ key: string; data: unknown; list: { id: string; max: number }[] }>({ key: "", data: null, list: [] });
-  const prioKey = `${release}|${sel.occupation}|${sel.window}|${day}`;
-  if (currentTimeline && sameSelection && (!prio.current.list.length || (!playing && prio.current.key !== prioKey))) {
-    const max = new Map<string, number>();
-    currentTimeline.city_ids.forEach((id, i) => {
-      for (const f of currentTimeline.frames) {
-        const c = f.counts[i];
-        if (c != null && c > (max.get(id) ?? 0)) max.set(id, c);
-      }
-    });
-    const list = [...max].map(([id, m]) => ({ id, max: m })).sort((a, b) => b.max - a.max || (a.id < b.id ? -1 : 1));
-    prio.current = { key: prioKey, data: currentTimeline, list };
-  }
-
   // National summary (latest/paused only, from the frame endpoint).
   const national = useQuery({
     queryKey: ["atlas", "frame", sel.dataset, release, sel.occupation, sel.window, day],
@@ -288,11 +271,10 @@ export function AtlasApp() {
           <SceneView
             geo={geo.data}
             cities={cities.data.cities}
+            groups={cities.data.groups}
             counts={counts}
             countsKey={countsKey}
             scaleMax={scaleMax}
-            priority={prio.current.list}
-            playing={playing}
             reducedMotion={reducedMotion}
             selected={sel.city}
             focus={focus}
@@ -451,7 +433,7 @@ export function AtlasApp() {
           </button>
         </Banner>
       )}
-      {ready && <SourceLine caps={info} publishedAt={version.data?.published_at} />}
+      {ready && <SourceLine dataset={sel.dataset} caps={info} sources={sources.data} publishedAt={version.data?.published_at} onOpen={() => setSourcesOpen(true)} />}
       {sourcesOpen && <SourcesDialog sources={sources.data} caps={info} onClose={() => setSourcesOpen(false)} />}
     </div>
   );

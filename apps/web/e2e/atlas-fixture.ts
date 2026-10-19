@@ -1,16 +1,35 @@
 /** Deterministic v2 atlas API for E2E (explicitly synthetic; served only to tests). */
 import type { Page, Route } from "@playwright/test";
 
-const CITIES = [
-  ["ca-on-toronto", "Toronto", "ON", 43.7, -79.42],
-  ["ca-qc-montreal", "Montréal", "QC", 45.51, -73.59],
-  ["ca-bc-vancouver", "Vancouver", "BC", 49.25, -123.12],
-  ["ca-ab-calgary", "Calgary", "AB", 51.05, -114.07],
-  ["ca-ab-edmonton", "Edmonton", "AB", 53.55, -113.49],
-  ["ca-mb-winnipeg", "Winnipeg", "MB", 49.9, -97.14],
-  ["ca-ns-halifax", "Halifax", "NS", 44.65, -63.58],
-  ["ca-nt-yellowknife", "Yellowknife", "NT", 62.45, -114.37],
+// id, name, province, lat, lon, group, Job Bank weight, Employer boards weight
+export const CITIES = [
+  ["ca-on-toronto", "Toronto", "ON", 43.7, -79.42, "cma-535", 8, 6],
+  ["ca-qc-montreal", "Montréal", "QC", 45.51, -73.59, "cma-462", 7, 5],
+  ["ca-bc-vancouver", "Vancouver", "BC", 49.25, -123.12, "cma-933", 6, 4],
+  ["ca-ab-calgary", "Calgary", "AB", 51.05, -114.07, "single-ca-ab-calgary", 5, 3],
+  ["ca-ab-edmonton", "Edmonton", "AB", 53.55, -113.49, "single-ca-ab-edmonton", 4, 2],
+  ["ca-mb-winnipeg", "Winnipeg", "MB", 49.9, -97.14, "single-ca-mb-winnipeg", 3, 1],
+  ["ca-ns-halifax", "Halifax", "NS", 44.65, -63.58, "single-ca-ns-halifax", 2, 0],
+  ["ca-nt-yellowknife", "Yellowknife", "NT", 62.45, -114.37, "single-ca-nt-yellowknife", 1, 0],
+  ["ca-on-mississauga", "Mississauga", "ON", 43.59, -79.64, "cma-535", 3, 1],
+  ["ca-on-brampton", "Brampton", "ON", 43.68, -79.76, "cma-535", 2, 1],
+  ["ca-on-vaughan", "Vaughan", "ON", 43.84, -79.5, "cma-535", 2, 1],
+  ["ca-on-markham", "Markham", "ON", 43.88, -79.26, "cma-535", 2, 1],
 ] as const;
+/** the largest group weight (the Toronto area), for the region-total scale */
+const REGION_WEIGHT = { real: 17, ats: 10 };
+export const GROUPS = [
+  { id: "cma-535", display_name: "Toronto", official_name: "Toronto", kind: "cma", provinces: ["ON"], lat: 43.7, lon: -79.42 },
+  { id: "cma-462", display_name: "Montréal", official_name: "Montréal", kind: "cma", provinces: ["QC"], lat: 45.51, lon: -73.59 },
+  { id: "cma-933", display_name: "Vancouver", official_name: "Vancouver", kind: "cma", provinces: ["BC"], lat: 49.25, lon: -123.12 },
+  ...CITIES.filter((c) => c[5].startsWith("single")).map(([, name, prov, lat, lon, group]) => ({ id: group, display_name: name, official_name: null, kind: "single", provinces: [prov], lat, lon })),
+];
+const citiesBody = (list: readonly (typeof CITIES)[number][]) => ({
+  attribution: "GeoNames",
+  grouping_version: "fx",
+  cities: list.map(([id, name, prov, lat, lon, group]) => ({ city_id: id, name, province: prov, country: "CA", lat, lon, population: 1, aliases: [], kind: "city", evidence: "fixture", group_id: group })),
+  groups: GROUPS.map((g) => ({ ...g, members: list.filter((c) => c[5] === g.id).length })).filter((g) => g.members),
+});
 export const HISTORY_START = "2026-07-01";
 export const DATA_THROUGH = "2026-09-30";
 export const GAP = { start: "2026-08-10", end: "2026-08-12", reason: "fixture gap" };
@@ -26,7 +45,7 @@ const base: Record<string, number> = { all: 40, bartender: 4, software_developme
 function count(city: number, occ: string, d: string): number | null {
   if (CITIES[city]![2] === "NT") return null; // not covered
   const t = between(HISTORY_START, d);
-  return Math.round((base[occ] ?? 2) * (8 - city) * (1 + 0.3 * Math.sin(t / 9 + city)));
+  return Math.round((base[occ] ?? 2) * CITIES[city]![6] * (1 + 0.3 * Math.sin(t / 9 + city)));
 }
 
 function frame(occ: string, d: string, windowDays: number) {
@@ -53,7 +72,7 @@ export const ATS = {
   backfilled: { start: "2026-09-15", end: "2026-09-18", reason: "backfilled at collection start" },
   employers: 128,
   attribution: "Postings from employers' own career pages via their job-board platforms (fixture).",
-  cities: CITIES.filter(([id]) => id !== "ca-nt-yellowknife" && id !== "ca-ns-halifax"),
+  cities: CITIES.filter((c) => c[7] > 0),
 };
 /** Mutable current Employer boards release; an older id answers 404 RELEASE_NOT_FOUND. */
 export const atsRelease = { id: "ats1", publishedMinutesAgo: 5 };
@@ -61,7 +80,7 @@ const backfilledIn = (days: string[]) => days.filter((x) => x >= ATS.backfilled.
 
 function atsFrame(occ: string, d: string, windowDays: number) {
   const days = Array.from({ length: windowDays }, (_, i) => day(d, -i)).filter((x) => x >= ATS.start);
-  const counts = ATS.cities.map((_, i) => days.reduce((s, x) => s + Math.round((base[occ] ?? 2) * (6 - i) * (1 + 0.2 * Math.cos(between(ATS.start, x) / 5 + i))), 0));
+  const counts = ATS.cities.map((c, i) => days.reduce((s, x) => s + Math.round((base[occ] ?? 2) * c[7] * (1 + 0.2 * Math.cos(between(ATS.start, x) / 5 + i))), 0));
   return {
     date: d,
     quality: days.length < windowDays ? "partial" : "complete",
@@ -85,10 +104,10 @@ async function atsRoute(route: Route, url: URL) {
       occupations: [{ id: "all", label: "All jobs", note: "" }, { id: "software_development", label: "Software development", note: "" }, { id: "human_resources", label: "Human resources", note: "" }],
       history_start: ATS.start, data_through: ATS.through, partial_latest_day: false, gaps: [], playback: true, playback_reason: null,
       stale: false, publication: "hourly (fixture)", reporting_timezone: "America/Toronto", quality: {},
-      refresh: "hourly", backfilled: [ATS.backfilled], employers: ATS.employers, platforms: ["greenhouse", "lever"], attribution: ATS.attribution,
+      refresh: "hourly", backfilled: [ATS.backfilled], employers: ATS.employers, platforms: ["Greenhouse", "Lever"], attribution: ATS.attribution,
     });
   if (url.pathname.endsWith("/cities"))
-    return json({ ...head, attribution: "GeoNames", cities: ATS.cities.map(([id, name, prov, lat, lon]) => ({ city_id: id, name, province: prov, country: "CA", lat, lon, population: 1, aliases: [], kind: "city", evidence: "fixture" })) });
+    return json({ ...head, ...citiesBody(ATS.cities) });
   if (url.pathname.endsWith("/timeline")) {
     const occ = q.get("occupation") ?? "all";
     const w = { "1d": 1, "7d": 7, "30d": 30 }[q.get("window") ?? "7d"] ?? 7;
@@ -96,7 +115,7 @@ async function atsRoute(route: Route, url: URL) {
     return json({
       ...head, metric: "new_postings", occupation: occ, window: q.get("window") ?? "7d", reporting_timezone: "America/Toronto", start, end,
       city_ids: ATS.cities.map((c) => c[0]), frames: Array.from({ length: between(start, end) + 1 }, (_, i) => atsFrame(occ, day(start, i), w)),
-      max_count: (base[occ] ?? 2) * 6 * w * 1.3,
+      max_count: (base[occ] ?? 2) * REGION_WEIGHT.ats * w * 1.3,
     });
   }
   if (url.pathname.endsWith("/frame")) {
@@ -114,6 +133,14 @@ async function atsRoute(route: Route, url: URL) {
     return json({ ...head, data_through: ATS.through, published_at: new Date(Date.now() - atsRelease.publishedMinutesAgo * 60_000).toISOString(), change_kind: "update" });
   return json({}, 404);
 }
+
+/** what /sources attributes on the backend, verbatim */
+export const SOURCE_ATTRIBUTIONS = [
+  "Contains information licensed under the Open Government Licence – Canada.",
+  "City locations: GeoNames (geonames.org), CC BY 4.0.",
+  "Map outlines: Natural Earth (public domain).",
+  "Adapted from Statistics Canada, 2021 Census – Boundary files, census metropolitan areas and census agglomerations, 2021. This does not constitute an endorsement by Statistics Canada of this product.",
+];
 
 /** Mutable published release (tests flip it to simulate a new data version). */
 export const release = { id: "fx1", through: DATA_THROUGH_DEFAULT() };
@@ -149,10 +176,7 @@ export async function atlasFixture(page: Page, mode: "real" | "not_configured" =
     if (dataMode === "not_configured")
       return json({ error: { code: "DATA_SOURCE_NOT_CONFIGURED", message: "not connected" } }, 503);
     if (url.pathname.endsWith("/cities"))
-      return json({
-        dataset_id: "jobbank", data_mode: dataMode, release_id: "fx1", attribution: "GeoNames",
-        cities: CITIES.map(([id, name, prov, lat, lon]) => ({ city_id: id, name, province: prov, country: "CA", lat, lon, population: 1, aliases: [], kind: "city", evidence: "fixture" })),
-      });
+      return json({ dataset_id: "jobbank", data_mode: dataMode, release_id: "fx1", ...citiesBody(CITIES) });
     if (url.pathname.endsWith("/timeline")) {
       const occ = q.get("occupation") ?? "all";
       const w = { "1d": 1, "7d": 7, "30d": 30 }[q.get("window") ?? "7d"] ?? 7;
@@ -161,7 +185,7 @@ export async function atlasFixture(page: Page, mode: "real" | "not_configured" =
       const frames = Array.from({ length: between(start, end) + 1 }, (_, i) => frame(occ, day(start, i), w));
       return json({
         dataset_id: "jobbank", data_mode: dataMode, release_id: "fx1", metric: "new_postings", occupation: occ, window: q.get("window") ?? "7d",
-        reporting_timezone: "America/Toronto", start, end, city_ids: CITIES.map((c) => c[0]), frames, max_count: (base[occ] ?? 2) * 8 * w * 1.3,
+        reporting_timezone: "America/Toronto", start, end, city_ids: CITIES.map((c) => c[0]), frames, max_count: (base[occ] ?? 2) * REGION_WEIGHT.real * w * 1.3,
       });
     }
     if (url.pathname.endsWith("/frame"))
@@ -176,7 +200,7 @@ export async function atlasFixture(page: Page, mode: "real" | "not_configured" =
     if (url.pathname.endsWith("/version"))
       return json({ dataset_id: "jobbank", data_mode: dataMode, release_id: release.id, data_through: release.through, published_at: "2026-10-02T12:00:00Z", change_kind: "update" });
     if (url.pathname.endsWith("/sources"))
-      return json({ sources: [{ key: "jobbank-open-data", provider: "Job Bank open data", status: "approved", admitted: true, reason: "approved with evidence", licence: "OGL", terms_url: "https://open.canada.ca/en/open-government-licence-canada", attribution: "x", capabilities: {}, verified_on: "2026-10-14" }], definitions: { new_postings: "Distinct job postings first published within the window." }, attributions: ["Contains information licensed under the Open Government Licence – Canada."] });
+      return json({ sources: [{ key: "jobbank-open-data", provider: "Job Bank open data", status: "approved", admitted: true, reason: "approved with evidence", licence: "OGL", terms_url: "https://open.canada.ca/en/open-government-licence-canada", attribution: "x", capabilities: {}, verified_on: "2026-10-14" }], definitions: { new_postings: "Distinct job postings first published within the window." }, attributions: SOURCE_ATTRIBUTIONS });
     return json({}, 404);
   });
 }
