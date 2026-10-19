@@ -51,3 +51,40 @@ test("camera inputs respond immediately and footprints transition independently"
   expect(result.active).toBe(false);
   expect(result.dragError).toBeLessThan(0.01);
 });
+
+test("horizontal dragging reuses settled body buffers and keeps labels attached", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await atlasFixture(page);
+  await page.goto("/");
+  await page.waitForFunction(() => {
+    const sc = (window as any).__atlas;
+    return sc?.visual.size > 0 && !sc.raf;
+  });
+  await page.evaluate(() => (window as any).__atlas.zoomAt(3));
+  await page.waitForFunction(() => {
+    const sc = (window as any).__atlas;
+    return sc.level === 2.25 && !sc.raf && !sc.layoutDirty;
+  });
+  const result = await page.evaluate(async () => {
+    const sc = (window as any).__atlas;
+    const positions = sc.domeGeo.getAttribute("iPos");
+    const before = positions.version;
+    const start = sc.target.clone();
+    const id = sc.bodies.find((b: any) => sc.isBody(b)).id;
+    sc.beginGesture();
+    for (let i = 0; i < 12; i++) {
+      sc.drag(700, 400, 704, 400, true);
+      await new Promise(requestAnimationFrame);
+    }
+    const moved = sc.target.distanceTo(start);
+    const filtered = sc.anchors(new Set([id]));
+    const all = sc.anchors().filter((a: any) => a.id === id);
+    sc.endGesture();
+    await new Promise(resolve => setTimeout(resolve, 650));
+    return { uploads: positions.version - before, moved, filtered, all, idle: !sc.raf };
+  });
+  expect(result.moved).toBeGreaterThan(0);
+  expect(result.uploads).toBe(0);
+  expect(result.filtered).toEqual(result.all);
+  expect(result.idle).toBe(true);
+});

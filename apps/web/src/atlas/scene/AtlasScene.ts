@@ -323,6 +323,7 @@ export class AtlasScene {
   private wheelLock = 0;
   private anim: { start: number; ms: number; from: CameraState; to: CameraState } | null = null;
   private landPoints: THREE.Vector3[] = [];
+  private extentCache: { el: number; az: number; count: number; bounds: [number, number, number, number] } | null = null;
   private land: ReturnType<typeof landField> | null = null;
   private landPolys: Polygon[] = [];
   private landDistance() {
@@ -619,12 +620,12 @@ export class AtlasScene {
       }
       this.expanded = new Set(placed.keys());
       this.updateFootprints();
+      this.layoutDirty = true;
     }
     // Precompute the neighbouring levels in small idle slices, so the next zoom step across a
     // level does not stall on placement and no slice blocks input.
     for (const next of [level * 1.5, level / 1.5])
       if (next >= 1 && next <= ZOOM_MAX * 1.5) this.precompute(next, ranked, dataKey);
-    this.layoutDirty = true;
     this.invalidate();
     for (const cb of this.settleListeners) cb();
   }
@@ -840,6 +841,8 @@ export class AtlasScene {
 
   /** The land's extent on the camera plane for given angles: [u0, u1, v0, v1]. */
   private landExtent(el: number, az: number): [number, number, number, number] {
+    const cached = this.extentCache;
+    if (cached && cached.el === el && cached.az === az && cached.count === this.landPoints.length) return cached.bounds;
     const { right, up } = this.basis(el, az);
     let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
     for (const p of this.landPoints) {
@@ -849,7 +852,9 @@ export class AtlasScene {
       if (v < v0) v0 = v;
       if (v > v1) v1 = v;
     }
-    return [u0, u1, v0, v1];
+    const bounds: [number, number, number, number] = [u0, u1, v0, v1];
+    this.extentCache = { el, az, count: this.landPoints.length, bounds };
+    return bounds;
   }
 
   /** Home view: the real land fits the safe rectangle at the default angle. Moves the camera
@@ -869,7 +874,7 @@ export class AtlasScene {
   /** light and contact-shadow direction for the current camera turn */
   private turn = 0;
 
-  private updateCamera(): void {
+  private updateCamera(updateBodies = true): void {
     this.turn = ((this.azimuth - CEL.azimuth) * Math.PI) / 180;
     (this.domeMat.uniforms.uLight!.value as THREE.Vector3).copy(LIGHT).applyAxisAngle(THREE.Object3D.DEFAULT_UP, this.turn);
     const aspect = (this.host.clientWidth || 1) / (this.host.clientHeight || 1);
@@ -886,7 +891,8 @@ export class AtlasScene {
     this.camera.updateMatrixWorld();
     this.domeMat.uniforms.uPx!.value = this.worldPerPx();
     this.domeMat.uniforms.uR!.value = this.bodyRadius();
-    this.layoutDirty = true; // body heights follow the camera's height scale
+    // Translation and azimuth change only the view/uniforms, not instance geometry.
+    if (updateBodies) this.layoutDirty = true;
   }
 
   private state(): CameraState {
@@ -894,11 +900,12 @@ export class AtlasScene {
   }
 
   private setState(st: CameraState): void {
+    const updateBodies = st.zoom !== this.zoom || st.el !== this.elevation;
     this.target.copy(st.target);
     this.zoom = st.zoom;
     this.azimuth = st.az;
     this.elevation = st.el;
-    this.updateCamera();
+    this.updateCamera(updateBodies);
   }
 
   /** The nearest allowed camera: zoom in [1, max], any azimuth, elevation
@@ -1239,8 +1246,9 @@ export class AtlasScene {
     const h = this.host.clientHeight;
     const r = this.bodyRadius() / this.worldPerPx();
     const out: Anchor[] = [];
-    for (const b of this.bodies) {
-      if (ids && !ids.has(b.id)) continue;
+    // Labels request a small reference set; do not scan the whole gazetteer per frame.
+    const bodies = ids ? [...ids].map(id => this.bodies[this.byId.get(id) ?? -1]).filter((b): b is Body => !!b) : this.bodies;
+    for (const b of bodies) {
       const [bx, by] = this.toScreen(b.x, this.landTop, b.z);
       if (bx < -50 || by < -50 || bx > w + 50 || by > h + 50) continue;
       const body = this.isBody(b);
