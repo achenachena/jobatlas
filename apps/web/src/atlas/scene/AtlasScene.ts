@@ -157,53 +157,6 @@ export function domeGeometry(segments = SEGMENTS, capRings = CAP_RINGS): THREE.I
   return g;
 }
 
-/** A small start-height tick and a single decrease stem replace the hollow duplicate body.
- * Work in view-space pixels so the mark stays clean at every zoom and viewing angle. */
-const COMPARISON_VERTEX = /* glsl */ `
-uniform float uPx;
-uniform float uR;
-attribute vec3 iPos;
-attribute float iH;
-attribute float iR;
-attribute float iBase;
-varying vec2 vMark;
-varying float vWidth;
-varying float vDelta;
-varying float vKnown;
-void main() {
-  vec4 start = modelViewMatrix * vec4(iPos + vec3(0.0, max(iBase, 0.0), 0.0), 1.0);
-  vec4 current = modelViewMatrix * vec4(iPos + vec3(0.0, iH, 0.0), 1.0);
-  vKnown = iBase >= 0.0 && iR > 0.0 ? 1.0 : 0.0;
-  vDelta = (start.y - current.y) / uPx;
-  vWidth = max(1.0, min(uR, iR) * 0.72 / uPx);
-  float bottom = min(0.0, -vDelta) - 1.5;
-  vMark = vec2(position.x * (vWidth + 1.5), mix(bottom, 1.5, position.y * 0.5 + 0.5));
-  start.xy += vMark * uPx;
-  // Sit just in front of this body's surface, while respecting nearer bodies' depth.
-  start.z += min(uR, iR) + uPx * 2.0;
-  gl_Position = projectionMatrix * start;
-}
-`;
-const COMPARISON_FRAGMENT = /* glsl */ `
-uniform float uCompare;
-varying vec2 vMark;
-varying float vWidth;
-varying float vDelta;
-varying float vKnown;
-void main() {
-  if (vKnown < 0.5 || uCompare <= 0.0) discard;
-  vec2 q = abs(vMark) - vec2(max(0.0, vWidth - 0.55), 0.0);
-  float tick = 1.0 - smoothstep(0.35, 1.05, length(max(q, 0.0)));
-  float stem = (1.0 - smoothstep(0.25, 0.85, abs(vMark.x)))
-    * step(-vDelta, vMark.y) * step(vMark.y, 0.0) * step(2.0, vDelta);
-  float alpha = max(tick * 0.82, stem * 0.32) * uCompare;
-  if (alpha < 0.01) discard;
-  vec3 color = vDelta > 1.0 ? vec3(0.64, 0.37, 0.20) : vec3(0.29, 0.43, 0.55);
-  gl_FragColor = vec4(color, alpha);
-  #include <colorspace_fragment>
-}
-`;
-
 export const DOME_VERTEX = /* glsl */ `
 uniform float uR;
 uniform float uPx;
@@ -218,12 +171,19 @@ varying float vHeight;
 varying vec3 vN;
 varying vec3 vV;
 varying float vBodyT;
+varying float vCurrentStem;
 // Profile for a body of height H and base radius uR: a straight side leaning slightly inward
 // (more for taller bodies, so the base is a little wider) and a wide round top: an arc tangent
 // to the side and to the top whose radius is set by the width, never stretched by H.
 void main() {
   vBase = iBase; vHeight = iH;
+#ifdef BASELINE
+  float H = max(iBase, 1.0);
+#else
   float H = max(iH, 1.0);
+#endif
+  float currentR = min(min(uR, iR), max(iH, 1.0) * 0.62);
+  vCurrentStem = iH - min(currentR * 0.90, max(iH, 1.0) * 0.48);
   float R = min(min(uR, iR), H * 0.62);
   // Same monotone silhouette at every height: broad grounded foot, rounded
   // shoulder, hemispherical cap. Both first derivatives meet at the shoulder.
@@ -271,7 +231,26 @@ varying float vHeight;
 varying vec3 vN;
 varying vec3 vV;
 varying float vBodyT;
+varying float vCurrentStem;
 void main() {
+#ifdef BASELINE
+  // The start body shares the current body's axis, foot and profile. Only its
+  // exposed upper volume is drawn; the later solid pass preserves the mint top.
+  if (vBase <= vHeight + 0.1 || uCompare <= 0.0) discard;
+  float y = vBodyT * max(vBase, 1.0);
+  if (y < max(0.0, vCurrentStem)) discard;
+  vec3 normal = normalize(vN);
+  float light = smoothstep(-0.5, 0.8, dot(normal, normalize(uLight)));
+  float face = abs(dot(normal, normalize(vV)));
+  float rim = 1.0 - smoothstep(0.0, 0.35, face);
+  // Achromatic, softly shaded volume rather than an outlined duplicate.
+  float gray = mix(0.24, 0.52, light);
+  gray = mix(gray, 0.22, rim * 0.18);
+  float alpha = (0.56 + rim * 0.08) * uCompare;
+  gl_FragColor = vec4(vec3(gray), alpha);
+  #include <colorspace_fragment>
+  return;
+#endif
 #ifdef OUTLINE
   gl_FragColor = vec4(uShade, 1.0);
 #else
@@ -305,8 +284,14 @@ void main() {
   float edge = 1.0 - smoothstep(0.0, max(fwidth(facing) * 1.6, 0.035), facing);
   float foot = 1.0 - smoothstep(fwidth(vBodyT) * 0.4, fwidth(vBodyT) * 1.7, vBodyT);
   paint = mix(paint, uInk, max(edge, foot));
-  if (vBase >= 0.0 && vHeight > vBase + 0.1 && vBodyT * vHeight > vBase)
-    paint = mix(paint, vec3(0.10, 0.66, 0.62), uCompare * 0.42);
+  if (vBase > 0.0 && vHeight > vBase + 0.1) {
+    // When current exceeds start, its solid body occludes the old volume.
+    // An inset gray seam retains the start height without external markers.
+    float distance = abs(vBodyT * vHeight - vBase);
+    float pixel = max(fwidth(vBodyT * vHeight), 0.01);
+    float seam = 1.0 - smoothstep(pixel * 0.3, pixel * 1.1, distance);
+    paint = mix(paint, vec3(0.52), seam * uCompare * 0.55);
+  }
   gl_FragColor = vec4(paint, 1.0);
 #endif
   #include <colorspace_fragment>
@@ -399,7 +384,6 @@ export class AtlasScene {
   private compareStarted = 0;
   private compareMat: THREE.ShaderMaterial;
   private compareMesh: THREE.Mesh;
-  private compareGeo = new THREE.InstancedBufferGeometry();
   setInteractionLocked(value: boolean): void { this.interactionLocked = value; if (value) { this.anim = null; this.raw = null; clearTimeout(this.releaseTimer); } }
   setComparison(value: { key: string; baseline: Map<string, number | null>; visible: boolean } | null): void {
     if (value?.key === this.comparison?.key && value?.visible === this.comparison?.visible) return;
@@ -485,16 +469,18 @@ export class AtlasScene {
       mesh.renderOrder = mat === this.outlineMat ? 1.5 : 2;
       this.scene.add(mesh);
     }
-    const marker = new THREE.PlaneGeometry(2, 2);
-    this.compareGeo.index = marker.index;
-    this.compareGeo.setAttribute("position", marker.getAttribute("position"));
-    for (const name of ["iPos", "iH", "iR", "iBase"]) this.compareGeo.setAttribute(name, this.domeGeo.getAttribute(name));
-    this.compareGeo.instanceCount = 0;
-    this.compareMat = new THREE.ShaderMaterial({ uniforms, vertexShader: COMPARISON_VERTEX, fragmentShader: COMPARISON_FRAGMENT, transparent: true, depthWrite: false, depthTest: true });
-    const baselineMesh = this.compareMesh = new THREE.Mesh(this.compareGeo, this.compareMat);
+    this.compareMat = new THREE.ShaderMaterial({
+      uniforms, vertexShader: DOME_VERTEX, fragmentShader: DOME_FRAGMENT,
+      // Blend before the solid bodies so their rounded mint caps stay intact.
+      defines: { BASELINE: 1 }, transparent: false, blending: THREE.CustomBlending,
+      blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
+      blendSrcAlpha: THREE.OneFactor, blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
+      depthWrite: false, depthTest: true,
+    });
+    const baselineMesh = this.compareMesh = new THREE.Mesh(this.domeGeo, this.compareMat);
     baselineMesh.visible = false;
     baselineMesh.frustumCulled = false;
-    baselineMesh.renderOrder = 3;
+    baselineMesh.renderOrder = 1.4;
     this.scene.add(baselineMesh);
     // Ground clearance already reserves >1.4 radii and neighbouring feet have
     // an 18-unit gap; 1.16-radius shadows therefore stay on land and independent.
@@ -870,7 +856,6 @@ export class AtlasScene {
     leaders.needsUpdate = true;
     this.leaders.geometry.setDrawRange(0, leaderCount);
     this.domeGeo.instanceCount = n;
-    this.compareGeo.instanceCount = n;
     this.contactGeo.instanceCount = n;
     pos.needsUpdate = radii.needsUpdate = hAttr.needsUpdate = lineAttr.needsUpdate = baseAttr.needsUpdate = true;
     return moving;
