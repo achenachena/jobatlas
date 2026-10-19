@@ -152,6 +152,7 @@ export function domeGeometry(segments = SEGMENTS, capRings = CAP_RINGS): THREE.I
   g.setAttribute("iH", new THREE.InstancedBufferAttribute(new Float32Array(MAX_BODIES), 1).setUsage(THREE.DynamicDrawUsage));
   g.setAttribute("iR", new THREE.InstancedBufferAttribute(new Float32Array(MAX_BODIES), 1).setUsage(THREE.DynamicDrawUsage));
   g.setAttribute("iLine", new THREE.InstancedBufferAttribute(new Float32Array(MAX_BODIES), 1).setUsage(THREE.DynamicDrawUsage));
+  g.setAttribute("iBase", new THREE.InstancedBufferAttribute(new Float32Array(MAX_BODIES), 1).setUsage(THREE.DynamicDrawUsage));
   g.instanceCount = 0;
   return g;
 }
@@ -164,6 +165,9 @@ attribute vec3 iPos;
 attribute float iH;
 attribute float iLine;
 attribute float iR;
+attribute float iBase;
+varying float vBase;
+varying float vHeight;
 varying vec3 vN;
 varying vec3 vV;
 varying float vBodyT;
@@ -171,7 +175,12 @@ varying float vBodyT;
 // (more for taller bodies, so the base is a little wider) and a wide round top: an arc tangent
 // to the side and to the top whose radius is set by the width, never stretched by H.
 void main() {
+  vBase = iBase; vHeight = iH;
+#ifdef BASELINE
+  float H = max(iBase, 1.0);
+#else
   float H = max(iH, 1.0);
+#endif
   float R = min(min(uR, iR), H * 0.62);
   // Same monotone silhouette at every height: broad grounded foot, rounded
   // shoulder, hemispherical cap. Both first derivatives meet at the shoulder.
@@ -213,10 +222,23 @@ uniform vec3 uShade;
 uniform vec3 uTop;
 uniform vec3 uGlow;
 uniform vec3 uInk;
+uniform float uCompare;
+varying float vBase;
+varying float vHeight;
 varying vec3 vN;
 varying vec3 vV;
 varying float vBodyT;
 void main() {
+#ifdef BASELINE
+  if (vBase < 0.0 || uCompare <= 0.0) discard;
+  float ghostFacing = abs(dot(normalize(vN), normalize(vV)));
+  float ghostEdge = 1.0 - smoothstep(0.015, max(fwidth(ghostFacing) * 1.8, 0.07), ghostFacing);
+  if (ghostEdge < 0.02) discard;
+  vec3 color = vBase > vHeight + 0.1 ? vec3(0.78, 0.36, 0.09) : vec3(0.34, 0.48, 0.64);
+  gl_FragColor = vec4(color, ghostEdge * uCompare * 0.85);
+  #include <colorspace_fragment>
+  return;
+#endif
 #ifdef OUTLINE
   gl_FragColor = vec4(uShade, 1.0);
 #else
@@ -250,6 +272,8 @@ void main() {
   float edge = 1.0 - smoothstep(0.0, max(fwidth(facing) * 1.6, 0.035), facing);
   float foot = 1.0 - smoothstep(fwidth(vBodyT) * 0.4, fwidth(vBodyT) * 1.7, vBodyT);
   paint = mix(paint, uInk, max(edge, foot));
+  if (vBase >= 0.0 && vHeight > vBase + 0.1 && vBodyT * vHeight > vBase)
+    paint = mix(paint, vec3(0.10, 0.66, 0.62), uCompare * 0.42);
   gl_FragColor = vec4(paint, 1.0);
 #endif
   #include <colorspace_fragment>
@@ -337,6 +361,21 @@ export class AtlasScene {
   private expanded = new Set<string>();
   private regional = false;
   private frozen = false;
+  private interactionLocked = false;
+  private comparison: { key: string; baseline: Map<string, number | null>; visible: boolean } | null = null;
+  private compareStarted = 0;
+  private compareMat: THREE.ShaderMaterial;
+  private compareMesh: THREE.Mesh;
+  setInteractionLocked(value: boolean): void { this.interactionLocked = value; if (value) { this.anim = null; this.raw = null; clearTimeout(this.releaseTimer); } }
+  setComparison(value: { key: string; baseline: Map<string, number | null>; visible: boolean } | null): void {
+    if (value?.key === this.comparison?.key && value?.visible === this.comparison?.visible) return;
+    this.comparison = value;
+    this.compareMesh.visible = !!value?.visible;
+    this.compareStarted = performance.now();
+    this.layoutDirty = true;
+    this.invalidate();
+  }
+  replayReady(): boolean { return this.placements.has(this.level) && !this.layoutDirty && this.bodies.length > 0; }
   private settleTimer = 0;
   private selected: string | null = null;
   private hovered: string | null = null;
@@ -384,6 +423,7 @@ export class AtlasScene {
     this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, -20000, 20000);
 
     const uniforms = {
+      uCompare: { value: 0 },
       uR: { value: CEL.bodyDiameter / 2 },
       uPx: { value: 1 },
       uLight: { value: LIGHT.clone() },
@@ -411,6 +451,12 @@ export class AtlasScene {
       mesh.renderOrder = mat === this.outlineMat ? 1.5 : 2;
       this.scene.add(mesh);
     }
+    this.compareMat = new THREE.ShaderMaterial({ uniforms, vertexShader: DOME_VERTEX, fragmentShader: DOME_FRAGMENT, defines: { BASELINE: 1 }, transparent: true, depthWrite: false, depthTest: false });
+    const baselineMesh = this.compareMesh = new THREE.Mesh(this.domeGeo, this.compareMat);
+    baselineMesh.visible = false;
+    baselineMesh.frustumCulled = false;
+    baselineMesh.renderOrder = 3;
+    this.scene.add(baselineMesh);
     // Ground clearance already reserves >1.4 radii and neighbouring feet have
     // an 18-unit gap; 1.16-radius shadows therefore stay on land and independent.
     const plane = new THREE.PlaneGeometry(2, 2);
@@ -552,12 +598,12 @@ export class AtlasScene {
       b.count = c;
       b.from = b.shown;
       b.to = heightFor(c, scaleMax);
-      if (firstData) b.shown = b.from = b.to;
+      if (firstData || this.comparison) b.shown = b.from = b.to;
     }
     this.tweenStart = performance.now();
     this.layoutDirty = true;
     if (rescaled) this.fitHome(!this.interacted);
-    if (!this.frozen) this.updateDetail();
+    if (!this.frozen || (this.comparison && this.placementKey !== `${this.level}|replay:${this.comparison.key}`)) this.updateDetail();
     this.invalidate();
   }
 
@@ -599,7 +645,7 @@ export class AtlasScene {
     else if (this.zoom < d.exitRegional) this.regional = false;
     const level = levelFor(this.zoom);
     const ranked = this.rankedBodies();
-    const dataKey = ranked.map(b => `${b.id}:${Math.round(b.to)}`).join("|");
+    const dataKey = this.comparison ? `replay:${this.comparison.key}` : ranked.map(b => `${b.id}:${Math.round(b.to)}`).join("|");
     if (dataKey !== this.placementData) {
       this.placementData = dataKey;
       this.placements.clear();
@@ -632,7 +678,7 @@ export class AtlasScene {
 
   private rankedBodies(): Body[] {
     return this.priority.length
-      ? this.priority.map(p => this.bodies[this.byId.get(p.id) ?? -1]).filter((b): b is Body => !!b && b.to > 0)
+      ? this.priority.map(p => this.bodies[this.byId.get(p.id) ?? -1]).filter((b): b is Body => !!b && (b.to > 0 || !!this.comparison))
       : this.bodies.filter(b => b.to > 0).sort((a, b) => b.to - a.to);
   }
 
@@ -735,6 +781,7 @@ export class AtlasScene {
     const pos = this.domeGeo.getAttribute("iPos") as THREE.InstancedBufferAttribute;
     const radii = this.domeGeo.getAttribute("iR") as THREE.InstancedBufferAttribute;
     const hAttr = this.domeGeo.getAttribute("iH") as THREE.InstancedBufferAttribute;
+    const baseAttr = this.domeGeo.getAttribute("iBase") as THREE.InstancedBufferAttribute;
     const lineAttr = this.domeGeo.getAttribute("iLine") as THREE.InstancedBufferAttribute;
     let moving = false;
     let n = 0;
@@ -745,11 +792,13 @@ export class AtlasScene {
     this.layoutTime = now;
     const blend = this.opts.reducedMotion ? 1 : 1 - Math.exp(-dt / 65);
     this.bodies.forEach((b) => {
-      const t = this.opts.reducedMotion ? 1 : Math.min(1, Math.max(0, (now - this.tweenStart) / CEL.motion.height));
+      const t = this.opts.reducedMotion || this.comparison ? 1 : Math.min(1, Math.max(0, (now - this.tweenStart) / CEL.motion.height));
       if (t < 1) moving = true;
       b.shown = b.from + (b.to - b.from) * ease(t);
       const marked = b.id === this.selected || b.id === this.hovered;
-      const targetRadius = this.isBody(b) ? b.radius : 0;
+      const baseline = this.comparison?.baseline.get(b.id);
+      const comparable = baseline != null && b.count != null;
+      const targetRadius = (this.isBody(b) || (this.comparison && this.expanded.has(b.id))) ? b.radius : 0;
       const v = this.visual.get(b.id) ?? { x: b.chartX, z: b.chartZ, radius: 0 };
       this.visual.set(b.id, v);
       // Departing bodies keep their last foot while narrowing; new bodies grow at their
@@ -765,9 +814,10 @@ export class AtlasScene {
       } else {
         v.x = x; v.z = z; v.radius = targetRadius;
       }
-      if (v.radius > 0 && b.shown > 0 && n < MAX_BODIES) {
+      if (v.radius > 0 && (b.shown > 0 || (comparable && baseline > 0)) && n < MAX_BODIES) {
         pos.setXYZ(n, v.x, this.landTop, v.z);
         hAttr.setX(n, b.shown * scale);
+        baseAttr.setX(n, comparable ? heightFor(baseline, this.scaleMax) * scale : -1);
         const radius = Math.min(R, v.radius);
         radii.setX(n, v.radius);
         lineAttr.setX(n, Math.min(marked ? CEL.line.selected : CEL.line.data, radius / px * 0.22));
@@ -782,7 +832,7 @@ export class AtlasScene {
     this.leaders.geometry.setDrawRange(0, leaderCount);
     this.domeGeo.instanceCount = n;
     this.contactGeo.instanceCount = n;
-    pos.needsUpdate = radii.needsUpdate = hAttr.needsUpdate = lineAttr.needsUpdate = true;
+    pos.needsUpdate = radii.needsUpdate = hAttr.needsUpdate = lineAttr.needsUpdate = baseAttr.needsUpdate = true;
     return moving;
   }
 
@@ -1027,6 +1077,7 @@ export class AtlasScene {
    * the view shows it rubber-banded past the limits; other moves, and reduced motion, are
    * clamped outright. */
   private commit(next: CameraState, elastic: boolean): void {
+    if (this.interactionLocked) return;
     const to = elastic && !this.opts.reducedMotion ? this.display(next) : this.constrain(next);
     // Direct manipulation must reach the next rendered frame without chasing a tween.
     // Keep animation for focus and boundary spring-back, independent of body transitions.
@@ -1158,6 +1209,7 @@ export class AtlasScene {
   }
 
   resetView(): void {
+    if (this.interactionLocked) return;
     this.anim = null;
     this.raw = null;
     this.fitHome(true);
@@ -1168,6 +1220,7 @@ export class AtlasScene {
 
   /** Bring a city into view, its whole body inside the viewport (320 ms ease, none when reduced). */
   focusCity(id: string, zoom = 3): void {
+    if (this.interactionLocked) return;
     const i = this.byId.get(id);
     if (i === undefined) return;
     const b = this.bodies[i]!;
@@ -1296,12 +1349,15 @@ export class AtlasScene {
     this.raf = 0;
     if (this.disposed) return;
     const now = performance.now();
+    const reveal = this.comparison?.visible ? (this.opts.reducedMotion ? 1 : Math.min(1, (now - this.compareStarted) / 1000)) : 0;
+    this.compareMat.uniforms.uCompare!.value = reveal;
+    const revealing = !!this.comparison?.visible && reveal < 1;
     const panning = this.stepCamera(now);
     const moving = this.layoutDirty ? this.layout(now) : false;
     this.layoutDirty = moving;
     this.renderer.render(this.scene, this.camera);
     for (const cb of this.listeners) cb();
-    if (moving || panning) this.invalidate();
+    if (moving || panning || revealing) this.invalidate();
   }
 
   dispose(): void {

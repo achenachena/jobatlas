@@ -48,9 +48,9 @@ function count(city: number, occ: string, d: string): number | null {
   return Math.round((base[occ] ?? 2) * CITIES[city]![6] * (1 + 0.3 * Math.sin(t / 9 + city)));
 }
 
-function frame(occ: string, d: string, windowDays: number) {
+function frame(occ: string, d: string, windowDays: number, allowGap = true) {
   const days = Array.from({ length: windowDays }, (_, i) => day(d, -i));
-  const inGap = days.some((x) => x >= GAP.start && x <= GAP.end);
+  const inGap = allowGap && days.some((x) => x >= GAP.start && x <= GAP.end);
   const avail = days.filter((x) => x >= HISTORY_START).length;
   const counts = CITIES.map((_, i) => (inGap ? null : (count(i, occ, d) === null ? null : days.filter((x) => x >= HISTORY_START).reduce((s, x) => s + (count(i, occ, x) ?? 0), 0))));
   return {
@@ -148,7 +148,7 @@ function DATA_THROUGH_DEFAULT() {
   return "2026-09-30";
 }
 
-export async function atlasFixture(page: Page, mode: "real" | "not_configured" = "real") {
+export async function atlasFixture(page: Page, mode: "real" | "not_configured" = "real", overview: "complete" | "gap" | null = null) {
   await page.route("http://api.fixture/api/v2/atlas/**", async (route: Route) => {
     const url = new URL(route.request().url());
     const q = url.searchParams;
@@ -169,7 +169,7 @@ export async function atlasFixture(page: Page, mode: "real" | "not_configured" =
         history_start: dataMode === "not_configured" ? null : HISTORY_START,
         data_through: dataMode === "not_configured" ? null : DATA_THROUGH,
         partial_latest_day: false, gaps: dataMode === "not_configured" ? [] : [GAP], playback: dataMode !== "not_configured",
-        playback_reason: null, stale: false, publication: "monthly (fixture)", reporting_timezone: "America/Toronto", quality: {},
+        playback_reason: null, stale: false, publication: "monthly (fixture)", reporting_timezone: "America/Toronto", quality: overview ? { scale_max: { all: { "30d": 14000, "7d": 4000 } } } : {},
         refresh: demo ? "on_request" : "monthly", backfilled: [], employers: null, platforms: [],
         attribution: demo ? null : "Contains information licensed under the Open Government Licence – Canada.",
       });
@@ -182,10 +182,10 @@ export async function atlasFixture(page: Page, mode: "real" | "not_configured" =
       const w = { "1d": 1, "7d": 7, "30d": 30 }[q.get("window") ?? "7d"] ?? 7;
       const start = q.get("start")!;
       const end = q.get("end")!;
-      const frames = Array.from({ length: between(start, end) + 1 }, (_, i) => frame(occ, day(start, i), w));
+      const frames = Array.from({ length: between(start, end) + 1 }, (_, i) => frame(occ, day(start, i), w, overview !== "complete"));
       return json({
         dataset_id: "jobbank", data_mode: dataMode, release_id: "fx1", metric: "new_postings", occupation: occ, window: q.get("window") ?? "7d",
-        reporting_timezone: "America/Toronto", start, end, city_ids: CITIES.map((c) => c[0]), frames, max_count: (base[occ] ?? 2) * REGION_WEIGHT.real * w * 1.3,
+        reporting_timezone: "America/Toronto", start, end, city_ids: CITIES.map((c) => c[0]), frames: overview ? frames.map(f => ({...f, national: f.national == null ? null : f.national + 137})) : frames, max_count: (base[occ] ?? 2) * REGION_WEIGHT.real * w * 1.3,
       });
     }
     if (url.pathname.endsWith("/frame"))

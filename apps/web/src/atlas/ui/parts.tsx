@@ -406,6 +406,7 @@ export function ScalePanel(p: {
 // ---------------------------------------------------------------- timeline
 
 export function TimelineBar(p: {
+  overview?: boolean;
   historyStart: string;
   dataThrough: string;
   day: string;
@@ -446,14 +447,14 @@ export function TimelineBar(p: {
         onClick={p.onPlay}
         disabled={!p.canPlay}
         title={p.canPlay ? undefined : p.playReason ?? undefined}
-        aria-label={p.playing ? "Pause" : "Play history"}
+        aria-label={p.playing ? "Pause" : p.overview ? "Continue overview" : "Play history"}
       >
         <Icon name={p.playing ? "pause" : "play"} />
       </button>
       <div className={s.when}>
-        <button ref={btn} type="button" className={`${s.dateBtn} ${p.flash ? s.dateFlash : ""}`} id={id} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-          <span aria-live="polite">{label}</span>
-          {!p.latest && <small>history</small>}
+        <button ref={btn} type="button" className={`${s.dateBtn} ${p.flash ? s.dateFlash : ""}`} id={id} aria-label={label} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+          <span>{fmtDay(p.day)}</span>
+          <small>New postings · Past {p.window === "1d" ? "1 day" : p.window === "7d" ? "7 days" : "30 days"}</small>
         </button>
         {p.latestLink && !p.latest && (
           <button type="button" className={s.latestLink} onClick={p.onLatest}>
@@ -462,6 +463,7 @@ export function TimelineBar(p: {
         )}
         {open && (
           <div ref={box} className={`${s.popover} ${s.timePopover}`} role="dialog" aria-label="Time settings">
+            <p className={s.small}>{label}</p>
             <div className={s.segment} role="radiogroup" aria-label="Time window">
               {(["1d", "7d", "30d"] as WindowKey[]).map((w) => (
                 <button key={w} type="button" role="radio" aria-checked={p.window === w} onClick={() => p.onWindow(w)}>
@@ -473,14 +475,14 @@ export function TimelineBar(p: {
               <button type="button" className={s.textBtn} onClick={p.onLatest} disabled={p.latest}>
                 Latest
               </button>
-              <label>
-                Speed{" "}
+              {!p.overview && <label>
+                Daily exploration speed{" "}
                 <select className={s.speed} value={p.speed} onChange={(e) => p.onSpeed(Number(e.target.value))}>
                   <option value={1}>1×</option>
                   <option value={2}>2×</option>
                   <option value={4}>4×</option>
                 </select>
-              </label>
+              </label>}
             </div>
             <p className={s.small}>
               {p.latest ? "Latest data" : "History"}

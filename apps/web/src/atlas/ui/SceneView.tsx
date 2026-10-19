@@ -3,6 +3,7 @@
  * one hover name with its count, and the selected city's note. */
 import { useEffect, useRef, useState } from "react";
 
+import { changeLabel, REFERENCE_CITIES } from "../replay";
 import type { City } from "../api";
 import { type Anchor, AtlasScene, type GeoData } from "../scene/AtlasScene";
 import s from "./atlas.module.css";
@@ -16,6 +17,9 @@ interface Props {
   countsKey: string;
   priority: { id: string; max: number }[];
   playing: boolean;
+  replayLocked?: boolean;
+  replayReady?: () => void;
+  comparison?: { key: string; baseline: Map<string, number | null>; visible: boolean };
   reducedMotion: boolean;
   selected: string | null;
   focus: { id: string } | null;
@@ -40,6 +44,8 @@ interface Placed {
 
 export function SceneView(p: Props) {
   const host = useRef<HTMLDivElement>(null);
+  const locked = useRef(false); locked.current = !!p.replayLocked;
+  const labelLayout = useRef<Placed[]>([]);
   const scene = useRef<AtlasScene | null>(null);
   const [anchors, setAnchors] = useState<Map<string, Anchor>>(new Map());
   const [auto, setAuto] = useState<Placed[]>([]);
@@ -85,7 +91,8 @@ export function SceneView(p: Props) {
     // Commit candidate identities and their projected anchors in the same callback.
     // No extra RAF: an idle scene may never produce another frame after React commits.
     const refresh = () => {
-      const placed = placeLabels(sc, el, names.current, references.current);
+      const placed = locked.current && labelLayout.current.length ? labelLayout.current : placeLabels(sc, el, names.current, references.current);
+      labelLayout.current = placed;
       const ids = new Set([...placed.map(l => l.id), ...[hoverRef.current, selectedRef.current].filter((id): id is string => !!id)]);
       setAuto(placed);
       setAnchors(new Map(sc.anchors(ids).map(a => [a.id, a])));
@@ -132,6 +139,16 @@ export function SceneView(p: Props) {
   }, [p.cities]);
 
   useEffect(() => {
+    scene.current?.setComparison(p.comparison ?? null);
+  }, [p.comparison?.key, p.comparison?.visible]);
+  useEffect(() => { scene.current?.setInteractionLocked(!!p.replayLocked); }, [p.replayLocked]);
+  useEffect(() => {
+    if (!p.replayReady) return;
+    const id = window.setInterval(() => { if (scene.current?.replayReady()) { clearInterval(id); p.replayReady?.(); } }, 30);
+    return () => clearInterval(id);
+  }, [p.replayReady]);
+
+  useEffect(() => {
     scene.current?.setCounts(p.counts, p.scaleMax, p.priority);
     // countsKey changes exactly when the shown data does
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -156,6 +173,7 @@ export function SceneView(p: Props) {
     let pinch = 0;
     let twist = 0;
     const onDown = (e: PointerEvent) => {
+      if (locked.current) return;
       el.setPointerCapture(e.pointerId);
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       // Ctrl-drag (Mac trackpads), Shift-drag and right-drag turn the map; a plain drag moves it
@@ -171,7 +189,7 @@ export function SceneView(p: Props) {
     };
     const onMove = (e: PointerEvent) => {
       const sc = scene.current;
-      if (!sc) return;
+      if (!sc || locked.current) return;
       const prev = pointers.get(e.pointerId);
       if (prev) {
         pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -212,7 +230,7 @@ export function SceneView(p: Props) {
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       dismissHint();
-      if (gesture) return; // Safari reports the pinch as a gesture below
+      if (gesture || locked.current) return; // Safari reports the pinch as a gesture below
       // Normalize wheel notches and trackpad pixels to the same zoom response.
       const pixels = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? el.clientHeight : 1);
       scene.current?.zoomAt(Math.exp(-Math.max(-1000, Math.min(1000, pixels)) * (e.ctrlKey ? 0.01 : 0.0016)), e.clientX, e.clientY, true);
@@ -303,7 +321,7 @@ export function SceneView(p: Props) {
         onKeyDown={onKey}
         style={{ cursor: hover ? "pointer" : "grab", touchAction: "none" }}
       />
-      {hint && !away && (
+      {hint && !away && !p.comparison && (
         <p className={s.gestureHint} role="note">
           {TOUCH ? "Drag to move · Pinch to zoom · Twist two fingers to rotate" : "Drag to move · Scroll or pinch to zoom · Ctrl-drag to rotate"}
         </p>
@@ -314,7 +332,7 @@ export function SceneView(p: Props) {
         </button>
       )}
       <div className={s.mapTools} aria-label="Map view controls" role="group">
-        <button
+        <button disabled={p.replayLocked}
           className={`${s.iconBtn} ${s.rotateBtn}`}
           type="button"
           aria-label="Rotate left"
@@ -323,7 +341,7 @@ export function SceneView(p: Props) {
         >
           <Icon name="rotateLeft" />
         </button>
-        <button
+        <button disabled={p.replayLocked}
           className={`${s.iconBtn} ${s.rotateBtn}`}
           type="button"
           aria-label="Rotate right"
@@ -332,7 +350,7 @@ export function SceneView(p: Props) {
         >
           <Icon name="rotateRight" />
         </button>
-        <button
+        <button disabled={p.replayLocked}
           className={s.iconBtn}
           type="button"
           aria-label="Reset view"
@@ -341,17 +359,17 @@ export function SceneView(p: Props) {
         >
           <Icon name="reset" />
         </button>
-        <button className={s.iconBtn} type="button" aria-label="Zoom in" title="Zoom in" onClick={() => scene.current?.zoomAt(1.25)}>
+        <button disabled={p.replayLocked} className={s.iconBtn} type="button" aria-label="Zoom in" title="Zoom in" onClick={() => scene.current?.zoomAt(1.25)}>
           <Icon name="plus" />
         </button>
-        <button className={s.iconBtn} type="button" aria-label="Zoom out" title="Zoom out" onClick={() => scene.current?.zoomAt(0.8)}>
+        <button disabled={p.replayLocked} className={s.iconBtn} type="button" aria-label="Zoom out" title="Zoom out" onClick={() => scene.current?.zoomAt(0.8)}>
           <Icon name="minus" />
         </button>
       </div>
-      <div className={s.labels} aria-hidden="true">
+      <div className={`${s.labels} ${p.comparison?.visible ? s.compareLabels : ""}`} aria-hidden="true">
         {autoShown.map((l) => {
           const a = anchors.get(l.id)!;
-          return <Note key={l.id} a={a} side={l.side} dy={l.dy} lines={[name(l.id)]} />;
+          return <Note key={l.id} a={a} side={l.side} dy={l.dy} lines={[name(l.id), ...(p.comparison?.visible && (host.current?.clientWidth ?? 1440) < 760 ? (["ca-on-toronto", "ca-bc-vancouver"].includes(l.id) ? [changeLabel(p.comparison.baseline.get(l.id), p.counts.get(l.id))] : []) : p.comparison?.visible && REFERENCE_CITIES.slice(0,4).some(([id]) => id === l.id) ? [`${changeLabel(p.comparison.baseline.get(l.id), p.counts.get(l.id))} vs start`] : [])]} />;
         })}
         {hov && <Note a={hov} side={sideFor(hov, host.current?.clientWidth ?? 0)} lines={[name(hov.id), countText(hov.count)]} detail />}
       </div>

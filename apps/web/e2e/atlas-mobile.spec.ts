@@ -6,7 +6,7 @@ test("phone: map stays visible; controls in rows; city details as a bottom card"
   await atlasFixture(page);
   await page.goto("/");
   await page.waitForFunction(() => (window as unknown as { __atlas?: unknown }).__atlas !== undefined);
-  await expect(page.getByText("Sep 24–30, 2026")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sep 24–30, 2026", exact: true })).toBeVisible();
   const vp = page.viewportSize()!;
   // the time bar sits at the bottom and leaves most of the screen to the map
   const bar = await page.getByRole("region", { name: "Timeline" }).boundingBox();

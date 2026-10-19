@@ -94,7 +94,7 @@ test("default view: all jobs, 7 days, latest date; no WebGL -> 2D map, not a bla
   expect(await screen.findByRole("img", { name: /2D view/ })).toBeInTheDocument();
   await waitFor(() => expect(calls.some((c) => c.includes("/timeline") && c.includes("occupation=all") && c.includes("window=7d"))).toBe(true));
   expect(screen.getByText("2D view: WebGL is not available in this browser.")).toBeInTheDocument();
-  expect(screen.getByText("Sep 24–30, 2026")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Sep 24–30, 2026" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Occupation: All jobs" })).toBeInTheDocument();
   await userEvent.click(screen.getByRole("button", { name: /Sep 24–30, 2026/ }));
   expect(screen.getByRole("radio", { name: "7 days" })).toHaveAttribute("aria-checked", "true");
