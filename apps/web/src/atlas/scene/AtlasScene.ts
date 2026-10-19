@@ -57,7 +57,7 @@ interface Body {
   chartZ: number;
 }
 
-const MAX_BODIES = CEL.detail.bodyLimit + 2; // plus selected and hovered
+const MAX_BODIES = (CEL.detail.bodyLimit + 2) * 2; // old and new placements, including selected and hovered
 /** Camera limits. The deepest zoom is set by geography: at 6× the GTA cities (Toronto,
  * Mississauga, Brampton, Vaughan, Markham) stand clearly apart as separate bodies (measured;
  * they separate from 2.25×). */
@@ -343,6 +343,9 @@ export class AtlasScene {
   /** Bodies need rebuilding when data, selection, hover or zoom change, or while a
    * tween runs; panning and turning only re-render. */
   private layoutDirty = true;
+  /** Rendered footprints converge independently of the exact placement audit. */
+  private visual = new Map<string, { x: number; z: number; radius: number }>();
+  private layoutTime = 0;
   private raf = 0;
   private disposed = false;
   private listeners = new Set<() => void>();
@@ -373,6 +376,9 @@ export class AtlasScene {
     this.renderer.domElement.style.display = "block";
     host.appendChild(this.renderer.domElement);
     this.scene.background = new THREE.Color(CEL.paper);
+    this.leaders.geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(MAX_BODIES * 6), 3).setUsage(THREE.DynamicDrawUsage));
+    this.leaders.geometry.setDrawRange(0, 0);
+    this.leaders.frustumCulled = false;
     this.scene.add(this.leaders);
     this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, -20000, 20000);
 
@@ -522,6 +528,7 @@ export class AtlasScene {
 
   setCities(cities: SceneCity[]): void {
     const started = performance.now();
+    this.visual.clear();
     this.bodies = cities.map((c) => {
       const [x, y] = project(c.lon, c.lat);
       return { id: c.id, x, z: -y, from: 0, to: 0, shown: 0, count: null, clearance: this.clearanceAt(x, y), radius: 0, chartX: x, chartZ: -y };
@@ -701,7 +708,7 @@ export class AtlasScene {
   }
 
   private updateFootprints(): void {
-    const segments: number[] = [];
+    this.layoutTime = performance.now();
     for (const b of this.bodies) {
       if (!this.expanded.has(b.id)) {
         b.chartX = b.x; b.chartZ = b.z; b.radius = 0;
@@ -711,12 +718,7 @@ export class AtlasScene {
           b.radius = separatedRadius(b.clearance, nearest, 22 / this.level);
         }
       }
-      if (b.radius > 0 && Math.hypot(b.x - b.chartX, b.z - b.chartZ) > 1)
-        segments.push(b.x, this.landTop + 2, b.z, b.chartX, this.landTop + 2, b.chartZ);
     }
-    this.leaders.geometry.dispose();
-    this.leaders.geometry = new THREE.BufferGeometry();
-    this.leaders.geometry.setAttribute("position", new THREE.Float32BufferAttribute(segments, 3));
   }
 
   private isBody(b: Body): boolean {
@@ -735,21 +737,48 @@ export class AtlasScene {
     const lineAttr = this.domeGeo.getAttribute("iLine") as THREE.InstancedBufferAttribute;
     let moving = false;
     let n = 0;
+    let leaderCount = 0;
+    const leaders = this.leaders.geometry.getAttribute("position") as THREE.BufferAttribute;
     const scale = this.heightScale();
+    const dt = Math.max(0, now - this.layoutTime);
+    this.layoutTime = now;
+    const blend = this.opts.reducedMotion ? 1 : 1 - Math.exp(-dt / 65);
     this.bodies.forEach((b) => {
       const t = this.opts.reducedMotion ? 1 : Math.min(1, Math.max(0, (now - this.tweenStart) / CEL.motion.height));
       if (t < 1) moving = true;
       b.shown = b.from + (b.to - b.from) * ease(t);
       const marked = b.id === this.selected || b.id === this.hovered;
-      if (this.isBody(b) && n < MAX_BODIES) {
-        pos.setXYZ(n, b.chartX, this.landTop, b.chartZ);
+      const targetRadius = this.isBody(b) ? b.radius : 0;
+      const v = this.visual.get(b.id) ?? { x: b.chartX, z: b.chartZ, radius: 0 };
+      this.visual.set(b.id, v);
+      // Departing bodies keep their last foot while narrowing; new bodies grow at their
+      // final foot. Continuing bodies move smoothly between the cached placements.
+      const x = targetRadius > 0 ? b.chartX : v.x;
+      const z = targetRadius > 0 ? b.chartZ : v.z;
+      const distance = Math.hypot(x - v.x, z - v.z);
+      if (Math.abs(targetRadius - v.radius) > px * 0.02 || distance > px * 0.02) {
+        v.x += (x - v.x) * blend;
+        v.z += (z - v.z) * blend;
+        v.radius += (targetRadius - v.radius) * blend;
+        moving = !this.opts.reducedMotion || moving;
+      } else {
+        v.x = x; v.z = z; v.radius = targetRadius;
+      }
+      if (v.radius > 0 && b.shown > 0 && n < MAX_BODIES) {
+        pos.setXYZ(n, v.x, this.landTop, v.z);
         hAttr.setX(n, b.shown * scale);
-        const radius = Math.min(R, b.radius);
-        radii.setX(n, b.radius);
+        const radius = Math.min(R, v.radius);
+        radii.setX(n, v.radius);
         lineAttr.setX(n, Math.min(marked ? CEL.line.selected : CEL.line.data, radius / px * 0.22));
+        if (Math.hypot(b.x - v.x, b.z - v.z) > 1) {
+          leaders.setXYZ(leaderCount++, b.x, this.landTop + 2, b.z);
+          leaders.setXYZ(leaderCount++, v.x, this.landTop + 2, v.z);
+        }
         n++;
       }
     });
+    leaders.needsUpdate = true;
+    this.leaders.geometry.setDrawRange(0, leaderCount);
     this.domeGeo.instanceCount = n;
     this.contactGeo.instanceCount = n;
     pos.needsUpdate = radii.needsUpdate = hAttr.needsUpdate = lineAttr.needsUpdate = true;
@@ -991,13 +1020,15 @@ export class AtlasScene {
    * the view shows it rubber-banded past the limits; other moves, and reduced motion, are
    * clamped outright. */
   private commit(next: CameraState, elastic: boolean): void {
+    const from = this.state();
+    const to = elastic && !this.opts.reducedMotion ? this.display(next) : this.constrain(next);
     this.anim = null;
+    if (this.opts.reducedMotion) this.setState(to);
+    else this.anim = { start: performance.now(), ms: this.gesture ? 75 : 130, from, to };
     if (!elastic || this.opts.reducedMotion) {
       this.raw = null;
-      this.setState(this.constrain(next));
     } else {
       this.raw = next;
-      this.setState(this.display(next));
       // wheels and trackpads have no "release": spring back once input pauses
       clearTimeout(this.releaseTimer);
       if (!this.gesture) this.releaseTimer = window.setTimeout(() => this.release(true), 120);
@@ -1009,7 +1040,8 @@ export class AtlasScene {
 
   /** The camera an elastic move starts from: the gesture's raw camera, or the view. */
   private base(): CameraState {
-    return this.raw ? { ...this.raw, target: this.raw.target.clone() } : this.state();
+    const base = this.raw ?? this.anim?.to ?? this.state();
+    return { ...base, target: base.target.clone() };
   }
 
   /** A pointer or trackpad gesture starts / ends: overshoot is allowed only while it lasts. */
@@ -1031,17 +1063,19 @@ export class AtlasScene {
     this.raw = null;
     this.correction = null;
     const cur = this.state();
-    let to = this.constrain(cur);
-    if (to.zoom !== cur.zoom && this.zoomPoint) {
+    const destination = this.anim?.to ?? cur;
+    let to = this.constrain(destination);
+    if (to.zoom !== destination.zoom && this.zoomPoint) {
       const [x, y] = this.zoomPoint;
+      this.setState(destination);
       const before = this.groundAt(x, y);
-      this.setState({ ...cur, zoom: to.zoom });
+      this.setState({ ...destination, zoom: to.zoom });
       const after = this.groundAt(x, y);
       this.setState(cur);
-      if (before && after) to = this.constrain({ ...cur, target: cur.target.clone().add(before.sub(after)), zoom: to.zoom });
+      if (before && after) to = this.constrain({ ...cur, target: destination.target.clone().add(before.sub(after)), zoom: to.zoom });
     }
     const k = (2 * this.homeHalfH) / cur.zoom / (this.host.clientHeight || 1);
-    if (cur.target.distanceTo(to.target) / k < 0.5 && Math.abs(Math.log(cur.zoom / to.zoom)) < 1e-4 && Math.abs(cur.az - to.az) + Math.abs(cur.el - to.el) < 0.01) return;
+    if (destination.target.distanceTo(to.target) / k < 0.5 && Math.abs(Math.log(destination.zoom / to.zoom)) < 1e-4 && Math.abs(destination.az - to.az) + Math.abs(destination.el - to.el) < 0.01) return;
     // trackpad momentum keeps sending wheel events after the fingers lift: don't let them
     // stretch the view again while it springs back
     if (fromWheel) this.wheelLock = performance.now() + 350;
@@ -1065,7 +1099,7 @@ export class AtlasScene {
 
   /** Orbit around the map target (all the way round; elevation 30–60°). */
   rotate(dx: number, dy = 0, elastic = false): void {
-    const b = elastic ? this.base() : this.state();
+    const b = this.base();
     this.commit({ ...b, az: b.az - dx * 0.28, el: b.el + dy * 0.2 }, elastic);
   }
 
@@ -1076,8 +1110,9 @@ export class AtlasScene {
     const up = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 1);
     const groundUp = new THREE.Vector3(up.x, 0, up.z).normalize();
     const el = (this.elevation * Math.PI) / 180;
-    const target = this.target.clone().addScaledVector(right, -dx * perPx).addScaledVector(groundUp, (dy * perPx) / Math.sin(el));
-    this.commit({ target, zoom: this.zoom, az: this.azimuth, el: this.elevation }, false);
+    const base = this.base();
+    const target = base.target.clone().addScaledVector(right, -dx * perPx).addScaledVector(groundUp, (dy * perPx) / Math.sin(el));
+    this.commit({ ...base, target }, false);
   }
 
   /** Drag the map: the ground point under (fromX, fromY) follows the pointer to (toX, toY). */
@@ -1085,7 +1120,7 @@ export class AtlasScene {
     const a = this.groundAt(fromX, fromY);
     const b = this.groundAt(toX, toY);
     if (!a || !b) return;
-    const base = elastic ? this.base() : this.state();
+    const base = this.base();
     this.commit({ ...base, target: base.target.add(a.sub(b)) }, elastic);
   }
 
@@ -1100,7 +1135,7 @@ export class AtlasScene {
       }
     }
     const cur = this.state();
-    const base = elastic ? this.base() : cur;
+    const base = this.base();
     const next = { ...base, target: base.target.clone(), zoom: base.zoom * factor };
     if (clientX !== undefined) {
       // anchor in the camera being changed (a stretched gesture's raw camera)
@@ -1178,7 +1213,8 @@ export class AtlasScene {
     let bestD = 8;
     for (const b of this.bodies) {
       if (!this.isBody(b)) continue;
-      const [bx, by] = this.toScreen(b.chartX, this.landTop, b.chartZ);
+      const v = this.visual.get(b.id) ?? { x: b.chartX, z: b.chartZ, radius: b.radius };
+      const [bx, by] = this.toScreen(v.x, this.landTop, v.z);
       if (Math.hypot(b.x - b.chartX, b.z - b.chartZ) > 1) {
         const [ax, ay] = this.toScreen(b.x, this.landTop, b.z);
         const t = Math.max(0, Math.min(1, ((x - ax) * (bx - ax) + (y - ay) * (by - ay)) / ((bx - ax) ** 2 + (by - ay) ** 2 || 1)));
@@ -1186,7 +1222,7 @@ export class AtlasScene {
         if (leaderDistance < bestD) { bestD = leaderDistance; best = b.id; }
       }
       if (Math.abs(x - bx) > 60 || y > by + 20) continue;
-      const [tx, ty] = this.toScreen(b.chartX, this.landTop + b.shown * this.heightScale(), b.chartZ);
+      const [tx, ty] = this.toScreen(v.x, this.landTop + b.shown * this.heightScale(), v.z);
       const t = Math.max(0, Math.min(1, ((x - bx) * (tx - bx) + (y - by) * (ty - by)) / ((tx - bx) ** 2 + (ty - by) ** 2 || 1)));
       const d = Math.max(0, Math.hypot(x - (bx + t * (tx - bx)), y - (by + t * (ty - by))) - Math.min(rPx, b.radius / this.worldPerPx()) * 0.85);
       if (d < bestD) {
@@ -1208,9 +1244,10 @@ export class AtlasScene {
       const [bx, by] = this.toScreen(b.x, this.landTop, b.z);
       if (bx < -50 || by < -50 || bx > w + 50 || by > h + 50) continue;
       const body = this.isBody(b);
+      const v = this.visual.get(b.id) ?? { x: b.chartX, z: b.chartZ, radius: b.radius };
       // labels are placed when bodies settle, possibly before they have grown: use the target
       const tall = ((this.expanded.has(b.id) || body) && b.to > 0 ? Math.max(b.shown, b.to) : 0) * this.heightScale();
-      const [x, y] = tall ? this.toScreen(b.chartX, this.landTop + tall, b.chartZ) : [bx, by];
+      const [x, y] = tall ? this.toScreen(v.x, this.landTop + tall, v.z) : [bx, by];
       out.push({ id: b.id, x, y, bx, by, r: body ? Math.min(r, b.radius / this.worldPerPx()) : r, height: b.shown, count: b.count, body, displaced: Math.hypot(b.chartX - b.x, b.chartZ - b.z) > 1 });
     }
     return out;

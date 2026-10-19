@@ -213,7 +213,9 @@ export function SceneView(p: Props) {
       e.preventDefault();
       dismissHint();
       if (gesture) return; // Safari reports the pinch as a gesture below
-      scene.current?.zoomAt(Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0016)), e.clientX, e.clientY, true);
+      // Normalize wheel notches and trackpad pixels to the same zoom response.
+      const pixels = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? el.clientHeight : 1);
+      scene.current?.zoomAt(Math.exp(-Math.max(-1000, Math.min(1000, pixels)) * (e.ctrlKey ? 0.01 : 0.0016)), e.clientX, e.clientY, true);
     };
     // Safari's trackpad gestures: pinch zooms at the pointer, a two-finger twist turns the map.
     type Gesture = Event & { scale: number; rotation: number; clientX: number; clientY: number };
