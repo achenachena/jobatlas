@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import type { Capabilities, TimelineResponse } from "./api";
-import { completeFrame, loadReplay, replayIndex } from "./replay";
+import { completeFrame, loadReplay, replayIndex, replayPriority } from "./replay";
 import { cityScaleMax } from "./scale";
 
 export function useReplay(selectionKey: string, reducedMotion: boolean) {
   const [session, setSession] = useState<{ key: string; timeline: TimelineResponse; scale: number; priority: { id: string; max: number }[] } | null>(null);
   const [phase, setPhase] = useState<"idle" | "loading" | "ready" | "playing" | "paused" | "ended" | "gap" | "error">("idle");
+  const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [duration, setDuration] = useState(10);
   const [index, setIndex] = useState(0);
   const [compare, setCompare] = useState(false);
@@ -19,13 +20,13 @@ export function useReplay(selectionKey: string, reducedMotion: boolean) {
   const prepare = async (caps: Capabilities, occupation: string, mode: "shared" | "fit") => {
     controller.current?.abort();
     const abort = new AbortController(); controller.current = abort;
-    setPhase("loading"); setError(null); setErrorCode(null); setCompare(false); setSession(null);
+    setProgress({ done: 0, total: 0 }); setPhase("loading"); setError(null); setErrorCode(null); setCompare(false); setSession(null);
     try {
-      const timeline = await loadReplay(caps, occupation, abort.signal);
+      const timeline = await loadReplay(caps, occupation, abort.signal, (done, total) => { if (!abort.signal.aborted) setProgress({ done, total }); });
       if (abort.signal.aborted) return;
       const scale = cityScaleMax(caps.quality, mode === "shared" ? "all" : occupation, "30d");
       if (scale == null) throw new Error("This release does not publish a fixed city scale for 30-day playback.");
-      const priority = timeline.city_ids.map((id, i) => ({ id, max: Math.max(...timeline.frames.map(f => f.counts[i] ?? 0)) })).filter(p => p.max > 0).sort((a,b) => b.max - a.max || a.id.localeCompare(b.id));
+      const priority = replayPriority(timeline);
       setSession({ key: selectionKey, timeline, scale, priority });
       setIndex(0); clock.current = { elapsed: 0, started: 0, index: 0 }; setPhase("ready");
     } catch (e) { if (!abort.signal.aborted) { setError((e as Error).message); setErrorCode((e as {code?:string}).code ?? null); setPhase("error"); } }
@@ -85,5 +86,5 @@ export function useReplay(selectionKey: string, reducedMotion: boolean) {
     clock.current.elapsed = clock.current.elapsed / duration * seconds;
     setDuration(seconds);
   };
-  return { active, phase, duration, setDuration: changeDuration, frame: active?.timeline.frames[index], baseline: active?.timeline.frames[0], compare, setCompare, error, errorCode, prepare, begin, pause, seek, replay, continueGap, cancel };
+  return { active, phase, progress, duration, setDuration: changeDuration, frame: active?.timeline.frames[index], baseline: active?.timeline.frames[0], compare, setCompare, error, errorCode, prepare, begin, pause, seek, replay, continueGap, cancel };
 }

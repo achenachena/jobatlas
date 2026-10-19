@@ -157,6 +157,53 @@ export function domeGeometry(segments = SEGMENTS, capRings = CAP_RINGS): THREE.I
   return g;
 }
 
+/** A small start-height tick and a single decrease stem replace the hollow duplicate body.
+ * Work in view-space pixels so the mark stays clean at every zoom and viewing angle. */
+const COMPARISON_VERTEX = /* glsl */ `
+uniform float uPx;
+uniform float uR;
+attribute vec3 iPos;
+attribute float iH;
+attribute float iR;
+attribute float iBase;
+varying vec2 vMark;
+varying float vWidth;
+varying float vDelta;
+varying float vKnown;
+void main() {
+  vec4 start = modelViewMatrix * vec4(iPos + vec3(0.0, max(iBase, 0.0), 0.0), 1.0);
+  vec4 current = modelViewMatrix * vec4(iPos + vec3(0.0, iH, 0.0), 1.0);
+  vKnown = iBase >= 0.0 && iR > 0.0 ? 1.0 : 0.0;
+  vDelta = (start.y - current.y) / uPx;
+  vWidth = max(1.0, min(uR, iR) * 0.72 / uPx);
+  float bottom = min(0.0, -vDelta) - 1.5;
+  vMark = vec2(position.x * (vWidth + 1.5), mix(bottom, 1.5, position.y * 0.5 + 0.5));
+  start.xy += vMark * uPx;
+  // Sit just in front of this body's surface, while respecting nearer bodies' depth.
+  start.z += min(uR, iR) + uPx * 2.0;
+  gl_Position = projectionMatrix * start;
+}
+`;
+const COMPARISON_FRAGMENT = /* glsl */ `
+uniform float uCompare;
+varying vec2 vMark;
+varying float vWidth;
+varying float vDelta;
+varying float vKnown;
+void main() {
+  if (vKnown < 0.5 || uCompare <= 0.0) discard;
+  vec2 q = abs(vMark) - vec2(max(0.0, vWidth - 0.55), 0.0);
+  float tick = 1.0 - smoothstep(0.35, 1.05, length(max(q, 0.0)));
+  float stem = (1.0 - smoothstep(0.25, 0.85, abs(vMark.x)))
+    * step(-vDelta, vMark.y) * step(vMark.y, 0.0) * step(2.0, vDelta);
+  float alpha = max(tick * 0.82, stem * 0.32) * uCompare;
+  if (alpha < 0.01) discard;
+  vec3 color = vDelta > 1.0 ? vec3(0.64, 0.37, 0.20) : vec3(0.29, 0.43, 0.55);
+  gl_FragColor = vec4(color, alpha);
+  #include <colorspace_fragment>
+}
+`;
+
 export const DOME_VERTEX = /* glsl */ `
 uniform float uR;
 uniform float uPx;
@@ -176,11 +223,7 @@ varying float vBodyT;
 // to the side and to the top whose radius is set by the width, never stretched by H.
 void main() {
   vBase = iBase; vHeight = iH;
-#ifdef BASELINE
-  float H = max(iBase, 1.0);
-#else
   float H = max(iH, 1.0);
-#endif
   float R = min(min(uR, iR), H * 0.62);
   // Same monotone silhouette at every height: broad grounded foot, rounded
   // shoulder, hemispherical cap. Both first derivatives meet at the shoulder.
@@ -229,16 +272,6 @@ varying vec3 vN;
 varying vec3 vV;
 varying float vBodyT;
 void main() {
-#ifdef BASELINE
-  if (vBase < 0.0 || uCompare <= 0.0) discard;
-  float ghostFacing = abs(dot(normalize(vN), normalize(vV)));
-  float ghostEdge = 1.0 - smoothstep(0.015, max(fwidth(ghostFacing) * 1.8, 0.07), ghostFacing);
-  if (ghostEdge < 0.02) discard;
-  vec3 color = vBase > vHeight + 0.1 ? vec3(0.78, 0.36, 0.09) : vec3(0.34, 0.48, 0.64);
-  gl_FragColor = vec4(color, ghostEdge * uCompare * 0.85);
-  #include <colorspace_fragment>
-  return;
-#endif
 #ifdef OUTLINE
   gl_FragColor = vec4(uShade, 1.0);
 #else
@@ -366,6 +399,7 @@ export class AtlasScene {
   private compareStarted = 0;
   private compareMat: THREE.ShaderMaterial;
   private compareMesh: THREE.Mesh;
+  private compareGeo = new THREE.InstancedBufferGeometry();
   setInteractionLocked(value: boolean): void { this.interactionLocked = value; if (value) { this.anim = null; this.raw = null; clearTimeout(this.releaseTimer); } }
   setComparison(value: { key: string; baseline: Map<string, number | null>; visible: boolean } | null): void {
     if (value?.key === this.comparison?.key && value?.visible === this.comparison?.visible) return;
@@ -451,8 +485,13 @@ export class AtlasScene {
       mesh.renderOrder = mat === this.outlineMat ? 1.5 : 2;
       this.scene.add(mesh);
     }
-    this.compareMat = new THREE.ShaderMaterial({ uniforms, vertexShader: DOME_VERTEX, fragmentShader: DOME_FRAGMENT, defines: { BASELINE: 1 }, transparent: true, depthWrite: false, depthTest: false });
-    const baselineMesh = this.compareMesh = new THREE.Mesh(this.domeGeo, this.compareMat);
+    const marker = new THREE.PlaneGeometry(2, 2);
+    this.compareGeo.index = marker.index;
+    this.compareGeo.setAttribute("position", marker.getAttribute("position"));
+    for (const name of ["iPos", "iH", "iR", "iBase"]) this.compareGeo.setAttribute(name, this.domeGeo.getAttribute(name));
+    this.compareGeo.instanceCount = 0;
+    this.compareMat = new THREE.ShaderMaterial({ uniforms, vertexShader: COMPARISON_VERTEX, fragmentShader: COMPARISON_FRAGMENT, transparent: true, depthWrite: false, depthTest: true });
+    const baselineMesh = this.compareMesh = new THREE.Mesh(this.compareGeo, this.compareMat);
     baselineMesh.visible = false;
     baselineMesh.frustumCulled = false;
     baselineMesh.renderOrder = 3;
@@ -831,6 +870,7 @@ export class AtlasScene {
     leaders.needsUpdate = true;
     this.leaders.geometry.setDrawRange(0, leaderCount);
     this.domeGeo.instanceCount = n;
+    this.compareGeo.instanceCount = n;
     this.contactGeo.instanceCount = n;
     pos.needsUpdate = radii.needsUpdate = hAttr.needsUpdate = lineAttr.needsUpdate = baseAttr.needsUpdate = true;
     return moving;

@@ -434,7 +434,7 @@ export function AtlasApp() {
 
       {/* short status lines above the timeline: gap, partial, stale, newer release, toast, loading */}
       <div className={s.statusBar}>
-        {(replay.phase === "loading" || replay.phase === "ready") && <div className={s.notice} role="status">Preparing history…</div>}
+        {(replay.phase === "loading" || replay.phase === "ready") && <div className={s.notice} role="status">{replay.phase === "ready" ? "Arranging map…" : `Preparing history… ${replay.progress.total ? Math.round(replay.progress.done / replay.progress.total * 100) + "%" : ""}`}</div>}
         {replay.error && <div className={s.notice} role="alert">{replay.error} <button onClick={startReplay}>Retry</button></div>}
         {replay.phase === "gap" && <div className={s.notice} role="status">Data gap at {day}. Unknown, not zero. <button onClick={replay.continueGap}>Continue to next complete window</button></div>}
         {ready && status === "missing" && replay.phase !== "gap" && (

@@ -55,10 +55,20 @@ test("overview stops at unsampled gaps and offers an explicit continuation",asyn
 });
 
 test("reduced motion directly shows real endpoint comparison", async({page})=>{
+  let requests = 0;
+  page.on("request", request => {
+    if (request.url().includes("/timeline?") && request.url().includes("window=30d") && new URL(request.url()).searchParams.get("start") === "2026-07-30") requests++;
+  });
   await page.emulateMedia({reducedMotion:"reduce"});await atlasFixture(page,"real","complete");await page.goto("/");
   await page.getByRole("button",{name:"Watch changes · 10 sec"}).click();
   await expect(page.getByRole("button",{name:"Replay",exact:true})).toBeVisible();
   await expect(page.getByRole("checkbox",{name:"Compare with start"})).toBeChecked();
+  const loaded = requests;
+  await page.getByRole("combobox", {name:"Playback duration"}).selectOption("daily");
+  await page.getByRole("combobox", {name:"Playback duration"}).selectOption("10");
+  await page.getByRole("button", {name:"Watch changes · 10 sec"}).click();
+  await expect(page.getByRole("button", {name:"Replay",exact:true})).toBeVisible();
+  expect(requests).toBe(loaded);
 });
 
 test("failed preparation can retry, and no-WebGL retains endpoint numbers", async({page})=>{

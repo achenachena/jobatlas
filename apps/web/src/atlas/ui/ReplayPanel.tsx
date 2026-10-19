@@ -29,7 +29,7 @@ export function ReplayPanel(p: {
     <button type="button" className={s.replayExpand} onClick={() => setExpanded(!expanded)} aria-expanded={expanded}>{expanded ? "Fewer cities" : "Show all cities & details"}</button>
     {p.baseline && <><label className={s.compareToggle}><input type="checkbox" checked={p.compare} onChange={e => p.onCompare(e.target.checked)} />Compare with start</label>
       <div className={`${s.small} ${s.replayBaseline}`}>Compared with {fmtDay(p.baseline.date)}</div>
-      <details className={s.replayDetails}><summary>Comparison dates & meaning</summary><p>Start: {addDays(p.baseline.date,-29)} – {p.baseline.date}<br/>Current: {p.day && addDays(p.day,-29)} – {p.day}</p><p>Outline = start; solid = current. Teal above start means increase; orange hollow section means decrease. Window differences are not seasonally adjusted trends.</p></details></>}
+      <details className={s.replayDetails}><summary>Comparison dates & meaning</summary><p>Start: {addDays(p.baseline.date,-29)} – {p.baseline.date}<br/>Current: {p.day && addDays(p.day,-29)} – {p.day}</p><p>Short tick = start height; solid = current. Teal above start means increase; a warm vertical stem shows the decrease. Window differences are not seasonally adjusted trends.</p></details></>}
     <details className={s.replayDetails}><summary>Source & counting details</summary><p className={`${s.small} ${s.replayFootnote}`}>As of {p.day ? fmtDay(p.day) : "loading"}. New postings. Source: {p.dataset}. National totals include records without a confirmed city. Counts are new advertisements, not people hired or active jobs.</p></details>
   </aside>;
 }
