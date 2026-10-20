@@ -1,9 +1,6 @@
 /** JobAtlas v2: Canada job-postings atlas in the "Clear Cel" style. Daily exploration and
  * prepared, clock-driven historical overviews share one release-bound selection. Missing
  * windows stop playback; start/current comparisons always use real, matching frames. */
-import "@fontsource/m-plus-rounded-1c/400.css";
-import "@fontsource/m-plus-rounded-1c/500.css";
-import "@fontsource/m-plus-rounded-1c/700.css";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
