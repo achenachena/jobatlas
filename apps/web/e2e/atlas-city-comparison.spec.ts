@@ -26,6 +26,11 @@ test("clicking a replay column opens matching start/current values without cover
   await expect(panel.getByRole("table")).toContainText(point.start.toLocaleString("en-CA"));
   await expect(panel.getByRole("table")).toContainText(point.current.toLocaleString("en-CA"));
   await expect(panel.getByLabel("Change from start")).toContainText(Math.abs(point.current-point.start).toLocaleString("en-CA"));
+  await panel.getByText("History over time",{exact:true}).click();
+  const chart=panel.getByRole("img",{name:/Posting history for this city/});
+  await expect(chart).toBeVisible();
+  await expect(chart).toHaveAttribute("aria-label",/Jul 30, 2026 to Sep 30, 2026/);
+  await expect(chart.locator("g path").first()).not.toHaveAttribute("d","");
   await page.setViewportSize({width:390,height:844});
   const box=(await panel.boundingBox())!, timeline=(await page.getByRole("region",{name:"Timeline",exact:true}).boundingBox())!;
   expect(box.y+box.height).toBeLessThan(timeline.y);

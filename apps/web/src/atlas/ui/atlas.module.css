@@ -1131,3 +1131,18 @@
 @media (max-width: 759px) {
   .comparisonCard { left: 16px; right: 16px; bottom: calc(146px + var(--safe-bottom)); width: auto; max-height: 38dvh; border-radius: 12px; }
 }
+
+.cityHistory { margin: 8px 0 0; color: var(--ink); }
+.cityHistory svg { display: block; width: 100%; height: auto; }
+.cityHistory svg text { fill: var(--ink-muted); font-size: 9px; }
+.historyGrid { fill: none; stroke: var(--line); stroke-width: 0.5; opacity: 0.6; }
+.cityHistory figcaption { display: flex; justify-content: space-between; gap: 8px; font-size: 10px; font-variant-numeric: tabular-nums; }
+.cityHistory p { margin: 5px 0 0; color: var(--ink-muted); font-size: 10px; }
+@media (max-width: 759px) {
+  .comparisonCard:has(details[open]) .cityComparison tbody th span { display: inline; margin-right: 6px; }
+  .comparisonCard:has(details[open]) .cityComparison time { display: inline; font-size: 11px; }
+  .comparisonCard:has(details[open]) .cityComparison th,
+  .comparisonCard:has(details[open]) .cityComparison td { padding: 3px 0; }
+  .comparisonCard:has(details[open]) .cityComparison td { font-size: 15px; }
+  .cityHistory svg { height: 80px; }
+}

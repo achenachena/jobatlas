@@ -5,11 +5,12 @@ import { type ReactNode, type RefObject, useEffect, useId, useRef, useState } fr
 
 import { type Capabilities, type City, type Dataset, DATASET_NAME, type Gap, type SeriesResponse, type SourcesResponse, type WindowKey } from "../api";
 import { useQuery } from "@tanstack/react-query";
-import { atlasGet, type FrameResponse } from "../api";
+import { atlasGet, type FrameResponse, type TimelineResponse } from "../api";
 import { changeLabel } from "../replay";
 import { legendTicks } from "../scale";
 import { addDays } from "../state";
 import s from "./atlas.module.css";
+import { HistoryChart } from "./HistoryChart";
 
 const fmtDate = new Intl.DateTimeFormat("en-CA", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 const fmtShort = new Intl.DateTimeFormat("en-CA", { month: "short", day: "numeric", timeZone: "UTC" });
@@ -592,7 +593,7 @@ function Sparkline({ series }: { series: SeriesResponse | undefined }) {
 
 export function CityCard(p: {
   city: City;
-  comparison?: { day: string; count: number | null };
+  comparison?: { day: string; count: number | null; timeline: TimelineResponse };
   count: number | null | undefined;
   quality: string;
   day: string;
@@ -618,8 +619,8 @@ export function CityCard(p: {
           </tbody>
         </table>
         <p className={s.cityChange} aria-label="Change from start">{p.comparison.count == null || p.count == null ? "Not comparable" : <>{p.count > p.comparison.count ? "+" : p.count < p.comparison.count ? "−" : ""}{fmtNum(Math.abs(p.count - p.comparison.count))} · {changeLabel(p.comparison.count, p.count)} vs start</>}</p>
-        <details className={s.small}><summary>Window details</summary>
-          <p>Start: {windowLabel(p.comparison.day, p.window)}<br/>Current: {windowLabel(p.day, p.window)}<br/>{p.occupationLabel}. Window differences are not seasonally adjusted.</p>
+        <details className={s.small}><summary>History over time</summary>
+          <HistoryChart timeline={p.comparison.timeline} cityId={p.city.city_id} day={p.day} />
         </details>
       </> : <><div className={s.bigCount}>
         {p.count == null ? "—" : `${fmtNum(p.count)} jobs`}

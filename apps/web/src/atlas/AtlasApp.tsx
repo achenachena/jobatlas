@@ -423,7 +423,7 @@ export function AtlasApp() {
       {selectedCity && day && detailsOpen && (
         <CityCard
           city={selectedCity}
-          comparison={quick && replay.baseline ? { day: replay.baseline.date, count: replay.baseline.counts[quick.timeline.city_ids.indexOf(selectedCity.city_id)] ?? null } : undefined}
+          comparison={quick && replay.baseline ? { timeline: quick.timeline, day: replay.baseline.date, count: replay.baseline.counts[quick.timeline.city_ids.indexOf(selectedCity.city_id)] ?? null } : undefined}
           count={counts.get(selectedCity.city_id)}
           quality={counts.get(selectedCity.city_id) == null && status !== "missing" ? "not_covered" : status ?? "complete"}
           day={day}
