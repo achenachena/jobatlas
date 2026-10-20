@@ -6,7 +6,7 @@ test("phone: map stays visible; controls in rows; city details as a bottom card"
   await atlasFixture(page);
   await page.goto("/");
   await page.waitForFunction(() => (window as unknown as { __atlas?: unknown }).__atlas !== undefined);
-  await expect(page.getByText("Sep 24–30, 2026")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sep 24–30, 2026", exact: true })).toBeVisible();
   const vp = page.viewportSize()!;
   // the time bar sits at the bottom and leaves most of the screen to the map
   const bar = await page.getByRole("region", { name: "Timeline" }).boundingBox();
@@ -19,7 +19,7 @@ test("phone: map stays visible; controls in rows; city details as a bottom card"
   expect(card!.width).toBeGreaterThan(vp.width * 0.85); // bottom card, full width
   expect(card!.y).toBeGreaterThan(vp.height * 0.5); // a drawer of at most ~45vh, never the whole map
   // every control is a 44 px touch target
-  for (const name of ["Play history", "Reset view", "Zoom in", "Zoom out", "More"]) {
+  for (const name of ["Watch changes · 10 sec", "Reset view", "Zoom in", "Zoom out", "More"]) {
     const b = await page.getByRole("button", { name }).boundingBox();
     expect(b!.width).toBeGreaterThanOrEqual(44);
     expect(b!.height).toBeGreaterThanOrEqual(44);

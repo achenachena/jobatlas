@@ -8,7 +8,7 @@ test.beforeEach(async ({ page }) => {
 
 async function ready(page: import("@playwright/test").Page) {
   await page.waitForFunction(() => (window as unknown as { __atlas?: unknown }).__atlas !== undefined);
-  await expect(page.getByText("Sep 24–30, 2026")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sep 24–30, 2026", exact: true })).toBeVisible();
 }
 
 test("default: Canada, all jobs, 7 days, latest, real data — 3D scene with labels", async ({ page }) => {
@@ -52,12 +52,13 @@ test("timeline: drag to a past day, play, pause, back to latest; stops at a data
   const slider = page.getByRole("slider");
   await slider.focus();
   await page.keyboard.press("Home");
-  await expect(page.getByText("Jun 25 – Jul 1, 2026")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Jun 25 – Jul 1, 2026", exact: true })).toBeVisible();
   await expect(page.getByText(/Partial window: only 1 of 7 days have data/)).toBeVisible(); // partial window
   await expect(page).toHaveURL(/date=2026-07-01/);
   // jump near the gap and play into it: playback stops there and says why
   await page.goto("/?date=2026-08-08");
   await ready(page).catch(() => undefined);
+  await page.getByRole("combobox", { name: "Playback duration" }).selectOption("daily");
   await page.getByRole("button", { name: "Play history" }).click();
   await expect(page.getByText(/Stopped at a data gap/)).toBeVisible({ timeout: 15_000 });
   await expect(page.getByText(/No data for this window/)).toBeVisible();
@@ -65,7 +66,7 @@ test("timeline: drag to a past day, play, pause, back to latest; stops at a data
   await expect(page.getByText(/No data for this window/)).toHaveCount(0);
   await page.getByRole("region", { name: "Timeline" }).getByRole("button", { name: /20\d\d/ }).click();
   await page.getByRole("button", { name: "Latest" }).click();
-  await expect(page.getByText("Sep 24–30, 2026")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sep 24–30, 2026", exact: true })).toBeVisible();
 });
 
 test("city list and card: exact numbers, keyboard reachable", async ({ page }) => {
@@ -119,7 +120,7 @@ test("no WebGL: 2D fallback map instead of a blank page", async ({ page }) => {
   });
   await page.goto("/");
   await expect(page.getByRole("img", { name: /2D view/ })).toBeVisible();
-  await expect(page.getByText("Sep 24–30, 2026")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sep 24–30, 2026", exact: true })).toBeVisible();
 });
 
 test("reduced motion: scene renders with no animation frames left running", async ({ page }) => {
@@ -139,7 +140,7 @@ test("new release: latest mode follows it; history mode keeps its date and offer
   // history mode
   release.id = "fx2";
   await page.goto("/?date=2026-08-01");
-  await expect(page.getByText(/Jul 26 – Aug 1, 2026/)).toBeVisible();
+  await expect(page.getByRole("button", { name: /Jul 26 – Aug 1, 2026/ })).toBeVisible();
   release.id = "fx3";
   await expect(page.getByText("New data available.")).toBeVisible({ timeout: 10_000 });
   await expect(page).toHaveURL(/date=2026-08-01/); // not moved

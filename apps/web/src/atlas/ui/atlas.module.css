@@ -122,8 +122,8 @@
   align-items: center;
   gap: 4px;
   min-height: 44px;
-  margin-left: -6px;
-  padding: 0 6px;
+  margin-left: 0;
+  padding: 0 6px 0 0;
   border: 0;
   border-radius: 8px;
   background: transparent;
@@ -398,9 +398,7 @@
   position: absolute;
   left: 40px;
   bottom: 28px;
-  width: calc(78% - 40px);
   display: grid;
-  grid-template-columns: 44px auto 1fr;
   grid-template-areas: "play when slider";
   align-items: center;
   column-gap: 14px;
@@ -785,7 +783,6 @@
     row-gap: 0;
   }
   .when {
-    margin-right: 148px; /* the map icons share this row */
     min-width: 0;
   }
   .dateBtn {
@@ -858,7 +855,6 @@
 .labelLeader circle { fill: var(--paper); stroke: var(--ink); stroke-width: 1; }
 
 .noteHint { font-size: 11px; font-weight: 400; font-style: normal; line-height: 1.4; max-width: 220px; white-space: normal; color: var(--ink-muted); }
-@media (max-width: 759px) { .dateBtn small { display: none; } }
 
 /* A: compact interaction labels, readable without technical copy across the map. */
 .noteDetail { z-index: 4; }
@@ -1020,4 +1016,123 @@
     bottom: calc(104px + var(--safe-bottom));
     max-width: none;
   }
+}
+
+/* Keep playback in the timeline and let the map use the entire canvas. */
+.playbackGroup { grid-area: play; display: flex; align-items: center; gap: 5px; }
+.playbackDuration { width: 65px; min-height: 44px; padding: 0; border: 0; background: transparent; color: var(--ink); font-size: 12px; cursor: pointer; }
+.replayPanel { position: absolute; right: 40px; top: 92px; z-index: 3; width: 208px; padding: 10px 12px; border-radius: 10px; background: rgb(255 254 251 / .90); font-variant-numeric: tabular-nums; }
+.replayHeading { display: flex; justify-content: space-between; font-size: 10px; gap: 10px; }
+.replayTotal { font-size: 25px; line-height: 1.4; font-weight: 700; }
+.replayDelta { font-size: 10px; line-height: 1.5; }
+.replayPanel table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 10px; margin: 6px 0; }
+.replayPanel th { text-align: left; font-weight: 500; }
+.replayPanel td, .replayPanel thead th:not(:first-child) { text-align: right; }
+.replayPanel td, .replayPanel th { padding: 3px 0; }
+.replayPanel thead { font-size: 9px; text-transform: uppercase; color: var(--ink-muted); }
+.replayPanel td:last-child { font-size: 9px; }
+.replayPanel .small { font-size: 10px; }
+.replayFootnote { margin-bottom: 0; line-height: 1.5; }
+.compareToggle { display: flex; gap: 4px; align-items: center; font-size: 11px; margin: 5px 0; }
+.replayDetails { font-size: 10px; line-height: 1.5; margin-top: 4px; }
+.replayDetails summary { cursor: pointer; }
+.replayExpand { display: none; }
+@media (max-width: 759px) {
+  .playbackGroup { gap: 2px; }
+  .mapTools { bottom: calc(100px + var(--safe-bottom)); }
+  .replayPanel { top: auto; bottom: calc(151px + var(--safe-bottom)); left: 16px; right: 16px; width: auto; padding: 6px 8px; max-height: 35vh; overflow: auto; }
+  .replayHeading { justify-content: flex-start; gap: 8px; }
+  .replayPanel .replayTotal { font-size: 21px; position: absolute; right: 8px; top: 3px; }
+  .replayPanel table { margin: 5px 0 0; font-size: 10px; }
+  .replayPanel td, .replayPanel th { padding: 1px 0; }
+  .replayPanel thead { display: none; }
+  .replayExtra, .replayDetails { display: none; }
+  .replayExpanded .replayExtra { display: table-row; }
+  .replayExpanded .replayDetails { display: block; }
+  .replayExpand { display: block; border: 0; background: none; padding: 5px 0; font-size: 10px !important; text-decoration: underline; min-height: 28px; }
+  .compareToggle { font-size: 10px; margin: 2px 0; }
+  .replayDelta { padding-top: 5px; }
+}
+.compareLabels .noteCount { animation: revealComparison 1s ease-out both; font-size: 11px; line-height: 1.3; }
+@keyframes revealComparison { from { opacity: 0; } to { opacity: 1; } }
+@media (max-width: 759px) { .compareLabels .noteCount { font-size: 10px; } }
+
+@media (max-width: 759px) {
+  .replayBaseline { display: none; }
+  .replayExpanded .replayBaseline { display: block; }
+  .sourceLine { bottom: calc(1px + var(--safe-bottom)); font-size: 8px; }
+}
+
+
+/* Reserve real space for map tools, including narrow desktop windows. */
+.timeline { width: auto; right: 300px; grid-template-columns: auto auto minmax(0, 1fr); }
+.sliderWrap, .slider { min-width: 0; }
+@media (max-width: 1200px) { .dateBtn small { display: none; } }
+@media (max-width: 1100px) {
+  .replayPanel { width: 184px; right: 24px; padding: 8px 10px; }
+  .replayPanel table, .replayPanel .replayDetails, .replayPanel .replayBaseline { display: none; }
+  .replayExpanded table { display: table; }
+  .replayExpanded .replayDetails, .replayExpanded .replayBaseline { display: block; }
+  .replayExpand { display: block; border: 0; background: none; padding: 5px 0; min-height: 32px; font-size: 11px !important; text-decoration: underline; cursor: pointer; }
+  .replayExpanded { max-height: calc(100dvh - 220px); overflow-y: auto; }
+}
+@media (max-width: 759px) {
+  .timeline { right: 16px; grid-template-columns: auto minmax(0, 1fr); }
+  .replayPanel { top: 150px; bottom: auto; left: auto; right: 16px; width: 172px; }
+  .replayPanel .replayTotal { position: static; font-size: 23px; }
+  .replayPanel .replayHeading { justify-content: space-between; }
+  .replayExpanded .replayExtra { display: table-row; }
+  .replayExpanded { max-height: calc(100dvh - 300px); }
+}
+@media (max-height: 560px) and (max-width: 1100px) {
+  .replayPanel { top: 16px; right: 64px; width: 172px; }
+  .replayExpanded { max-height: calc(100dvh - 160px); }
+}
+
+/* Align control boundaries with the brand, including the occupation popover. */
+.occupationMenu { left: 0; width: 300px; max-width: calc(100vw - 48px); }
+.occupationMenu button { white-space: normal; }
+.occupationMenu button > span { flex: 1; }
+.occupationCount { margin-left: auto; font-size: 11px; font-variant-numeric: tabular-nums; color: var(--ink-muted); }
+.rankingNote { padding: 6px 8px; font-size: 11px; color: var(--ink-muted); }
+
+.topMenuOpen { z-index: 8; }
+
+/* Compensate for the rounded font's leading J side-bearing. */
+.brand { margin-left: -0.065em; }
+.app .playbackDuration {
+  appearance: none;
+  width: 76px;
+  flex: 0 0 76px;
+  padding: 0 24px 0 4px;
+  font-size: 12px;
+  background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='m4 6 4 4 4-4' fill='none' stroke='%23172b70' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 4px center / 16px 16px;
+}
+.cityComparison { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.cityComparison th { text-align: left; font-weight: 500; }
+.cityComparison thead { color: var(--ink-muted); font-size: 11px; }
+.cityComparison th, .cityComparison td { padding: 5px 0; }
+.cityComparison th:last-child, .cityComparison td { text-align: right; }
+.cityComparison td { font-size: 18px; font-weight: 700; }
+.cityComparison tbody th span, .cityComparison time { display: block; }
+.cityComparison tbody th span { font-size: 11px; color: var(--ink-muted); }
+.cityChange { font-weight: 700; font-variant-numeric: tabular-nums; margin: 8px 0; }
+.comparisonCard { width: 280px; }
+@media (max-width: 759px) {
+  .comparisonCard { left: 16px; right: 16px; bottom: calc(146px + var(--safe-bottom)); width: auto; max-height: 38dvh; border-radius: 12px; }
+}
+
+.cityHistory { margin: 8px 0 0; color: var(--ink); }
+.cityHistory svg { display: block; width: 100%; height: auto; }
+.cityHistory svg text { fill: var(--ink-muted); font-size: 9px; }
+.historyGrid { fill: none; stroke: var(--line); stroke-width: 0.5; opacity: 0.6; }
+.cityHistory figcaption { display: flex; justify-content: space-between; gap: 8px; font-size: 10px; font-variant-numeric: tabular-nums; }
+.cityHistory p { margin: 5px 0 0; color: var(--ink-muted); font-size: 10px; }
+@media (max-width: 759px) {
+  .comparisonCard:has(details[open]) .cityComparison tbody th span { display: inline; margin-right: 6px; }
+  .comparisonCard:has(details[open]) .cityComparison time { display: inline; font-size: 11px; }
+  .comparisonCard:has(details[open]) .cityComparison th,
+  .comparisonCard:has(details[open]) .cityComparison td { padding: 3px 0; }
+  .comparisonCard:has(details[open]) .cityComparison td { font-size: 15px; }
+  .cityHistory svg { height: 80px; }
 }

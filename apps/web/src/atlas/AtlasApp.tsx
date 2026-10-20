@@ -1,9 +1,6 @@
-/** JobAtlas v2: Canada job-postings atlas, drawn in the "Clear Cel" style. One selection
- * (URL-backed); data bound to one release; playback steps one real day at a time and stops at
- * gaps and at the end; demo data is labelled everywhere it is shown. */
-import "@fontsource/m-plus-rounded-1c/400.css";
-import "@fontsource/m-plus-rounded-1c/500.css";
-import "@fontsource/m-plus-rounded-1c/700.css";
+/** JobAtlas v2: Canada job-postings atlas in the "Clear Cel" style. Daily exploration and
+ * prepared, clock-driven historical overviews share one release-bound selection. Missing
+ * windows stop playback; start/current comparisons always use real, matching frames. */
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
@@ -13,6 +10,8 @@ import { atlasGet, DATASET_NAME, type FrameResponse, type TimelineResponse, type
 import { type GeoData, webglAvailable } from "./scene/AtlasScene";
 import { addDays, DEFAULT_SELECTION, parseSelection, type Selection, serializeSelection } from "./state";
 import s from "./ui/atlas.module.css";
+import { useReplay } from "./useReplay";
+import { ReplayPanel } from "./ui/ReplayPanel";
 import { FallbackMap } from "./ui/FallbackMap";
 import { Brand, CityCard, DatasetSwitch, fmtDay, MoreMenu, type MoreItem, RankingList, ScalePanel, SourceLine, SourcesDialog, TimelineBar } from "./ui/parts";
 import { SceneView } from "./ui/SceneView";
@@ -70,8 +69,25 @@ export function AtlasApp() {
   const ready = !!info && info.data_mode !== "not_configured" && !!info.history_start && !!info.data_through;
   const historyStart = info?.history_start ?? null;
   const dataThrough = info?.data_through ?? null;
-  const day = clampDay(sel.date ?? dataThrough, historyStart, dataThrough);
+  const replayKey = `${sel.dataset}|${release}|${sel.occupation}|${sel.window}|${sel.scale}`;
+  const replay = useReplay(replayKey, reducedMotion);
+  const [launchReplay, setLaunchReplay] = useState(false);
+  const [dailyPlayback, setDailyPlayback] = useState(false);
+  const quick = replay.active;
+  const quickPlaying = !!quick && replay.phase === "playing";
+  const day = replay.frame?.date ?? clampDay(sel.date ?? dataThrough, historyStart, dataThrough);
+  useEffect(() => {
+    if (!launchReplay || !info || sel.dataset !== "real" || sel.window !== "30d") return;
+    setLaunchReplay(false);
+    void replay.prepare(info, sel.occupation, sel.scale);
+  }, [launchReplay, info, sel.dataset, sel.window, sel.occupation, sel.scale]);
+  const startReplay = () => {
+    setPlaying(false);
+    set({ window: "30d", date: historyStart ? addDays(historyStart, 29) : null });
+    setLaunchReplay(true);
+  };
   const latest = !!day && day === dataThrough;
+  useEffect(() => { if (replay.frame) set({date: replay.frame.date}); }, [replay.frame?.date]);
 
   const geo = useQuery({
     queryKey: ["atlas", "geo"],
@@ -80,18 +96,19 @@ export function AtlasApp() {
   });
   const cities = useCities(sel.dataset, release);
   const args = { dataset: sel.dataset, release, occupation: sel.occupation, window: sel.window, historyStart, dataThrough };
-  const tl = useTimelineChunk(args, day, playing);
-  const scaleMax = useScaleMax(args, sel.scale, info);
+  const tl = useTimelineChunk(args, quick ? null : day, playing);
+  const normalScaleMax = useScaleMax(args, sel.scale, info);
+  const scaleMax = quick?.scale ?? normalScaleMax;
   const sources = useSources();
 
   // Render a real single-day response without waiting for the playback chunk.
   const initial = useQuery({
     queryKey: ["atlas", "timeline", sel.dataset, release, sel.occupation, sel.window, day, day],
     queryFn: ({ signal }) => atlasGet<TimelineResponse>("/timeline", { dataset: sel.dataset, release: release ?? undefined, occupation: sel.occupation, window: sel.window, start: day ?? undefined, end: day ?? undefined }, signal),
-    enabled: ready && !!day && !playing,
+    enabled: ready && !!day && !playing && !quick,
     staleTime: Infinity,
   });
-  const currentTimeline = tl.data?.frames.some(f => f.date === day) && !tl.isPlaceholderData ? tl.data : initial.data;
+  const currentTimeline = quick?.timeline ?? (tl.data?.frames.some(f => f.date === day) && !tl.isPlaceholderData ? tl.data : initial.data);
 
   // Counts for the shown day. While a new chunk loads, the previous counts stay on screen
   // (never a flash of zeros); the key changes only when real data for `day` is present.
@@ -113,7 +130,7 @@ export function AtlasApp() {
   // Playback freezes the order until paused.
   const prio = useRef<{ key: string; data: unknown; list: { id: string; max: number }[] }>({ key: "", data: null, list: [] });
   const prioKey = `${release}|${sel.occupation}|${sel.window}|${day}`;
-  if (currentTimeline && sameSelection && (!prio.current.list.length || (!playing && prio.current.key !== prioKey))) {
+  if (currentTimeline && sameSelection && (!prio.current.list.length || (!playing && !quick && prio.current.key !== prioKey))) {
     const max = new Map<string, number>();
     currentTimeline.city_ids.forEach((id, i) => {
       for (const f of currentTimeline.frames) {
@@ -130,7 +147,7 @@ export function AtlasApp() {
     queryKey: ["atlas", "frame", sel.dataset, release, sel.occupation, sel.window, day],
     queryFn: ({ signal }) =>
       atlasGet<FrameResponse>("/frame", { dataset: sel.dataset, release: release ?? undefined, occupation: sel.occupation, window: sel.window, date: day ?? undefined }, signal),
-    enabled: ready && !playing && !!day,
+    enabled: ready && !playing && !!day && !quick,
     staleTime: Infinity,
   });
 
@@ -163,16 +180,19 @@ export function AtlasApp() {
     if (playing) return setPlaying(false);
     if (!historyStart || !dataThrough) return;
     // From the end, replay from the start of the history.
-    if (latest) set({ date: historyStart });
+    if (quick) { if (quickPlaying) replay.pause(); else if (replay.phase === "ended") replay.replay(); else replay.begin(); return; }
+    if (latest) set({ date: addDays(historyStart, WINDOW_DAYS[sel.window] - 1) });
     setPlaying(true);
   };
+
+  useEffect(() => { if (!webgl && replay.phase === "ready") replay.begin(); }, [webgl, replay.phase]);
 
   // ---------------------------------------------------------------- new versions
   const version = useLatestVersion(sel.dataset);
   const newer = !!version.data?.release_id && !!release && version.data.release_id !== release && version.data.data_mode !== "not_configured";
   useEffect(() => {
     if (!newer || !version.data) return;
-    if (sel.date === null) {
+    if (sel.date === null && !quick && replay.phase !== "loading") {
       // latest mode: move to the new release; crystals animate only through real changes.
       // Hourly data (Employer boards) updates silently; the source line says how fresh it is.
       void qc.invalidateQueries({ queryKey: ["atlas", "caps", sel.dataset] });
@@ -191,13 +211,13 @@ export function AtlasApp() {
 
   // ---------------------------------------------------------------- selection
   const selectedCity = cities.data?.cities.find((c) => c.city_id === sel.city) ?? null;
-  const series = useSeries(sel.dataset, release, sel.city, sel.occupation, sel.window, day);
+  const series = useSeries(sel.dataset, release, quick ? null : sel.city, sel.occupation, sel.window, day);
   const occLabel = info?.occupations.find((o) => o.id === sel.occupation)?.label ?? sel.occupation;
   const countsKey = lastGood.current.key;
   const onSelect = useCallback((id: string | null) => {
-    setDetailsOpen(false);
+    setDetailsOpen(!!id && !!quick);
     set({ city: id });
-  }, [set]);
+  }, [set, quick]);
   const pickCity = (id: string) => {
     if (window.innerWidth < 760) setPanel(null); // one bottom drawer at a time on phones
     set({ city: id });
@@ -226,6 +246,9 @@ export function AtlasApp() {
   const switchDataset = async (to: "real" | "ats") => {
     const occupation = sel.occupation;
     if (to === sel.dataset) return;
+    setLaunchReplay(false);
+    setPlaying(false);
+    replay.cancel();
     let next;
     try {
       next = await qc.fetchQuery(capabilitiesQuery(to));
@@ -265,7 +288,7 @@ export function AtlasApp() {
 
   // An expired release (404 RELEASE_NOT_FOUND) recovers silently: refetch the capabilities and
   // bind to the current release; the old bodies stay on screen until the new data arrives.
-  const expired = [tl.error, initial.error, cities.error, national.error, series.error].some(
+  const expired = replay.errorCode === "RELEASE_NOT_FOUND" || [tl.error, initial.error, cities.error, national.error, series.error].some(
     (e) => e instanceof ApiError && e.code === "RELEASE_NOT_FOUND",
   );
   useEffect(() => {
@@ -291,8 +314,11 @@ export function AtlasApp() {
             counts={counts}
             countsKey={countsKey}
             scaleMax={scaleMax}
-            priority={prio.current.list}
-            playing={playing}
+            priority={quick?.priority ?? prio.current.list}
+            playing={playing || !!quick}
+            replayLocked={quickPlaying || replay.phase === "ready"}
+            comparison={quick ? { baseline: new Map(quick.timeline.city_ids.map((id, i) => [id, replay.baseline!.counts[i] ?? null])), visible: replay.compare, key: quick.key } : undefined}
+            replayReady={replay.phase === "ready" ? replay.begin : undefined}
             reducedMotion={reducedMotion}
             selected={sel.city}
             focus={focus}
@@ -312,14 +338,18 @@ export function AtlasApp() {
 
       <Brand
         caps={info}
+        dataset={sel.dataset}
+        day={day}
+        window={sel.window}
         occupation={sel.occupation}
         demo={demo}
-        onOccupation={(occupation) => set({ occupation })}
+        onOccupation={(occupation) => { setPlaying(false); setLaunchReplay(false); set({ occupation }); }}
         switcher={sel.dataset !== "demo" && (
           <DatasetSwitch value={sel.dataset} caps={{ real: realCaps.data, ats: atsCaps.data }} onChange={(d) => void switchDataset(d)} />
         )}
       />
       <MoreMenu onPick={onMore} disabled={!ready} />
+      {ready && <ReplayPanel day={day} windowDays={WINDOW_DAYS[sel.window]} counts={sameSelection && frame ? counts : new Map()} national={sameSelection ? frame?.national : null} baseline={replay.baseline} timeline={quick?.timeline} selected={selectedCity} dataset={DATASET_NAME[sel.dataset]} compare={replay.compare} onCompare={replay.setCompare} /> }
 
       {panel === "scale" && ready && (
         <ScalePanel
@@ -329,8 +359,8 @@ export function AtlasApp() {
           onMode={(scale) => set({ scale })}
           caps={info}
           publishedAt={version.data?.published_at}
-          national={national.data?.national}
-          lowerBound={(national.data?.backfilled_days ?? 0) > 0}
+          national={quick ? { total_unique: frame?.national ?? null, city_unconfirmed: null, remote_canada: null } : national.data?.national}
+          lowerBound={((quick ? frame?.backfilled_days : national.data?.backfilled_days) ?? 0) > 0}
           onClose={() => setPanel(null)}
         />
       )}
@@ -340,13 +370,14 @@ export function AtlasApp() {
 
       {ready && day && (
         <TimelineBar
-          historyStart={historyStart!}
-          dataThrough={dataThrough!}
+          historyStart={quick?.timeline.start ?? historyStart!}
+          dataThrough={quick?.timeline.end ?? dataThrough!}
           day={day}
           window={sel.window}
           latest={latest}
-          playing={playing}
-          canPlay={!!info?.playback}
+          playing={playing || quickPlaying}
+          overview={!!quick}
+          canPlay={!!info?.playback && replay.phase !== "loading" && replay.phase !== "ready"}
           playReason={info?.playback_reason ?? null}
           speed={speed}
           gaps={gaps}
@@ -356,27 +387,46 @@ export function AtlasApp() {
           latestLink={hourly}
           onDay={(d) => {
             setPlaying(false);
-            set({ date: d === dataThrough ? null : d });
+            if (quick && d >= quick.timeline.start && d <= quick.timeline.end) replay.seek(d);
+            else { replay.cancel(); set({ date: d === dataThrough ? null : d }); }
           }}
-          onPlay={togglePlay}
+          playLabel={sel.dataset !== "real" || dailyPlayback ? undefined : replay.phase === "loading" || replay.phase === "ready" ? "Preparing history…" : quickPlaying ? "Pause overview" : quick && replay.phase === "paused" ? "Continue" : quick && replay.phase === "ended" ? "Replay" : `Watch changes · ${replay.duration} sec`}
+          playbackOptions={sel.dataset === "real" && <select className={s.playbackDuration} aria-label="Playback duration" title="History overview · Job Bank · Past 30 days" value={dailyPlayback ? "daily" : replay.duration} disabled={quickPlaying || replay.phase === "loading" || replay.phase === "ready"} onChange={e => {
+            setPlaying(false); setLaunchReplay(false);
+            if (e.target.value === "daily" || dailyPlayback) replay.cancel();
+            setDailyPlayback(e.target.value === "daily");
+            if (e.target.value !== "daily") replay.setDuration(Number(e.target.value));
+          }}>
+            {[10,20,40].map(n => <option key={n} value={n}>{n} sec</option>)}
+            <option value="daily">Daily</option>
+          </select>}
+          onPlay={() => {
+            if (sel.dataset !== "real" || dailyPlayback) togglePlay();
+            else if (quickPlaying) replay.pause();
+            else if (quick && replay.phase === "paused") replay.begin();
+            else if (quick && replay.phase === "ended") replay.replay();
+            else startReplay();
+          }}
           onSpeed={setSpeed}
           onLatest={() => {
             setPlaying(false);
+            replay.cancel();
             set({ date: null });
           }}
-          onWindow={(w: WindowKey) => set({ window: w })}
+          onWindow={(w: WindowKey) => { setPlaying(false); setLaunchReplay(false); set({ window: w }); }}
         />
       )}
 
       {selectedCity && day && detailsOpen && (
         <CityCard
           city={selectedCity}
+          comparison={quick && replay.baseline ? { timeline: quick.timeline, day: replay.baseline.date, count: replay.baseline.counts[quick.timeline.city_ids.indexOf(selectedCity.city_id)] ?? null } : undefined}
           count={counts.get(selectedCity.city_id)}
           quality={counts.get(selectedCity.city_id) == null && status !== "missing" ? "not_covered" : status ?? "complete"}
           day={day}
           window={sel.window}
           occupationLabel={occLabel}
-          series={series.data}
+          series={quickPlaying ? undefined : series.data}
           dataset={sel.dataset}
           lowerBound={(frame?.backfilled_days ?? 0) > 0}
           onClose={() => setDetailsOpen(false)}
@@ -385,10 +435,13 @@ export function AtlasApp() {
 
       {/* short status lines above the timeline: gap, partial, stale, newer release, toast, loading */}
       <div className={s.statusBar}>
-        {ready && status === "missing" && (
+        {(replay.phase === "loading" || replay.phase === "ready") && <div className={s.notice} role="status">{replay.phase === "ready" ? "Arranging map…" : `Preparing history… ${replay.progress.total ? Math.round(replay.progress.done / replay.progress.total * 100) + "%" : ""}`}</div>}
+        {replay.error && <div className={s.notice} role="alert">{replay.error} <button onClick={startReplay}>Retry</button></div>}
+        {replay.phase === "gap" && <div className={s.notice} role="status">Data gap at {day}. Unknown, not zero. <button onClick={replay.continueGap}>Continue to next complete window</button></div>}
+        {ready && status === "missing" && replay.phase !== "gap" && (
           <div className={s.notice} role="status">
             No data for this window ({gapTouching(day!, gaps, WINDOW_DAYS[sel.window])}). Unknown, not zero.
-            <button type="button" className={s.textBtn} onClick={() => set({ date: skipGap(day!, gaps, dataThrough!, WINDOW_DAYS[sel.window]) })}>
+            <button type="button" className={s.textBtn} onClick={() => quick ? replay.continueGap() : set({ date: skipGap(day!, gaps, dataThrough!, WINDOW_DAYS[sel.window]) })}>
               Skip to next available
             </button>
           </div>
@@ -408,7 +461,7 @@ export function AtlasApp() {
         {newer && sel.date !== null && !hourly && (
           <div className={s.notice} role="status">
             New data available.
-            <button type="button" className={s.textBtn} onClick={() => set({ date: null })}>
+            <button type="button" className={s.textBtn} onClick={() => { replay.cancel(); set({ date: null }); }}>
               Go to latest
             </button>
           </div>

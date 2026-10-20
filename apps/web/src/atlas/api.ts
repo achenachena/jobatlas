@@ -27,12 +27,28 @@ export async function atlasGet<T>(
   path: string,
   params: Record<string, string | number | undefined>,
   signal?: AbortSignal,
+  cache?: Cache,
+  validate?: (value: T) => void,
 ): Promise<T> {
   const q = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== "") q.set(k, String(v));
+  const url = `${API_BASE_URL}/api/v2/atlas${path}?${q}`;
+  signal?.throwIfAborted();
+  const saved = cache ? await cache.match(url).catch(() => undefined) : undefined;
+  if (saved) {
+    try {
+      const value = await saved.json() as T;
+      validate?.(value);
+      signal?.throwIfAborted();
+      return value;
+    } catch {
+      signal?.throwIfAborted();
+      await cache?.delete(url).catch(() => false);
+    }
+  }
   let res: Response;
   try {
-    res = await fetch(`${API_BASE_URL}/api/v2/atlas${path}?${q}`, { signal });
+    res = await fetch(url, { signal });
   } catch (err) {
     if ((err as Error).name === "AbortError") throw err;
     throw new ApiError("Network error", 0, "NETWORK", null);
@@ -49,5 +65,12 @@ export async function atlasGet<T>(
     }
     throw new ApiError(message, res.status, code, res.headers.get("x-request-id"));
   }
-  return (await res.json()) as T;
+  // Only the release-pinned replay loader supplies a cache. Stream a response clone
+  // to browser storage without serializing the large parsed matrix on the UI thread.
+  const copy = cache ? res.clone() : undefined;
+  const value = await res.json() as T;
+  validate?.(value);
+  signal?.throwIfAborted();
+  if (cache && copy) await cache.put(url, copy).catch(() => {});
+  return value;
 }

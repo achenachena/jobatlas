@@ -69,7 +69,7 @@ jobs:
           area() {
             case $1 in
               # docs, CI, tests and local-only Docker files (production builds the API from backend/)
-              *.md|docs/*|.github/*|.gitignore|.env.example|.dockerignore|infra/compose.yaml|backend/tests/*|apps/web/e2e/*|apps/web/playwright.config.ts|apps/web/Dockerfile) echo none ;;
+              *.md|docs/*|.github/*|.gitignore|.env.example|.dockerignore|infra/compose.yaml|backend/tests/*|apps/web/e2e/*|apps/web/src/*.test.ts|apps/web/src/*.test.tsx|apps/web/src/test-setup.ts|apps/web/playwright.config.ts|apps/web/Dockerfile) echo none ;;
               apps/web/*|packages/api-client/*) echo web ;;
               backend/*|infra/*) echo api ;;
               *) echo both ;;

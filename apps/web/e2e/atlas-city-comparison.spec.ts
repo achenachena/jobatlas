@@ -1,0 +1,41 @@
+import {expect,test} from "@playwright/test";
+import {atlasFixture} from "./atlas-fixture";
+
+test("clicking a replay column opens matching start/current values without covering mobile playback",async({page})=>{
+  await page.emulateMedia({reducedMotion:"reduce"});await atlasFixture(page,"real","complete");await page.goto("/");
+  await page.getByRole("button",{name:"Watch changes · 10 sec"}).click();
+  await expect(page.getByRole("button",{name:"Replay",exact:true})).toBeVisible();
+  const point=await page.evaluate(()=>{
+    const sc=(window as any).__atlas;
+    const b=sc.bodies.find((b:any)=>b.id==="ca-on-toronto");
+    const v=sc.visual.get(b.id);
+    const start=sc.comparison.baseline.get(b.id);
+    const height=1350*Math.sqrt(start/sc.scaleMax);
+    const [x,y]=sc.toScreen(v.x,sc.landTop+(height+b.shown)/2*sc.heightScale(),v.z);
+    const rect=sc.host.getBoundingClientRect();
+    return {x:x+rect.left,y:y+rect.top,picked:sc.pick(x+rect.left,y+rect.top),start,current:b.count};
+  });
+  expect(point.picked).toBe("ca-on-toronto");
+  const canvas=page.locator("canvas").first();
+  await canvas.dispatchEvent("pointerdown",{clientX:point.x,clientY:point.y,button:0,pointerId:1});
+  await canvas.dispatchEvent("pointerup",{clientX:point.x,clientY:point.y,button:0,pointerId:1});
+  const panel=page.getByRole("region",{name:"Toronto details",exact:true});
+  await expect(panel).toBeVisible();
+  await expect(panel.getByRole("table")).toContainText("Jul 30, 2026");
+  await expect(panel.getByRole("table")).toContainText("Sep 30, 2026");
+  await expect(panel.getByRole("table")).toContainText(point.start.toLocaleString("en-CA"));
+  await expect(panel.getByRole("table")).toContainText(point.current.toLocaleString("en-CA"));
+  await expect(panel.getByLabel("Change from start")).toContainText(Math.abs(point.current-point.start).toLocaleString("en-CA"));
+  await panel.getByText("History over time",{exact:true}).click();
+  const chart=panel.getByRole("img",{name:/Posting history for this city/});
+  await expect(chart).toBeVisible();
+  await expect(chart).toHaveAttribute("aria-label",/Jul 30, 2026 to Sep 30, 2026/);
+  await expect(chart.locator("g path").first()).not.toHaveAttribute("d","");
+  await page.setViewportSize({width:390,height:844});
+  const box=(await panel.boundingBox())!, timeline=(await page.getByRole("region",{name:"Timeline",exact:true}).boundingBox())!;
+  expect(box.y+box.height).toBeLessThan(timeline.y);
+  const select=page.getByRole("combobox",{name:"Playback duration"});
+  expect(await select.evaluate(el=>{const s=getComputedStyle(el);const c=document.createElement("canvas").getContext("2d")!;c.font=s.font;return el.clientWidth-parseFloat(s.paddingLeft)-parseFloat(s.paddingRight)-c.measureText("40 sec").width;})).toBeGreaterThan(2);
+  await page.getByRole("radio",{name:/Employer boards/}).click();
+  await expect(page.getByRole("table",{name:"Start and current comparison"})).toHaveCount(0);
+});

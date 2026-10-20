@@ -4,9 +4,13 @@
 import { type ReactNode, type RefObject, useEffect, useId, useRef, useState } from "react";
 
 import { type Capabilities, type City, type Dataset, DATASET_NAME, type Gap, type SeriesResponse, type SourcesResponse, type WindowKey } from "../api";
+import { useQuery } from "@tanstack/react-query";
+import { atlasGet, type FrameResponse, type TimelineResponse } from "../api";
+import { changeLabel } from "../replay";
 import { legendTicks } from "../scale";
 import { addDays } from "../state";
 import s from "./atlas.module.css";
+import { HistoryChart } from "./HistoryChart";
 
 const fmtDate = new Intl.DateTimeFormat("en-CA", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 const fmtShort = new Intl.DateTimeFormat("en-CA", { month: "short", day: "numeric", timeZone: "UTC" });
@@ -86,6 +90,9 @@ function menuKeys(e: React.KeyboardEvent<HTMLElement>) {
 export function Brand(p: {
   caps: Capabilities | undefined;
   occupation: string;
+  dataset: Dataset;
+  day: string | null;
+  window: WindowKey;
   demo: boolean;
   onOccupation: (id: string) => void;
   /** the dataset switch, always visible next to the brand */
@@ -93,6 +100,17 @@ export function Brand(p: {
 }) {
   const occs = p.caps?.occupations ?? [{ id: "all", label: "All jobs", note: "" }];
   const [open, setOpen] = useState(false);
+  const [rankingDay, setRankingDay] = useState<string | null>(null);
+  const ranking = useQuery({
+    queryKey: ["occupation-ranking", p.dataset, p.caps?.release_id, p.window, rankingDay],
+    enabled: open && !!rankingDay && !!p.caps?.release_id,
+    staleTime: 300_000,
+    queryFn: async ({ signal }) => new Map(await Promise.all(occs.filter(o => o.id !== "all").map(async o => {
+      const frame = await atlasGet<FrameResponse>("/frame", { dataset: p.dataset, release: p.caps!.release_id!, occupation: o.id, window: p.window, date: rankingDay! }, signal);
+      return [o.id, frame.national.total_unique] as const;
+    }))),
+  });
+  const ranked = [...occs].sort((a, b) => a.id === "all" ? -1 : b.id === "all" ? 1 : (ranking.data?.get(b.id) ?? -1) - (ranking.data?.get(a.id) ?? -1));
   const btn = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const close = useRef(() => setOpen(false)).current;
@@ -102,7 +120,7 @@ export function Brand(p: {
   }, [open]);
   const current = occs.find((o) => o.id === p.occupation) ?? occs[0]!;
   return (
-    <header className={s.top}>
+    <header className={`${s.top} ${open ? s.topMenuOpen : ""}`}>
       <h1 className={s.brand}>JobAtlas</h1>
       {p.switcher}
       <div className={s.occ}>
@@ -113,19 +131,21 @@ export function Brand(p: {
           aria-haspopup="menu"
           aria-expanded={open}
           aria-label={`Occupation: ${current.label}`}
-          onClick={() => setOpen((v) => !v)}
+          onClick={() => { if (!open) setRankingDay(p.day); setOpen((v) => !v); }}
         >
           {current.label}
           <Icon name="chevron" />
         </button>
         {open && (
-          <div ref={menu} className={`${s.popover} ${s.menu}`} role="menu" aria-label="Occupation" onKeyDown={menuKeys}>
-            {occs.map((o) => (
+          <div ref={menu} className={`${s.popover} ${s.menu} ${s.occupationMenu}`} role="menu" aria-label="Occupation" onKeyDown={menuKeys}>
+            <div className={s.rankingNote} role="status">{ranking.isError ? "Ranking unavailable" : !ranking.data ? "Loading posting counts…" : `Most postings · ${rankingDay ? fmtDay(rankingDay) : "current window"}`}</div>
+            {ranked.map((o) => (
               <button
                 key={o.id}
                 type="button"
                 role="menuitemradio"
                 aria-checked={o.id === p.occupation}
+                aria-label={o.label}
                 title={o.note || undefined}
                 onClick={() => {
                   p.onOccupation(o.id);
@@ -133,7 +153,8 @@ export function Brand(p: {
                   btn.current?.focus();
                 }}
               >
-                {o.label}
+                <span>{o.label}</span>
+                {o.id !== "all" && <small className={s.occupationCount}>{ranking.data?.get(o.id) == null ? "—" : fmtNum(ranking.data.get(o.id)!)}</small>}
               </button>
             ))}
           </div>
@@ -406,6 +427,9 @@ export function ScalePanel(p: {
 // ---------------------------------------------------------------- timeline
 
 export function TimelineBar(p: {
+  overview?: boolean;
+  playLabel?: string;
+  playbackOptions?: ReactNode;
   historyStart: string;
   dataThrough: string;
   day: string;
@@ -440,20 +464,23 @@ export function TimelineBar(p: {
   const label = windowLabel(p.day, p.window);
   return (
     <section className={s.timeline} aria-label="Timeline">
+      <div className={s.playbackGroup}>
       <button
         type="button"
         className={`${s.iconBtn} ${s.play}`}
         onClick={p.onPlay}
         disabled={!p.canPlay}
-        title={p.canPlay ? undefined : p.playReason ?? undefined}
-        aria-label={p.playing ? "Pause" : "Play history"}
+        title={p.canPlay ? p.playLabel : p.playReason ?? undefined}
+        aria-label={p.playLabel ?? (p.playing ? "Pause" : p.overview ? "Continue overview" : "Play history")}
       >
         <Icon name={p.playing ? "pause" : "play"} />
       </button>
+      {p.playbackOptions}
+      </div>
       <div className={s.when}>
-        <button ref={btn} type="button" className={`${s.dateBtn} ${p.flash ? s.dateFlash : ""}`} id={id} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-          <span aria-live="polite">{label}</span>
-          {!p.latest && <small>history</small>}
+        <button ref={btn} type="button" className={`${s.dateBtn} ${p.flash ? s.dateFlash : ""}`} id={id} aria-label={label} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+          <span>{fmtDay(p.day)}</span>
+          <small>New postings · Past {p.window === "1d" ? "1 day" : p.window === "7d" ? "7 days" : "30 days"}</small>
         </button>
         {p.latestLink && !p.latest && (
           <button type="button" className={s.latestLink} onClick={p.onLatest}>
@@ -462,6 +489,7 @@ export function TimelineBar(p: {
         )}
         {open && (
           <div ref={box} className={`${s.popover} ${s.timePopover}`} role="dialog" aria-label="Time settings">
+            <p className={s.small}>{label}</p>
             <div className={s.segment} role="radiogroup" aria-label="Time window">
               {(["1d", "7d", "30d"] as WindowKey[]).map((w) => (
                 <button key={w} type="button" role="radio" aria-checked={p.window === w} onClick={() => p.onWindow(w)}>
@@ -473,14 +501,14 @@ export function TimelineBar(p: {
               <button type="button" className={s.textBtn} onClick={p.onLatest} disabled={p.latest}>
                 Latest
               </button>
-              <label>
-                Speed{" "}
+              {!p.overview && <label>
+                Daily exploration speed{" "}
                 <select className={s.speed} value={p.speed} onChange={(e) => p.onSpeed(Number(e.target.value))}>
                   <option value={1}>1×</option>
                   <option value={2}>2×</option>
                   <option value={4}>4×</option>
                 </select>
-              </label>
+              </label>}
             </div>
             <p className={s.small}>
               {p.latest ? "Latest data" : "History"}
@@ -565,6 +593,7 @@ function Sparkline({ series }: { series: SeriesResponse | undefined }) {
 
 export function CityCard(p: {
   city: City;
+  comparison?: { day: string; count: number | null; timeline: TimelineResponse };
   count: number | null | undefined;
   quality: string;
   day: string;
@@ -576,11 +605,24 @@ export function CityCard(p: {
   onClose: () => void;
 }) {
   return (
-    <Panel label={`${p.city.name} details`} className={s.card} onClose={p.onClose} autoFocusClose>
+    <Panel label={`${p.city.name} details`} className={`${s.card} ${p.comparison ? s.comparisonCard : ""}`} onClose={p.onClose} autoFocusClose>
       <h2>
         {p.city.name}, {p.city.province}
       </h2>
-      <div className={s.bigCount}>
+      {p.comparison ? <>
+        <p className={s.small}>New postings · Past 30 days · {DATASET_NAME[p.dataset]}</p>
+        <table className={s.cityComparison} aria-label="Start and current comparison">
+          <thead><tr><th>Window ending</th><th>Postings</th></tr></thead>
+          <tbody>
+            <tr><th scope="row"><span>Start</span><time dateTime={p.comparison.day}>{fmtDay(p.comparison.day)}</time></th><td>{p.comparison.count == null ? "Unknown" : fmtNum(p.comparison.count)}</td></tr>
+            <tr><th scope="row"><span>Current</span><time dateTime={p.day}>{fmtDay(p.day)}</time></th><td>{p.count == null ? "Unknown" : fmtNum(p.count)}</td></tr>
+          </tbody>
+        </table>
+        <p className={s.cityChange} aria-label="Change from start">{p.comparison.count == null || p.count == null ? "Not comparable" : <>{p.count > p.comparison.count ? "+" : p.count < p.comparison.count ? "−" : ""}{fmtNum(Math.abs(p.count - p.comparison.count))} · {changeLabel(p.comparison.count, p.count)} vs start</>}</p>
+        <details className={s.small}><summary>History over time</summary>
+          <HistoryChart timeline={p.comparison.timeline} cityId={p.city.city_id} day={p.day} />
+        </details>
+      </> : <><div className={s.bigCount}>
         {p.count == null ? "—" : `${fmtNum(p.count)} jobs`}
         {p.lowerBound && p.count != null && <> <LowerBound /></>}
       </div>
@@ -589,7 +631,7 @@ export function CityCard(p: {
         Coverage: {qualityText(p.quality, DATASET_NAME[p.dataset])}
       </p>
       <Sparkline series={p.series} />
-      <p className={s.small}>Last 90 days, each point = its own {p.window} window.</p>
+      <p className={s.small}>Last 90 days, each point = its own {p.window} window.</p></>}
     </Panel>
   );
 }
