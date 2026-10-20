@@ -244,9 +244,9 @@ void main() {
   float face = abs(dot(normal, normalize(vV)));
   float rim = 1.0 - smoothstep(0.0, 0.35, face);
   // Achromatic, softly shaded volume rather than an outlined duplicate.
-  float gray = mix(0.24, 0.52, light);
+  float gray = mix(0.16, 0.36, light);
   gray = mix(gray, 0.22, rim * 0.18);
-  float alpha = (0.56 + rim * 0.08) * uCompare;
+  float alpha = (0.66 + rim * 0.08) * uCompare;
   gl_FragColor = vec4(vec3(gray), alpha);
   #include <colorspace_fragment>
   return;
@@ -289,8 +289,8 @@ void main() {
     // An inset gray seam retains the start height without external markers.
     float distance = abs(vBodyT * vHeight - vBase);
     float pixel = max(fwidth(vBodyT * vHeight), 0.01);
-    float seam = 1.0 - smoothstep(pixel * 0.3, pixel * 1.1, distance);
-    paint = mix(paint, vec3(0.52), seam * uCompare * 0.55);
+    float seam = 1.0 - smoothstep(pixel * 0.6, pixel * 1.5, distance);
+    paint = mix(paint, vec3(0.25), seam * uCompare * 0.80);
   }
   gl_FragColor = vec4(paint, 1.0);
 #endif
@@ -384,7 +384,17 @@ export class AtlasScene {
   private compareStarted = 0;
   private compareMat: THREE.ShaderMaterial;
   private compareMesh: THREE.Mesh;
-  setInteractionLocked(value: boolean): void { this.interactionLocked = value; if (value) { this.anim = null; this.raw = null; clearTimeout(this.releaseTimer); } }
+  setInteractionLocked(value: boolean): void {
+    const wasLocked = this.interactionLocked;
+    this.interactionLocked = value;
+    if (value) { this.anim = null; this.raw = null; clearTimeout(this.releaseTimer); }
+    if (wasLocked && !value && this.comparison) {
+      // Numeric frames stay exact; settle the visual tween immediately on pause/end.
+      for (const body of this.bodies) body.shown = body.from = body.to;
+      this.layoutDirty = true;
+      this.invalidate();
+    }
+  }
   setComparison(value: { key: string; baseline: Map<string, number | null>; visible: boolean } | null): void {
     if (value?.key === this.comparison?.key && value?.visible === this.comparison?.visible) return;
     this.comparison = value;
@@ -623,7 +633,7 @@ export class AtlasScene {
       b.count = c;
       b.from = b.shown;
       b.to = heightFor(c, scaleMax);
-      if (firstData || this.comparison) b.shown = b.from = b.to;
+      if (firstData || (this.comparison && !this.interactionLocked)) b.shown = b.from = b.to;
     }
     this.tweenStart = performance.now();
     this.layoutDirty = true;
@@ -817,9 +827,9 @@ export class AtlasScene {
     this.layoutTime = now;
     const blend = this.opts.reducedMotion ? 1 : 1 - Math.exp(-dt / 65);
     this.bodies.forEach((b) => {
-      const t = this.opts.reducedMotion || this.comparison ? 1 : Math.min(1, Math.max(0, (now - this.tweenStart) / CEL.motion.height));
+      const t = this.opts.reducedMotion ? 1 : Math.min(1, Math.max(0, (now - this.tweenStart) / (this.comparison ? 90 : CEL.motion.height)));
       if (t < 1) moving = true;
-      b.shown = b.from + (b.to - b.from) * ease(t);
+      b.shown = b.from + (b.to - b.from) * (this.comparison ? t : ease(t));
       const marked = b.id === this.selected || b.id === this.hovered;
       const baseline = this.comparison?.baseline.get(b.id);
       const comparable = baseline != null && b.count != null;

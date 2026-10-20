@@ -26,7 +26,7 @@ it("bounds concurrency, orders responses, and reuses only matching releases", as
   }));
   const progress = vi.fn();
   const result = loadReplay(caps, "all", new AbortController().signal, progress);
-  expect(get).toHaveBeenCalledTimes(4);
+  await vi.waitFor(() => expect(get).toHaveBeenCalledTimes(4));
   pending.splice(0).reverse().forEach(resolve => resolve());
   await vi.waitFor(() => expect(get).toHaveBeenCalledTimes(5));
   pending.splice(0).forEach(resolve => resolve());
@@ -50,6 +50,7 @@ it("cancels the pool and never caches incomplete preparation", async () => {
   }));
   const controller = new AbortController();
   const result = loadReplay(caps, "all", controller.signal);
+  await vi.waitFor(() => expect(get).toHaveBeenCalledTimes(4));
   controller.abort();
   await expect(result).rejects.toMatchObject({ name: "AbortError" });
   expect(aborted).toHaveBeenCalledTimes(4);

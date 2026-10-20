@@ -1071,3 +1071,29 @@
   .replayExpanded .replayBaseline { display: block; }
   .sourceLine { bottom: calc(1px + var(--safe-bottom)); font-size: 8px; }
 }
+
+
+/* Reserve real space for map tools, including narrow desktop windows. */
+.timeline { width: auto; right: 300px; grid-template-columns: auto auto minmax(0, 1fr); }
+.sliderWrap, .slider { min-width: 0; }
+@media (max-width: 1200px) { .dateBtn small { display: none; } }
+@media (max-width: 1100px) {
+  .replayPanel { width: 184px; right: 24px; padding: 8px 10px; }
+  .replayPanel table, .replayPanel .replayDetails, .replayPanel .replayBaseline { display: none; }
+  .replayExpanded table { display: table; }
+  .replayExpanded .replayDetails, .replayExpanded .replayBaseline { display: block; }
+  .replayExpand { display: block; border: 0; background: none; padding: 5px 0; min-height: 32px; font-size: 11px !important; text-decoration: underline; cursor: pointer; }
+  .replayExpanded { max-height: calc(100dvh - 220px); overflow-y: auto; }
+}
+@media (max-width: 759px) {
+  .timeline { right: 16px; grid-template-columns: auto minmax(0, 1fr); }
+  .replayPanel { top: 150px; bottom: auto; left: auto; right: 16px; width: 172px; }
+  .replayPanel .replayTotal { position: static; font-size: 23px; }
+  .replayPanel .replayHeading { justify-content: space-between; }
+  .replayExpanded .replayExtra { display: table-row; }
+  .replayExpanded { max-height: calc(100dvh - 300px); }
+}
+@media (max-height: 560px) and (max-width: 1100px) {
+  .replayPanel { top: 16px; right: 64px; width: 172px; }
+  .replayExpanded { max-height: calc(100dvh - 160px); }
+}

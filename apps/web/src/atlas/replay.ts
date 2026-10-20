@@ -26,6 +26,8 @@ export async function loadReplay(caps: Capabilities, occupation: string, signal:
   const key = JSON.stringify([caps.dataset_id, caps.release_id, occupation, start, end]);
   signal.throwIfAborted();
   if (prepared?.key === key) { onProgress?.(1, 1); return prepared.timeline; }
+  const cache = await openHistoryCache(key);
+  signal.throwIfAborted();
   const ranges: [string, string][] = [];
   for (let day = start; day <= end; day = addDays(day, 120)) {
     const last = addDays(day, 119);
@@ -42,8 +44,12 @@ export async function loadReplay(caps: Capabilities, occupation: string, signal:
       while (next < ranges.length) {
         pool.signal.throwIfAborted();
         const index = next++, [first, last] = ranges[index]!;
-        const part = await atlasGet<TimelineResponse>("/timeline", { dataset: "real", release: caps.release_id!, occupation, window: "30d", start: first, end: last }, pool.signal);
-        if (part.dataset_id !== caps.dataset_id || part.release_id !== caps.release_id || part.occupation !== occupation || part.window !== "30d" || part.data_mode !== "real") throw new Error("History response does not match this selection.");
+        const validate = (part: TimelineResponse) => {
+          if (part.dataset_id !== caps.dataset_id || part.release_id !== caps.release_id || part.occupation !== occupation || part.window !== "30d" || part.data_mode !== "real") throw new Error("History response does not match this selection.");
+          if (part.frames.length !== daysBetween(first, last) + 1 || part.frames.some((frame, i) => frame.date !== addDays(first, i))) throw new Error("History contains missing dates.");
+        };
+        const part = await atlasGet<TimelineResponse>("/timeline", { dataset: "real", release: caps.release_id!, occupation, window: "30d", start: first, end: last }, pool.signal, cache, validate);
+        validate(part);
         chunks[index] = part;
         onProgress?.(++done, ranges.length);
       }
@@ -76,4 +82,17 @@ export function replayPriority(timeline: TimelineResponse): { id: string; max: n
   for (const frame of timeline.frames)
     for (let i = 0; i < maxima.length; i++) maxima[i] = Math.max(maxima[i]!, frame.counts[i] ?? 0);
   return timeline.city_ids.map((id, i) => ({ id, max: maxima[i]! })).filter(p => p.max > 0).sort((a,b) => b.max - a.max || a.id.localeCompare(b.id));
+}
+
+
+/** Persist just one immutable selection; storage restrictions fall back to the network. */
+async function openHistoryCache(key: string): Promise<Cache | undefined> {
+  if (typeof caches === "undefined") return undefined;
+  const prefix = "jobatlas-history-v1-";
+  const name = prefix + encodeURIComponent(key);
+  try {
+    const stored = await caches.keys();
+    await Promise.all(stored.filter(other => other.startsWith(prefix) && other !== name).map(other => caches.delete(other)));
+    return await caches.open(name);
+  } catch { return undefined; }
 }

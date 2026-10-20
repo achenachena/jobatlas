@@ -57,7 +57,7 @@ test("overview stops at unsampled gaps and offers an explicit continuation",asyn
 test("reduced motion directly shows real endpoint comparison", async({page})=>{
   let requests = 0;
   page.on("request", request => {
-    if (request.url().includes("/timeline?") && request.url().includes("window=30d") && new URL(request.url()).searchParams.get("start") === "2026-07-30") requests++;
+    if (request.url().includes("/timeline?") && request.url().includes("window=30d") && new URL(request.url()).searchParams.get("start") === "2026-07-30" && new URL(request.url()).searchParams.get("end") === "2026-09-30") requests++;
   });
   await page.emulateMedia({reducedMotion:"reduce"});await atlasFixture(page,"real","complete");await page.goto("/");
   await page.getByRole("button",{name:"Watch changes · 10 sec"}).click();
@@ -69,6 +69,16 @@ test("reduced motion directly shows real endpoint comparison", async({page})=>{
   await page.getByRole("button", {name:"Watch changes · 10 sec"}).click();
   await expect(page.getByRole("button", {name:"Replay",exact:true})).toBeVisible();
   expect(requests).toBe(loaded);
+  await expect.poll(() => page.evaluate(async () => {
+    const names = (await caches.keys()).filter(name => name.startsWith("jobatlas-history-v1-"));
+    if (!names.length) return 0;
+    return (await (await caches.open(names[0]!)).keys()).length;
+  })).toBeGreaterThan(0);
+  await page.reload();
+  await page.getByRole("button", {name:"Watch changes · 10 sec"}).click();
+  await expect(page.getByRole("button", {name:"Replay",exact:true})).toBeVisible();
+  expect(requests).toBe(loaded);
+
 });
 
 test("failed preparation can retry, and no-WebGL retains endpoint numbers", async({page})=>{
@@ -78,7 +88,7 @@ test("failed preparation can retry, and no-WebGL retains endpoint numbers", asyn
   let fail=true;
   await page.route("**/api/v2/atlas/timeline?**",async route=>{
     const q=new URL(route.request().url()).searchParams;
-    if(fail&&q.get("window")==="30d"&&q.get("start")==="2026-07-30"){ fail=false;return route.fulfill({status:503,json:{error:{message:"History temporarily unavailable"}}}); }
+    if(fail&&q.get("window")==="30d"&&q.get("start")==="2026-07-30"&&q.get("end")==="2026-09-30"){ fail=false;return route.fulfill({status:503,json:{error:{message:"History temporarily unavailable"}}}); }
     return route.fallback();
   });
   await page.goto("/");await page.getByRole("button",{name:"Watch changes · 10 sec"}).click();
@@ -116,4 +126,29 @@ test("date seeking keeps the baseline, backgrounding pauses, and dataset changes
   await page.getByRole("radio",{name:/Employer boards/}).click();
   await expect(page.getByRole("checkbox",{name:"Compare with start"})).toHaveCount(0);
   await expect(page.getByRole("region",{name:"Historical overview"})).toHaveCount(0);
+});
+
+
+test("compact windows keep controls separate and summary collapsed", async ({page}) => {
+  await page.emulateMedia({reducedMotion:"reduce"});
+  await atlasFixture(page,"real","complete");
+  await page.goto("/");
+  await page.getByRole("button",{name:"Watch changes · 10 sec"}).click();
+  await expect(page.getByRole("button",{name:"Replay",exact:true})).toBeVisible();
+  for (const [width,height] of [[1024,768],[820,700],[390,844],[640,390]]) {
+    await page.setViewportSize({width:width!,height:height!});
+    const summary=page.getByRole("complementary",{name:"Postings summary"});
+    await expect(summary.getByRole("table")).toBeHidden();
+    const panel=(await summary.boundingBox())!;
+    expect(panel.height).toBeLessThan(165);
+    expect(panel.y+panel.height).toBeLessThan(height! - 100);
+    const timeline=(await page.getByRole("region",{name:"Timeline",exact:true}).boundingBox())!;
+    const tools=(await page.getByRole("group",{name:"Map view controls"}).boundingBox())!;
+    const overlaps=timeline.x < tools.x+tools.width && timeline.x+timeline.width > tools.x && timeline.y < tools.y+tools.height && timeline.y+timeline.height > tools.y;
+    expect(overlaps).toBe(false);
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(width!);
+    await page.getByRole("button",{name:"Show all cities & details"}).click();
+    await expect(summary.getByRole("rowheader",{name:"Calgary"})).toBeVisible();
+    await page.getByRole("button",{name:"Fewer cities"}).click();
+  }
 });
