@@ -126,10 +126,20 @@ class RealDataset:
     def cities(self) -> list[dict]:
         return [city_payload(c) for c in release_cities(self.session, self.release)]
 
+    def city_ids(self) -> list[str]:
+        return [c.id for c in release_cities(self.session, self.release)]
+
     def frames(
         self, occupation: str, window_key: str, first: date, last: date, city_ids: list[str]
     ) -> list[Frame]:
         return frames(self.session, self.release, occupation, window_key, first, last, city_ids)
+
+    def city_frames(
+        self, occupation: str, window_key: str, first: date, last: date, city_id: str
+    ) -> list[Frame]:
+        """One city's frames, reading only its rows (no national totals)."""
+        return frames(self.session, self.release, occupation, window_key, first, last,
+                      [city_id], only_city=True)  # fmt: skip
 
 
 # ---------------------------------------------------------------- demo
@@ -174,6 +184,11 @@ class DemoDataset:
 
     def cities(self) -> list[dict]:
         return [city_payload(c) for c in self._cities]
+
+    def city_frames(
+        self, occupation: str, window_key: str, first: date, last: date, city_id: str
+    ) -> list[Frame]:
+        return self.frames(occupation, window_key, first, last, [city_id])
 
     def frames(
         self, occupation: str, window_key: str, first: date, last: date, city_ids: list[str]

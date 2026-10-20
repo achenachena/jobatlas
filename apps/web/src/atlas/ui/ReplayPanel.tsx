@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { City, TimelineResponse } from "../api";
+import type { City } from "../api";
 import { changeLabel, REFERENCE_CITIES, type ReplayFrame } from "../replay";
 import { addDays } from "../state";
 import { fmtDay, fmtNum } from "./parts";
@@ -7,7 +7,7 @@ import s from "./atlas.module.css";
 
 export function ReplayPanel(p: {
   day: string | null; windowDays: number; national: number | null | undefined; counts: Map<string, number | null>;
-  baseline?: ReplayFrame; timeline?: TimelineResponse; selected: City | null; dataset: string;
+  baseline?: ReplayFrame; timeline?: { city_ids: string[] }; selected: City | null; dataset: string;
   compare: boolean; onCompare: (value: boolean) => void;
 }) {
   const [expanded, setExpanded] = useState(false);

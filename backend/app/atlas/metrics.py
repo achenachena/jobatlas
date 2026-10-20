@@ -455,12 +455,21 @@ def frames(
     first_day: date,
     last_day: date,
     city_ids: list[str],
+    *,
+    only_city: bool = False,
 ) -> list[Frame]:
+    """`only_city`: read just the one city in `city_ids` (a long single-city history stays
+    cheap); its frames then carry no national totals (None), never wrong ones."""
     n = WINDOWS[window_key]
-    rows = _daily(session, release, occupation, first_day - timedelta(days=n - 1), last_day)
+    rows = _daily(session, release, occupation, first_day - timedelta(days=n - 1), last_day,
+                  city_ids[0] if only_city else None)  # fmt: skip
     daily: dict[date, dict[tuple[str, str], int]] = defaultdict(dict)
     for (scope, city, day), count in rows.items():
         daily[day][(scope, city)] = count
-    return rolling_frames(first_day, last_day, window_key, release.history_start,
-                          gap_days(release), daily, city_ids,
-                          backfilled=_days(backfilled_span(release)))  # fmt: skip
+    out = rolling_frames(first_day, last_day, window_key, release.history_start,
+                         gap_days(release), daily, city_ids,
+                         backfilled=_days(backfilled_span(release)))  # fmt: skip
+    if only_city:
+        for f in out:
+            f.national = f.unconfirmed = f.remote = None
+    return out

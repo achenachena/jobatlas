@@ -109,6 +109,11 @@ and new catalogue entries need nothing manual (about 40 s plus re-scaling the ke
 a few minutes; it reads Statistics Canada's map service). After a change to the grouping rules,
 run `dc run --rm worker jobatlas atlas-groups` once to regroup everything.
 
+History overviews (the replay's data): every Job Bank release stores each occupation's 30-day
+overview before it is published, and the `migrate` step adds any the current release lacks
+(`jobatlas atlas-overviews`; a few seconds, nothing when present). Other keys are built on first
+request and stored. They live in `atlas_overviews` and go with their release.
+
 ## Backup and restore
 
 Back up before any release with an irreversible migration:

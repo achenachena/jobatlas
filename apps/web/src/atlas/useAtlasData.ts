@@ -132,6 +132,16 @@ export function useSeries(
   });
 }
 
+/** One city's whole replay range (single-city rows only), for its history chart. */
+export function useCityHistory(dataset: Dataset, release: string, city: string, occupation: string, start: string, end: string) {
+  return useQuery({
+    queryKey: ["atlas", "history", dataset, release, city, occupation, start, end],
+    queryFn: ({ signal }) =>
+      atlasGet<SeriesResponse>(`/cities/${city}/series`, { dataset, release, occupation, window: "30d", end, days: daysBetween(start, end) + 1 }, signal),
+    staleTime: Infinity,
+  });
+}
+
 /** Version poll interval: 60 s (spec §10); tests may shorten it. */
 const POLL_MS = Number(import.meta.env.VITE_ATLAS_POLL_MS ?? 60_000);
 

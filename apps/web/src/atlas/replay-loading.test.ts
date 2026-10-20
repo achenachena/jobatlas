@@ -1,65 +1,68 @@
 import { beforeEach, expect, it, vi } from "vitest";
-import type { Capabilities, TimelineResponse } from "./api";
-import { addDays, daysBetween } from "./state";
+import type { Capabilities, OverviewResponse } from "./api";
 
 const get = vi.hoisted(() => vi.fn());
 vi.mock("./api", () => ({ atlasGet: get }));
 beforeEach(() => { vi.resetModules(); get.mockReset(); });
 const caps = { dataset_id: "jobbank", release_id: "release-1", history_start: "2023-01-01", data_through: "2024-06-01" } as Capabilities;
-function chunk(q: Record<string, string>): TimelineResponse {
+function overview(q: Record<string, string>, patch: Partial<OverviewResponse> = {}): OverviewResponse {
+  const frame = (date: string, toronto: number) => ({ date, counts: [toronto, 0], national: toronto + 10, quality: "complete" as const, days_available: 30, backfilled_days: 0, notes: [] });
   return {
-    dataset_id: "jobbank", release_id: q.release!, occupation: q.occupation!, window: "30d", data_mode: "real",
-    city_ids: ["toronto", "montreal"], start: q.start!, end: q.end!,
-    metric: "new_postings", reporting_timezone: "America/Toronto", max_count: 119,
-    frames: Array.from({ length: daysBetween(q.start!, q.end!) + 1 }, (_, i) => ({
-      date: addDays(q.start!, i), counts: [i, null], national: i + 10, quality: "complete", days_available: 30, backfilled_days: 0, notes: [],
-    })),
+    format: 1, dataset_id: "jobbank", data_mode: "real", release_id: q.release!, occupation: q.occupation!, window: "30d",
+    start: "2023-01-30", end: "2024-06-01", history_start: "2023-01-01", data_through: "2024-06-01", scale_max: 119, samples: 120,
+    city_ids: ["toronto", "montreal"], city_max: [119, 4], incomplete: [],
+    frames: [frame("2023-01-30", 3), frame("2023-09-01", 7), frame("2024-06-01", 9)], ...patch,
   };
 }
-it("bounds concurrency, orders responses, and reuses only matching releases", async () => {
-  const { loadReplay, replayPriority } = await import("./replay");
-  const pending: (() => void)[] = [];
-  let active = 0, peak = 0;
-  get.mockImplementation((_path, q) => new Promise(resolve => {
-    active++; peak = Math.max(peak, active);
-    pending.push(() => { active--; resolve(chunk(q)); });
-  }));
-  const progress = vi.fn();
-  const result = loadReplay(caps, "all", new AbortController().signal, progress);
-  await vi.waitFor(() => expect(get).toHaveBeenCalledTimes(4));
-  pending.splice(0).reverse().forEach(resolve => resolve());
-  await vi.waitFor(() => expect(get).toHaveBeenCalledTimes(5));
-  pending.splice(0).forEach(resolve => resolve());
-  const timeline = await result;
-  expect(peak).toBe(4);
-  expect(timeline.frames[0]!.date).toBe("2023-01-30");
-  expect(timeline.frames.at(-1)!.date).toBe(caps.data_through);
-  expect(progress).toHaveBeenLastCalledWith(5, 5);
-  expect(replayPriority(timeline)).toEqual([{ id: "toronto", max: 119 }]);
-  expect(await loadReplay(caps, "all", new AbortController().signal)).toBe(timeline);
-  expect(get).toHaveBeenCalledTimes(5);
-  get.mockImplementation(async (_path, q) => chunk(q));
-  await loadReplay({ ...caps, release_id: "release-2" }, "all", new AbortController().signal);
-  expect(get).toHaveBeenCalledTimes(10);
+it("prepares with one request, keeps whole-range priority, and reuses recent selections only", async () => {
+  const { loadOverview } = await import("./replay");
+  get.mockImplementation(async (_path, q) => overview(q));
+  const ov = await loadOverview(caps, "all", new AbortController().signal);
+  expect(get).toHaveBeenCalledTimes(1);
+  expect(get.mock.calls[0]![1]).toEqual({ dataset: "real", release: "release-1", occupation: "all", window: "30d" });
+  // montreal never shows in a sampled frame, yet keeps its place from the whole range
+  expect(ov.priority).toEqual([{ id: "toronto", max: 119 }, { id: "montreal", max: 4 }]);
+  expect(await loadOverview(caps, "all", new AbortController().signal)).toBe(ov);
+  await loadOverview({ ...caps, release_id: "release-2" }, "all", new AbortController().signal);
+  expect(get).toHaveBeenCalledTimes(2);
+  // a bounded number of selections: the least recently used one is dropped
+  for (const occ of ["a", "b", "c", "d", "e"]) await loadOverview(caps, occ, new AbortController().signal);
+  expect(get).toHaveBeenCalledTimes(7);
+  await loadOverview(caps, "all", new AbortController().signal); // release-1/all was used before release-2: dropped
+  expect(get).toHaveBeenCalledTimes(8);
+  await loadOverview(caps, "e", new AbortController().signal);
+  expect(get).toHaveBeenCalledTimes(8);
 });
-it("cancels the pool and never caches incomplete preparation", async () => {
-  const { loadReplay } = await import("./replay");
-  const aborted = vi.fn();
+it("rejects responses for another selection or with inconsistent frames, and keeps none", async () => {
+  const { loadOverview } = await import("./replay");
+  const bad: Partial<OverviewResponse>[] = [
+    { release_id: "wrong" }, { occupation: "cook" }, { window: "7d" },
+    { city_max: [1] }, { end: "2024-05-31" },
+  ];
+  for (const patch of bad) {
+    get.mockImplementationOnce(async (_path, q) => overview(q, patch));
+    await expect(loadOverview(caps, "all", new AbortController().signal)).rejects.toThrow();
+  }
+  get.mockImplementationOnce(async (_path, q) => { const o = overview(q); o.frames[1]!.counts = [1]; return o; });
+  await expect(loadOverview(caps, "all", new AbortController().signal)).rejects.toThrow("incomplete");
+  get.mockImplementationOnce(async (_path, q) => { const o = overview(q); o.frames[1]!.date = "2023-01-30"; return o; });
+  await expect(loadOverview(caps, "all", new AbortController().signal)).rejects.toThrow("incomplete");
+  get.mockImplementationOnce(async (_path, q) => { const o = overview(q); o.frames[0]!.quality = "partial"; return o; });
+  await expect(loadOverview(caps, "all", new AbortController().signal)).rejects.toThrow("complete windows");
+  get.mockImplementation(async (_path, q) => overview(q));
+  await loadOverview(caps, "all", new AbortController().signal);
+  expect(get).toHaveBeenCalledTimes(bad.length + 4); // nothing rejected was kept
+});
+it("cancelling leaves nothing prepared", async () => {
+  const { loadOverview } = await import("./replay");
   get.mockImplementation((_path, _q, signal: AbortSignal) => new Promise((_resolve, reject) => {
-    signal.addEventListener("abort", () => { aborted(); reject(new DOMException("Aborted", "AbortError")); });
+    signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
   }));
   const controller = new AbortController();
-  const result = loadReplay(caps, "all", controller.signal);
-  await vi.waitFor(() => expect(get).toHaveBeenCalledTimes(4));
+  const result = loadOverview(caps, "all", controller.signal);
   controller.abort();
   await expect(result).rejects.toMatchObject({ name: "AbortError" });
-  expect(aborted).toHaveBeenCalledTimes(4);
-  get.mockImplementation(async (_path, q) => chunk(q));
-  await loadReplay(caps, "all", new AbortController().signal);
-  expect(get).toHaveBeenCalledTimes(9);
-});
-it("rejects mismatched releases rather than caching or displaying them", async () => {
-  const { loadReplay } = await import("./replay");
-  get.mockImplementation(async (_path, q) => ({ ...chunk(q), release_id: "wrong" }));
-  await expect(loadReplay(caps, "all", new AbortController().signal)).rejects.toThrow("does not match");
+  get.mockImplementation(async (_path, q) => overview(q));
+  await loadOverview(caps, "all", new AbortController().signal);
+  expect(get).toHaveBeenCalledTimes(2);
 });

@@ -123,6 +123,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/atlas/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * History Overview
+         * @description The prepared history overview (OverviewResponse) of one release, built once and stored.
+         *     A release-pinned URL never changes, so browsers may keep it as long as they like.
+         */
+        get: operations["history_overview_api_v2_atlas_overview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/atlas/version": {
         parameters: {
             query?: never;
@@ -455,6 +476,76 @@ export interface components {
             label: string;
             /** Note */
             note: string;
+        };
+        /**
+         * OverviewResponse
+         * @description A prepared history overview: real dates sampled over the complete windows of one
+         *     release, occupation and window, for a timed replay. Not every day: dates between frames
+         *     are fetched from /timeline when needed, never interpolated.
+         */
+        OverviewResponse: {
+            /**
+             * Format
+             * @description payload format version
+             */
+            format: number;
+            /** Dataset Id */
+            dataset_id: string;
+            /**
+             * Data Mode
+             * @enum {string}
+             */
+            data_mode: "real" | "demo" | "not_configured";
+            /** Release Id */
+            release_id: string;
+            /** Occupation */
+            occupation: string;
+            /**
+             * Window
+             * @enum {string}
+             */
+            window: "1d" | "7d" | "30d";
+            /**
+             * Start
+             * @description first complete window (full length, covered, a national total)
+             */
+            start: string;
+            /**
+             * End
+             * @description last complete window
+             */
+            end: string;
+            /** History Start */
+            history_start: string;
+            /** Data Through */
+            data_through: string;
+            /**
+             * Scale Max
+             * @description largest single-city count over the release's whole history (the fixed city scale); null when the release does not publish it
+             */
+            scale_max: number | null;
+            /**
+             * Samples
+             * @description evenly spread dates, before gap boundaries are added
+             */
+            samples: number;
+            /** City Ids */
+            city_ids: string[];
+            /**
+             * City Max
+             * @description per city (aligned with city_ids): its largest count on any day from start to end, every day included, for a stable drawing priority
+             */
+            city_max: number[];
+            /**
+             * Incomplete
+             * @description stretches between start and end whose windows are not complete; each one's first day and the complete day after it are frames
+             */
+            incomplete: components["schemas"]["Gap"][];
+            /**
+             * Frames
+             * @description in date order, start and end included
+             */
+            frames: components["schemas"]["TimelineFrame"][];
         };
         /** SeriesPoint */
         SeriesPoint: {
@@ -842,6 +933,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SeriesResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    history_overview_api_v2_atlas_overview_get: {
+        parameters: {
+            query?: {
+                dataset?: "real" | "ats";
+                occupation?: "all" | "software_development" | "human_resources" | "bartender" | "barista" | "registered_nurse" | "cook";
+                window?: "1d" | "7d" | "30d";
+                release?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OverviewResponse"];
                 };
             };
             /** @description Validation Error */

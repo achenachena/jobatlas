@@ -429,6 +429,9 @@ export class AtlasScene {
   /** placements per detail level for the current data (placementData) */
   private placements = new Map<number, Map<string, [number, number, number]>>();
   private placementData = "";
+  /** the placements of the last few data keys: replaying a selection again or returning to
+   * it reuses them instead of arranging the map from scratch */
+  private placementsByData = new Map<string, Map<number, Map<string, [number, number, number]>>>();
   private precomputing = new Map<number, { steps: Generator<void, void>; done: (() => void)[] }>();
   /** detail level: footprints, spacing and search distances are divided by it, so zooming in
    * by 1.5× frees room for more cities while bodies keep a similar size on screen */
@@ -676,7 +679,10 @@ export class AtlasScene {
     const dataKey = this.comparison ? `replay:${this.comparison.key}` : ranked.map(b => `${b.id}:${Math.round(b.to)}`).join("|");
     if (dataKey !== this.placementData) {
       this.placementData = dataKey;
-      this.placements.clear();
+      this.placements = this.placementsByData.get(dataKey) ?? new Map();
+      this.placementsByData.delete(dataKey);
+      this.placementsByData.set(dataKey, this.placements);
+      while (this.placementsByData.size > 4) this.placementsByData.delete(this.placementsByData.keys().next().value!);
       this.precomputing.clear(); // jobs for the old data stop on their own
     }
     const placementKey = `${level}|${dataKey}`;

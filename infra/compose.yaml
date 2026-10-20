@@ -44,8 +44,9 @@ services:
   migrate:
     <<: *backend
     # Then group any city without a region (first deploy, new catalogue entries): the API
-    # starts only after this, and its readiness requires every city to have a group.
-    command: ["sh", "-c", "alembic upgrade head && jobatlas atlas-groups --if-needed"]
+    # starts only after this, and its readiness requires every city to have a group. Last,
+    # store the current Job Bank release's missing history overviews (normally none).
+    command: ["sh", "-c", "alembic upgrade head && jobatlas atlas-groups --if-needed && jobatlas atlas-overviews"]
     restart: "no"
   api:
     <<: *backend

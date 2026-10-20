@@ -79,7 +79,7 @@ test("city list and card: exact numbers, keyboard reachable", async ({ page }) =
   await page.keyboard.press("Enter");
   const card = page.getByRole("region", { name: "Toronto details" });
   await expect(card).toBeVisible();
-  await expect(card.getByRole("img", { name: /Trend over 60 days/ })).toBeVisible();
+  await expect(card.getByRole("img", { name: /Trend over 90 days/ })).toBeVisible();
   await expect(page).toHaveURL(/city=ca-on-toronto/);
   // Yellowknife is not covered: absent from the ranked list (unknown is not zero)
   await expect(page.getByRole("button", { name: /^Yellowknife/ })).toHaveCount(0);
