@@ -2,6 +2,7 @@
  * prepared, clock-driven historical overviews share one release-bound selection. Missing
  * windows stop playback; start/current comparisons always use real, matching frames. */
 
+import { Analytics } from "@vercel/analytics/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
@@ -306,6 +307,7 @@ export function AtlasApp() {
   const busy = ready && tl.isFetching && !frame;
   return (
     <div className={s.app}>
+      {import.meta.env.PROD && <Analytics mode="production" />}
       {geo.data && cities.data && ready && scaleMax != null ? (
         webgl ? (
           <SceneView
