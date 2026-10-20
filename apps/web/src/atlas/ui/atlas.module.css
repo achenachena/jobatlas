@@ -1105,3 +1105,5 @@
 .occupationMenu button > span { flex: 1; }
 .occupationCount { margin-left: auto; font-size: 11px; font-variant-numeric: tabular-nums; color: var(--ink-muted); }
 .rankingNote { padding: 6px 8px; font-size: 11px; color: var(--ink-muted); }
+
+.topMenuOpen { z-index: 8; }

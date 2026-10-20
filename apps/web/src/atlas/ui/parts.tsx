@@ -118,7 +118,7 @@ export function Brand(p: {
   }, [open]);
   const current = occs.find((o) => o.id === p.occupation) ?? occs[0]!;
   return (
-    <header className={s.top}>
+    <header className={`${s.top} ${open ? s.topMenuOpen : ""}`}>
       <h1 className={s.brand}>JobAtlas</h1>
       {p.switcher}
       <div className={s.occ}>
