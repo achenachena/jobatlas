@@ -1097,3 +1097,11 @@
   .replayPanel { top: 16px; right: 64px; width: 172px; }
   .replayExpanded { max-height: calc(100dvh - 160px); }
 }
+
+/* Align control boundaries with the brand, including the occupation popover. */
+.occBtn { margin-left: 0; padding-left: 0; }
+.occupationMenu { left: 0; width: 300px; max-width: calc(100vw - 48px); }
+.occupationMenu button { white-space: normal; }
+.occupationMenu button > span { flex: 1; }
+.occupationCount { margin-left: auto; font-size: 11px; font-variant-numeric: tabular-nums; color: var(--ink-muted); }
+.rankingNote { padding: 6px 8px; font-size: 11px; color: var(--ink-muted); }

@@ -239,20 +239,9 @@ void main() {
   if (vBase <= vHeight + 0.1 || uCompare <= 0.0) discard;
   float y = vBodyT * max(vBase, 1.0);
   if (y < max(0.0, vCurrentStem)) discard;
-  vec3 normal = normalize(vN);
-  float light = smoothstep(-0.5, 0.8, dot(normal, normalize(uLight)));
-  float face = abs(dot(normal, normalize(vV)));
-  float rim = 1.0 - smoothstep(0.0, 0.35, face);
-  // Achromatic, softly shaded volume rather than an outlined duplicate.
-  float gray = mix(0.16, 0.36, light);
-  gray = mix(gray, 0.22, rim * 0.18);
-  float alpha = (0.66 + rim * 0.08) * uCompare;
-  gl_FragColor = vec4(vec3(gray), alpha);
-  #include <colorspace_fragment>
-  return;
 #endif
 #ifdef OUTLINE
-  gl_FragColor = vec4(uShade, 1.0);
+  vec3 paint = uShade;
 #else
   vec3 n = normalize(vN);
   // A1 painted volume: broad mint face, short softened cel transitions and a
@@ -284,16 +273,23 @@ void main() {
   float edge = 1.0 - smoothstep(0.0, max(fwidth(facing) * 1.6, 0.035), facing);
   float foot = 1.0 - smoothstep(fwidth(vBodyT) * 0.4, fwidth(vBodyT) * 1.7, vBodyT);
   paint = mix(paint, uInk, max(edge, foot));
-  if (vBase > 0.0 && vHeight > vBase + 0.1) {
-    // When current exceeds start, its solid body occludes the old volume.
-    // An inset gray seam retains the start height without external markers.
-    float distance = abs(vBodyT * vHeight - vBase);
-    float pixel = max(fwidth(vBodyT * vHeight), 0.01);
-    float seam = 1.0 - smoothstep(pixel * 0.6, pixel * 1.5, distance);
-    paint = mix(paint, vec3(0.25), seam * uCompare * 0.80);
-  }
-  gl_FragColor = vec4(paint, 1.0);
 #endif
+  // Both dates use the same cel bands, highlight and ink. Only the hue changes.
+  float grayAmount = 0.0;
+  float alpha = 1.0;
+#ifdef BASELINE
+  grayAmount = 1.0;
+  alpha = uCompare;
+#else
+  if (vBase > 0.0 && vHeight > vBase + 0.1) {
+    float y = vBodyT * vHeight;
+    float pixel = max(fwidth(y), 0.01);
+    grayAmount = (1.0 - smoothstep(vBase - pixel, vBase + pixel, y)) * uCompare;
+  }
+#endif
+  float gray = dot(paint, vec3(0.2126, 0.7152, 0.0722));
+  paint = mix(paint, vec3(gray), grayAmount);
+  gl_FragColor = vec4(paint, alpha);
   #include <colorspace_fragment>
 }`;
 
@@ -491,6 +487,18 @@ export class AtlasScene {
     baselineMesh.visible = false;
     baselineMesh.frustumCulled = false;
     baselineMesh.renderOrder = 1.4;
+    const baselineOutline = new THREE.Mesh(this.domeGeo, new THREE.ShaderMaterial({
+      uniforms: this.outlineMat.uniforms,
+      vertexShader: DOME_VERTEX, fragmentShader: DOME_FRAGMENT,
+      defines: { BASELINE: 1, OUTLINE: 1 }, side: THREE.BackSide,
+      blending: THREE.CustomBlending,
+      blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
+      blendSrcAlpha: THREE.OneFactor, blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
+      depthWrite: false, depthTest: true,
+    }));
+    baselineOutline.frustumCulled = false;
+    baselineOutline.renderOrder = 1.3;
+    baselineMesh.add(baselineOutline);
     this.scene.add(baselineMesh);
     // Ground clearance already reserves >1.4 radii and neighbouring feet have
     // an 18-unit gap; 1.16-radius shadows therefore stay on land and independent.

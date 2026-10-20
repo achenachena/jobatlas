@@ -341,6 +341,9 @@ export function AtlasApp() {
 
       <Brand
         caps={info}
+        dataset={sel.dataset}
+        day={day}
+        window={sel.window}
         occupation={sel.occupation}
         demo={demo}
         onOccupation={(occupation) => { setPlaying(false); setLaunchReplay(false); set({ occupation }); }}

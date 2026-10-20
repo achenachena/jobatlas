@@ -4,6 +4,8 @@
 import { type ReactNode, type RefObject, useEffect, useId, useRef, useState } from "react";
 
 import { type Capabilities, type City, type Dataset, DATASET_NAME, type Gap, type SeriesResponse, type SourcesResponse, type WindowKey } from "../api";
+import { useQuery } from "@tanstack/react-query";
+import { atlasGet, type FrameResponse } from "../api";
 import { legendTicks } from "../scale";
 import { addDays } from "../state";
 import s from "./atlas.module.css";
@@ -86,6 +88,9 @@ function menuKeys(e: React.KeyboardEvent<HTMLElement>) {
 export function Brand(p: {
   caps: Capabilities | undefined;
   occupation: string;
+  dataset: Dataset;
+  day: string | null;
+  window: WindowKey;
   demo: boolean;
   onOccupation: (id: string) => void;
   /** the dataset switch, always visible next to the brand */
@@ -93,6 +98,17 @@ export function Brand(p: {
 }) {
   const occs = p.caps?.occupations ?? [{ id: "all", label: "All jobs", note: "" }];
   const [open, setOpen] = useState(false);
+  const [rankingDay, setRankingDay] = useState<string | null>(null);
+  const ranking = useQuery({
+    queryKey: ["occupation-ranking", p.dataset, p.caps?.release_id, p.window, rankingDay],
+    enabled: open && !!rankingDay && !!p.caps?.release_id,
+    staleTime: 300_000,
+    queryFn: async ({ signal }) => new Map(await Promise.all(occs.filter(o => o.id !== "all").map(async o => {
+      const frame = await atlasGet<FrameResponse>("/frame", { dataset: p.dataset, release: p.caps!.release_id!, occupation: o.id, window: p.window, date: rankingDay! }, signal);
+      return [o.id, frame.national.total_unique] as const;
+    }))),
+  });
+  const ranked = [...occs].sort((a, b) => a.id === "all" ? -1 : b.id === "all" ? 1 : (ranking.data?.get(b.id) ?? -1) - (ranking.data?.get(a.id) ?? -1));
   const btn = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const close = useRef(() => setOpen(false)).current;
@@ -113,19 +129,21 @@ export function Brand(p: {
           aria-haspopup="menu"
           aria-expanded={open}
           aria-label={`Occupation: ${current.label}`}
-          onClick={() => setOpen((v) => !v)}
+          onClick={() => { if (!open) setRankingDay(p.day); setOpen((v) => !v); }}
         >
           {current.label}
           <Icon name="chevron" />
         </button>
         {open && (
-          <div ref={menu} className={`${s.popover} ${s.menu}`} role="menu" aria-label="Occupation" onKeyDown={menuKeys}>
-            {occs.map((o) => (
+          <div ref={menu} className={`${s.popover} ${s.menu} ${s.occupationMenu}`} role="menu" aria-label="Occupation" onKeyDown={menuKeys}>
+            <div className={s.rankingNote} role="status">{ranking.isError ? "Ranking unavailable" : !ranking.data ? "Loading posting counts…" : `Most postings · ${rankingDay ? fmtDay(rankingDay) : "current window"}`}</div>
+            {ranked.map((o) => (
               <button
                 key={o.id}
                 type="button"
                 role="menuitemradio"
                 aria-checked={o.id === p.occupation}
+                aria-label={o.label}
                 title={o.note || undefined}
                 onClick={() => {
                   p.onOccupation(o.id);
@@ -133,7 +151,8 @@ export function Brand(p: {
                   btn.current?.focus();
                 }}
               >
-                {o.label}
+                <span>{o.label}</span>
+                {o.id !== "all" && <small className={s.occupationCount}>{ranking.data?.get(o.id) == null ? "—" : fmtNum(ranking.data.get(o.id)!)}</small>}
               </button>
             ))}
           </div>
