@@ -160,6 +160,7 @@ export function domeGeometry(segments = SEGMENTS, capRings = CAP_RINGS): THREE.I
 export const DOME_VERTEX = /* glsl */ `
 uniform float uR;
 uniform float uPx;
+uniform float uCompare;
 attribute vec2 aProf;
 attribute vec3 iPos;
 attribute float iH;
@@ -171,19 +172,16 @@ varying float vHeight;
 varying vec3 vN;
 varying vec3 vV;
 varying float vBodyT;
-varying float vCurrentStem;
+varying vec3 vLocal;
+varying float vRadius;
+varying float vFaceX;
 // Profile for a body of height H and base radius uR: a straight side leaning slightly inward
 // (more for taller bodies, so the base is a little wider) and a wide round top: an arc tangent
 // to the side and to the top whose radius is set by the width, never stretched by H.
 void main() {
   vBase = iBase; vHeight = iH;
-#ifdef BASELINE
-  float H = max(iBase, 1.0);
-#else
-  float H = max(iH, 1.0);
-#endif
-  float currentR = min(min(uR, iR), max(iH, 1.0) * 0.62);
-  vCurrentStem = iH - min(currentR * 0.90, max(iH, 1.0) * 0.48);
+  // A single shared shell reaches the larger value during comparison.
+  float H = max(mix(iH, max(iH, iBase), uCompare), 1.0);
   float R = min(min(uR, iR), H * 0.62);
   // Same monotone silhouette at every height: broad grounded foot, rounded
   // shoulder, hemispherical cap. Both first derivatives meet at the shoulder.
@@ -208,7 +206,10 @@ void main() {
     r = 0.0; y = H; n = vec2(0.0, 1.0);
   }
   vec3 N = vec3(n.x * cos(aProf.y), n.y, n.x * sin(aProf.y));
-  vec3 P = iPos + vec3(r * cos(aProf.y), y, r * sin(aProf.y));
+  vLocal = vec3(r * cos(aProf.y), y, r * sin(aProf.y));
+  vRadius = R;
+  vFaceX = dot(vLocal, vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]));
+  vec3 P = iPos + vLocal;
 #ifdef OUTLINE
   P += N * iLine * uPx;
 #endif
@@ -231,15 +232,10 @@ varying float vHeight;
 varying vec3 vN;
 varying vec3 vV;
 varying float vBodyT;
-varying float vCurrentStem;
+varying vec3 vLocal;
+varying float vRadius;
+varying float vFaceX;
 void main() {
-#ifdef BASELINE
-  // The start body shares the current body's axis, foot and profile. Only its
-  // exposed upper volume is drawn; the later solid pass preserves the mint top.
-  if (vBase <= vHeight + 0.1 || uCompare <= 0.0) discard;
-  float y = vBodyT * max(vBase, 1.0);
-  if (y < max(0.0, vCurrentStem)) discard;
-#endif
 #ifdef OUTLINE
   vec3 paint = uShade;
 #else
@@ -274,22 +270,38 @@ void main() {
   float foot = 1.0 - smoothstep(fwidth(vBodyT) * 0.4, fwidth(vBodyT) * 1.7, vBodyT);
   paint = mix(paint, uInk, max(edge, foot));
 #endif
-  // Both dates use the same cel bands, highlight and ink. Only the hue changes.
+  // The shorter period is painted into the front face of this one shell.
+  // View-facing coordinates keep both outer rails readable through map rotation.
   float grayAmount = 0.0;
-  float alpha = 1.0;
-#ifdef BASELINE
-  grayAmount = 1.0;
-  alpha = uCompare;
-#else
-  if (vBase > 0.0 && vHeight > vBase + 0.1) {
-    float y = vBodyT * vHeight;
-    float pixel = max(fwidth(y), 0.01);
-    grayAmount = (1.0 - smoothstep(vBase - pixel, vBase + pixel, y)) * uCompare;
-  }
+  if (vBase >= 0.0 && abs(vBase - vHeight) > 0.1 && uCompare > 0.0) {
+    float shorter = min(vBase, vHeight);
+    float inset = 0.0;
+    float seam = 0.0;
+#ifndef OUTLINE
+    if (shorter > 0.0) {
+      float x = vFaceX;
+      float width = vRadius * 0.60;
+      float cap = min(width, shorter * 0.48);
+      // Rounded face patch; its bottom and top are the actual two data levels.
+      vec2 q = vec2(abs(x) - width + cap, abs(vLocal.y - shorter * 0.5) - shorter * 0.5 + cap);
+      float distance = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - cap;
+      float pixel = max(fwidth(distance), 0.01);
+      inset = 1.0 - smoothstep(-pixel * 0.5, pixel * 0.5, distance);
+      seam = (1.0 - smoothstep(pixel * 0.2, pixel * 1.0, abs(distance))) * 0.55;
+      // A soft shoulder glint belongs to the inset surface, not a second dome mesh.
+      vec2 glint = vec2((x + width * 0.26) / (width * 0.44), (vLocal.y - shorter + cap * 0.55) / (cap * 0.28));
+      float highlight = (1.0 - smoothstep(0.65, 1.05, length(glint))) * inset;
+      paint = mix(paint, uTop, highlight * uCompare * 0.9);
+    }
 #endif
+    grayAmount = (vBase > vHeight ? 1.0 - inset : inset) * uCompare;
+#ifndef OUTLINE
+    paint = mix(paint, uInk, seam * uCompare);
+#endif
+  }
   float gray = dot(paint, vec3(0.2126, 0.7152, 0.0722));
   paint = mix(paint, vec3(gray), grayAmount);
-  gl_FragColor = vec4(paint, alpha);
+  gl_FragColor = vec4(paint, 1.0);
   #include <colorspace_fragment>
 }`;
 
@@ -379,7 +391,6 @@ export class AtlasScene {
   private comparison: { key: string; baseline: Map<string, number | null>; visible: boolean } | null = null;
   private compareStarted = 0;
   private compareMat: THREE.ShaderMaterial;
-  private compareMesh: THREE.Mesh;
   setInteractionLocked(value: boolean): void {
     const wasLocked = this.interactionLocked;
     this.interactionLocked = value;
@@ -394,7 +405,6 @@ export class AtlasScene {
   setComparison(value: { key: string; baseline: Map<string, number | null>; visible: boolean } | null): void {
     if (value?.key === this.comparison?.key && value?.visible === this.comparison?.visible) return;
     this.comparison = value;
-    this.compareMesh.visible = !!value?.visible;
     this.compareStarted = performance.now();
     this.layoutDirty = true;
     this.invalidate();
@@ -475,31 +485,8 @@ export class AtlasScene {
       mesh.renderOrder = mat === this.outlineMat ? 1.5 : 2;
       this.scene.add(mesh);
     }
-    this.compareMat = new THREE.ShaderMaterial({
-      uniforms, vertexShader: DOME_VERTEX, fragmentShader: DOME_FRAGMENT,
-      // Blend before the solid bodies so their rounded mint caps stay intact.
-      defines: { BASELINE: 1 }, transparent: false, blending: THREE.CustomBlending,
-      blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
-      blendSrcAlpha: THREE.OneFactor, blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
-      depthWrite: false, depthTest: true,
-    });
-    const baselineMesh = this.compareMesh = new THREE.Mesh(this.domeGeo, this.compareMat);
-    baselineMesh.visible = false;
-    baselineMesh.frustumCulled = false;
-    baselineMesh.renderOrder = 1.4;
-    const baselineOutline = new THREE.Mesh(this.domeGeo, new THREE.ShaderMaterial({
-      uniforms: this.outlineMat.uniforms,
-      vertexShader: DOME_VERTEX, fragmentShader: DOME_FRAGMENT,
-      defines: { BASELINE: 1, OUTLINE: 1 }, side: THREE.BackSide,
-      blending: THREE.CustomBlending,
-      blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
-      blendSrcAlpha: THREE.OneFactor, blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
-      depthWrite: false, depthTest: true,
-    }));
-    baselineOutline.frustumCulled = false;
-    baselineOutline.renderOrder = 1.3;
-    baselineMesh.add(baselineOutline);
-    this.scene.add(baselineMesh);
+    // Comparison reuses the solid shell and its ink pass: no duplicate geometry.
+    this.compareMat = this.domeMat;
     // Ground clearance already reserves >1.4 radii and neighbouring feet have
     // an 18-unit gap; 1.16-radius shadows therefore stay on land and independent.
     const plane = new THREE.PlaneGeometry(2, 2);
