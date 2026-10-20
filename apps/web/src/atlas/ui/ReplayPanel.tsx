@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { City, TimelineResponse } from "../api";
 import { changeLabel, REFERENCE_CITIES, type ReplayFrame } from "../replay";
 import { addDays } from "../state";
@@ -8,10 +8,10 @@ import s from "./atlas.module.css";
 export function ReplayPanel(p: {
   day: string | null; windowDays: number; national: number | null | undefined; counts: Map<string, number | null>;
   baseline?: ReplayFrame; timeline?: TimelineResponse; selected: City | null; dataset: string;
-  compare: boolean; onCompare: (value: boolean) => void; ended: boolean;
+  compare: boolean; onCompare: (value: boolean) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const base = new Map(p.timeline?.city_ids.map((id,i) => [id, p.baseline?.counts[i] ?? null]));
+  const base = useMemo(() => new Map(p.timeline?.city_ids.map((id,i) => [id, p.baseline?.counts[i] ?? null])), [p.timeline, p.baseline]);
   const rows: (readonly [string,string])[] = [...REFERENCE_CITIES];
   if (p.selected && !rows.some(([id]) => id === p.selected!.city_id)) rows.push([p.selected.city_id, p.selected.name]);
   const delta = p.baseline?.national != null && p.national != null ? p.national - p.baseline.national : null;

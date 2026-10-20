@@ -30,7 +30,7 @@ test("ten-second overview uses one frame for map and national numbers, then reve
   await page.waitForTimeout(1100);
   const numbers=await page.evaluate(()=>{
     const sc=(window as any).__atlas;
-    return {sum:sc.bodies.reduce((n:number,b:any)=>n+(b.count??0),0), reveal:sc.compareMat.uniforms.uCompare.value,scale:sc.scaleMax};
+    return {sum:sc.bodies.reduce((n:number,b:any)=>n+(b.count??0),0), reveal:sc.domeMat.uniforms.uCompare.value,scale:sc.scaleMax};
   });
   const national=Number((await page.getByTestId("national-total").innerText()).replaceAll(",",""));
   expect(national-numbers.sum).toBe(137);expect(numbers.reveal).toBe(1);expect(numbers.scale).toBe(checked.scale);
@@ -99,17 +99,6 @@ test("failed preparation can retry, and no-WebGL retains endpoint numbers", asyn
   await expect(page.getByTestId("national-change")).not.toContainText("Not comparable");
 });
 
-test("mobile summary leaves the timeline accessible and expands remaining cities", async({page})=>{
-  await page.setViewportSize({width:390,height:844});await page.emulateMedia({reducedMotion:"reduce"});await atlasFixture(page,"real","complete");await page.goto("/");
-  await page.getByRole("button",{name:"Watch changes · 10 sec"}).click();await expect(page.getByRole("button",{name:"Replay",exact:true})).toBeVisible();
-  const summary=page.getByRole("complementary",{name:"Postings summary"});
-  await expect(summary.getByRole("rowheader",{name:"Calgary"})).toBeHidden();
-  await page.getByRole("button",{name:"Show all cities & details"}).click();
-  await expect(summary.getByRole("rowheader",{name:"Calgary"})).toBeVisible();
-  const box=(await summary.boundingBox())!, timeline=(await page.getByRole("region",{name:"Timeline",exact:true}).boundingBox())!;
-  expect(box.y+box.height).toBeLessThanOrEqual(timeline.y);
-});
-
 test("date seeking keeps the baseline, backgrounding pauses, and dataset changes clear it", async({page})=>{
   await atlasFixture(page,"real","complete");await page.goto("/");
   await page.getByRole("combobox",{name:"Playback duration"}).selectOption("20");
@@ -149,6 +138,8 @@ test("compact windows keep controls separate and summary collapsed", async ({pag
     expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBeLessThanOrEqual(width!);
     await page.getByRole("button",{name:"Show all cities & details"}).click();
     await expect(summary.getByRole("rowheader",{name:"Calgary"})).toBeVisible();
+    const expanded = (await summary.boundingBox())!;
+    expect(expanded.y + expanded.height).toBeLessThanOrEqual(timeline.y);
     await page.getByRole("button",{name:"Fewer cities"}).click();
   }
 });

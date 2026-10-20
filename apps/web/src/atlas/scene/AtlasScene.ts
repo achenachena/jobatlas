@@ -390,7 +390,6 @@ export class AtlasScene {
   private interactionLocked = false;
   private comparison: { key: string; baseline: Map<string, number | null>; visible: boolean } | null = null;
   private compareStarted = 0;
-  private compareMat: THREE.ShaderMaterial;
   setInteractionLocked(value: boolean): void {
     const wasLocked = this.interactionLocked;
     this.interactionLocked = value;
@@ -486,7 +485,6 @@ export class AtlasScene {
       this.scene.add(mesh);
     }
     // Comparison reuses the solid shell and its ink pass: no duplicate geometry.
-    this.compareMat = this.domeMat;
     // Ground clearance already reserves >1.4 radii and neighbouring feet have
     // an 18-unit gap; 1.16-radius shadows therefore stay on land and independent.
     const plane = new THREE.PlaneGeometry(2, 2);
@@ -1304,7 +1302,7 @@ export class AtlasScene {
     for (const b of this.bodies) {
       const baseline = this.comparison?.visible && b.count != null ? this.comparison.baseline.get(b.id) : null;
       const startHeight = baseline != null ? heightFor(baseline, this.scaleMax) : 0;
-      const visibleHeight = b.shown + (Math.max(b.shown, startHeight) - b.shown) * this.compareMat.uniforms.uCompare!.value;
+      const visibleHeight = b.shown + (Math.max(b.shown, startHeight) - b.shown) * this.domeMat.uniforms.uCompare!.value;
       if (!this.isBody(b) && !(visibleHeight > 0 && b.radius > 0 && this.expanded.has(b.id))) continue;
       const v = this.visual.get(b.id) ?? { x: b.chartX, z: b.chartZ, radius: b.radius };
       const [bx, by] = this.toScreen(v.x, this.landTop, v.z);
@@ -1383,7 +1381,7 @@ export class AtlasScene {
     if (this.disposed) return;
     const now = performance.now();
     const reveal = this.comparison?.visible ? (this.opts.reducedMotion ? 1 : Math.min(1, (now - this.compareStarted) / 1000)) : 0;
-    this.compareMat.uniforms.uCompare!.value = reveal;
+    this.domeMat.uniforms.uCompare!.value = reveal;
     const revealing = !!this.comparison?.visible && reveal < 1;
     const panning = this.stepCamera(now);
     const moving = this.layoutDirty ? this.layout(now) : false;

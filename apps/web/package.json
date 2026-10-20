@@ -9,7 +9,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "preview": "vite preview",
-    "e2e": "playwright test --project=desktop --project=atlas-mobile"
+    "e2e": "playwright test"
   },
   "dependencies": {
     "@fontsource/m-plus-rounded-1c": "5.3.0",

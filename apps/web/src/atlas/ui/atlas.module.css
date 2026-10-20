@@ -122,8 +122,8 @@
   align-items: center;
   gap: 4px;
   min-height: 44px;
-  margin-left: -6px;
-  padding: 0 6px;
+  margin-left: 0;
+  padding: 0 6px 0 0;
   border: 0;
   border-radius: 8px;
   background: transparent;
@@ -398,9 +398,7 @@
   position: absolute;
   left: 40px;
   bottom: 28px;
-  width: calc(78% - 40px);
   display: grid;
-  grid-template-columns: 44px auto 1fr;
   grid-template-areas: "play when slider";
   align-items: center;
   column-gap: 14px;
@@ -785,7 +783,6 @@
     row-gap: 0;
   }
   .when {
-    margin-right: 148px; /* the map icons share this row */
     min-width: 0;
   }
   .dateBtn {
@@ -858,7 +855,6 @@
 .labelLeader circle { fill: var(--paper); stroke: var(--ink); stroke-width: 1; }
 
 .noteHint { font-size: 11px; font-weight: 400; font-style: normal; line-height: 1.4; max-width: 220px; white-space: normal; color: var(--ink-muted); }
-@media (max-width: 759px) { .dateBtn small { display: none; } }
 
 /* A: compact interaction labels, readable without technical copy across the map. */
 .noteDetail { z-index: 4; }
@@ -1024,7 +1020,6 @@
 
 /* Keep playback in the timeline and let the map use the entire canvas. */
 .playbackGroup { grid-area: play; display: flex; align-items: center; gap: 5px; }
-.timeline { grid-template-columns: auto auto 1fr; }
 .playbackDuration { width: 65px; min-height: 44px; padding: 0; border: 0; background: transparent; color: var(--ink); font-size: 12px; cursor: pointer; }
 .replayPanel { position: absolute; right: 40px; top: 92px; z-index: 3; width: 208px; padding: 10px 12px; border-radius: 10px; background: rgb(255 254 251 / .90); font-variant-numeric: tabular-nums; }
 .replayHeading { display: flex; justify-content: space-between; font-size: 10px; gap: 10px; }
@@ -1043,10 +1038,7 @@
 .replayDetails summary { cursor: pointer; }
 .replayExpand { display: none; }
 @media (max-width: 759px) {
-  .timeline { grid-template-columns: auto 1fr; }
   .playbackGroup { gap: 2px; }
-  .playbackDuration { width: 57px; font-size: 11px; }
-  .when { margin-right: 0; }
   .mapTools { bottom: calc(100px + var(--safe-bottom)); }
   .replayPanel { top: auto; bottom: calc(151px + var(--safe-bottom)); left: 16px; right: 16px; width: auto; padding: 6px 8px; max-height: 35vh; overflow: auto; }
   .replayHeading { justify-content: flex-start; gap: 8px; }
@@ -1063,7 +1055,6 @@
 }
 .compareLabels .noteCount { animation: revealComparison 1s ease-out both; font-size: 11px; line-height: 1.3; }
 @keyframes revealComparison { from { opacity: 0; } to { opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .compareLabels .noteCount { animation: none; } }
 @media (max-width: 759px) { .compareLabels .noteCount { font-size: 10px; } }
 
 @media (max-width: 759px) {
@@ -1099,7 +1090,6 @@
 }
 
 /* Align control boundaries with the brand, including the occupation popover. */
-.occBtn { margin-left: 0; padding-left: 0; }
 .occupationMenu { left: 0; width: 300px; max-width: calc(100vw - 48px); }
 .occupationMenu button { white-space: normal; }
 .occupationMenu button > span { flex: 1; }

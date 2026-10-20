@@ -214,7 +214,7 @@ export function AtlasApp() {
 
   // ---------------------------------------------------------------- selection
   const selectedCity = cities.data?.cities.find((c) => c.city_id === sel.city) ?? null;
-  const series = useSeries(sel.dataset, release, quickPlaying ? null : sel.city, sel.occupation, sel.window, day);
+  const series = useSeries(sel.dataset, release, quick ? null : sel.city, sel.occupation, sel.window, day);
   const occLabel = info?.occupations.find((o) => o.id === sel.occupation)?.label ?? sel.occupation;
   const countsKey = lastGood.current.key;
   const onSelect = useCallback((id: string | null) => {
@@ -352,7 +352,7 @@ export function AtlasApp() {
         )}
       />
       <MoreMenu onPick={onMore} disabled={!ready} />
-      {ready && <ReplayPanel day={day} windowDays={WINDOW_DAYS[sel.window]} counts={sameSelection && frame ? counts : new Map()} national={sameSelection ? frame?.national : null} baseline={replay.baseline} timeline={quick?.timeline} selected={selectedCity} dataset={DATASET_NAME[sel.dataset]} compare={replay.compare} onCompare={replay.setCompare} ended={!!quick && replay.phase === "ended"} /> }
+      {ready && <ReplayPanel day={day} windowDays={WINDOW_DAYS[sel.window]} counts={sameSelection && frame ? counts : new Map()} national={sameSelection ? frame?.national : null} baseline={replay.baseline} timeline={quick?.timeline} selected={selectedCity} dataset={DATASET_NAME[sel.dataset]} compare={replay.compare} onCompare={replay.setCompare} /> }
 
       {panel === "scale" && ready && (
         <ScalePanel

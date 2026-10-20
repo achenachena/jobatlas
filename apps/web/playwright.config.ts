@@ -10,7 +10,7 @@ export default defineConfig({
     launchOptions: { args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] },
   },
   projects: [
-    { name: "desktop", use: { ...devices["Desktop Chrome"], viewport: { width: 1366, height: 860 } }, testIgnore: /mobile|live/ },
+    { name: "desktop", use: { ...devices["Desktop Chrome"], viewport: { width: 1366, height: 860 } }, testIgnore: /atlas-mobile/ },
     { name: "atlas-mobile", use: { ...devices["Pixel 7"] }, testMatch: /atlas-mobile/ },
   ],
   webServer: {
