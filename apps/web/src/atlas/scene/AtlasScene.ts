@@ -397,7 +397,7 @@ export class AtlasScene {
     if (wasLocked && !value && this.comparison) {
       // Numeric frames stay exact; settle the visual tween immediately on pause/end.
       for (const body of this.bodies) body.shown = body.from = body.to;
-      this.layoutDirty = true;
+      this.markLayout();
       this.invalidate();
     }
   }
@@ -405,10 +405,20 @@ export class AtlasScene {
     if (value?.key === this.comparison?.key && value?.visible === this.comparison?.visible) return;
     this.comparison = value;
     this.compareStarted = performance.now();
-    this.layoutDirty = true;
+    this.markLayout();
     this.invalidate();
   }
-  replayReady(): boolean { return this.placements.has(this.level) && !this.layoutDirty && this.bodies.length > 0; }
+  /** Ready to play once the replay's placement is applied and every body is within half a
+   * pixel of it with heights in place: the motion still finishes, but playback does not wait
+   * for its invisible sub-pixel tail. */
+  replayReady(): boolean {
+    return this.placements.has(this.level) && this.bodies.length > 0
+      && (!this.layoutDirty || (this.settledPx < 0.5 && this.heightsDone));
+  }
+  private markLayout(): void {
+    this.layoutDirty = true;
+    this.settledPx = Infinity; // measured again by the next layout pass
+  }
   private settleTimer = 0;
   private selected: string | null = null;
   private hovered: string | null = null;
@@ -416,6 +426,9 @@ export class AtlasScene {
   /** Bodies need rebuilding when data, selection, hover or zoom change, or while a
    * tween runs; panning and turning only re-render. */
   private layoutDirty = true;
+  /** largest distance (px) any body still has to move or grow, from the last layout pass */
+  private settledPx = Infinity;
+  private heightsDone = false;
   /** Rendered footprints converge independently of the exact placement audit. */
   private visual = new Map<string, { x: number; z: number; radius: number }>();
   private layoutTime = 0;
@@ -429,6 +442,9 @@ export class AtlasScene {
   /** placements per detail level for the current data (placementData) */
   private placements = new Map<number, Map<string, [number, number, number]>>();
   private placementData = "";
+  /** the placements of the last few data keys: replaying a selection again or returning to
+   * it reuses them instead of arranging the map from scratch */
+  private placementsByData = new Map<string, Map<number, Map<string, [number, number, number]>>>();
   private precomputing = new Map<number, { steps: Generator<void, void>; done: (() => void)[] }>();
   /** detail level: footprints, spacing and search distances are divided by it, so zooming in
    * by 1.5× frees room for more cities while bodies keep a similar size on screen */
@@ -611,7 +627,7 @@ export class AtlasScene {
     this.byId = new Map(this.bodies.map((b, i) => [b.id, i]));
     performance.measure("atlas:cities", { start: started });
     this.expanded.clear();
-    this.layoutDirty = true;
+    this.markLayout();
     this.invalidate();
   }
 
@@ -629,7 +645,7 @@ export class AtlasScene {
       if (firstData || (this.comparison && !this.interactionLocked)) b.shown = b.from = b.to;
     }
     this.tweenStart = performance.now();
-    this.layoutDirty = true;
+    this.markLayout();
     if (rescaled) this.fitHome(!this.interacted);
     if (!this.frozen || (this.comparison && this.placementKey !== `${this.level}|replay:${this.comparison.key}`)) this.updateDetail();
     this.invalidate();
@@ -652,7 +668,7 @@ export class AtlasScene {
   setSelected(id: string | null): void {
     this.selected = id;
     this.updateFootprints();
-    this.layoutDirty = true;
+    this.markLayout();
     this.invalidate();
   }
 
@@ -660,7 +676,7 @@ export class AtlasScene {
     if (id === this.hovered) return;
     this.hovered = id;
     this.updateFootprints();
-    this.layoutDirty = true;
+    this.markLayout();
     this.invalidate();
   }
 
@@ -676,7 +692,10 @@ export class AtlasScene {
     const dataKey = this.comparison ? `replay:${this.comparison.key}` : ranked.map(b => `${b.id}:${Math.round(b.to)}`).join("|");
     if (dataKey !== this.placementData) {
       this.placementData = dataKey;
-      this.placements.clear();
+      this.placements = this.placementsByData.get(dataKey) ?? new Map();
+      this.placementsByData.delete(dataKey);
+      this.placementsByData.set(dataKey, this.placements);
+      while (this.placementsByData.size > 4) this.placementsByData.delete(this.placementsByData.keys().next().value!);
       this.precomputing.clear(); // jobs for the old data stop on their own
     }
     const placementKey = `${level}|${dataKey}`;
@@ -694,7 +713,7 @@ export class AtlasScene {
       }
       this.expanded = new Set(placed.keys());
       this.updateFootprints();
-      this.layoutDirty = true;
+      this.markLayout();
     }
     // Precompute the neighbouring levels in small idle slices, so the next zoom step across a
     // level does not stall on placement and no slice blocks input.
@@ -812,6 +831,7 @@ export class AtlasScene {
     const baseAttr = this.domeGeo.getAttribute("iBase") as THREE.InstancedBufferAttribute;
     const lineAttr = this.domeGeo.getAttribute("iLine") as THREE.InstancedBufferAttribute;
     let moving = false;
+    let off = 0;
     let n = 0;
     let leaderCount = 0;
     const leaders = this.leaders.geometry.getAttribute("position") as THREE.BufferAttribute;
@@ -834,6 +854,7 @@ export class AtlasScene {
       const x = targetRadius > 0 ? b.chartX : v.x;
       const z = targetRadius > 0 ? b.chartZ : v.z;
       const distance = Math.hypot(x - v.x, z - v.z);
+      off = Math.max(off, distance, Math.abs(targetRadius - v.radius));
       if (Math.abs(targetRadius - v.radius) > px * 0.02 || distance > px * 0.02) {
         v.x += (x - v.x) * blend;
         v.z += (z - v.z) * blend;
@@ -861,6 +882,8 @@ export class AtlasScene {
     this.domeGeo.instanceCount = n;
     this.contactGeo.instanceCount = n;
     pos.needsUpdate = radii.needsUpdate = hAttr.needsUpdate = lineAttr.needsUpdate = baseAttr.needsUpdate = true;
+    this.settledPx = off / px;
+    this.heightsDone = this.opts.reducedMotion || now - this.tweenStart >= (this.comparison ? 90 : CEL.motion.height);
     return moving;
   }
 
@@ -904,7 +927,7 @@ export class AtlasScene {
     for (const m of this.lines) m.resolution.set(w, h);
     this.fitHome(!this.interacted);
     if (this.interacted) this.commit(this.state(), false);
-    this.layoutDirty = true;
+    this.markLayout();
     this.scheduleSettle();
     this.invalidate();
   }
@@ -970,7 +993,7 @@ export class AtlasScene {
     this.domeMat.uniforms.uPx!.value = this.worldPerPx();
     this.domeMat.uniforms.uR!.value = this.bodyRadius();
     // Translation and azimuth change only the view/uniforms, not instance geometry.
-    if (updateBodies) this.layoutDirty = true;
+    if (updateBodies) this.markLayout();
   }
 
   private state(): CameraState {

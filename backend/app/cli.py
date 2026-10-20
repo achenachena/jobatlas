@@ -98,13 +98,27 @@ def atlas_rematch() -> None:
 @app.command("atlas-release")
 def atlas_release() -> None:
     """Rebuild and publish a release from what is imported (e.g. after a rule change)."""
+    from app.atlas import overview
     from app.atlas.jobbank import SOURCE_KEY
     from app.atlas.metrics import REAL_DATASET, build_release, publish
 
     with sync_session() as session:
         r = build_release(session, REAL_DATASET, [SOURCE_KEY], change_kind="correction")
+        overview.prepare(session, r)
         publish(session, r)
         _echo({"release_id": r.id, "data_through": r.data_through, "quality": r.quality})
+
+
+@app.command("atlas-overviews")
+def atlas_overviews() -> None:
+    """Store the current Job Bank release's 30-day history overviews that are missing (deploys:
+    a release built before overviews existed gets them; otherwise nothing to do)."""
+    from app.atlas import overview
+    from app.atlas.metrics import REAL_DATASET, current_release
+
+    with sync_session() as session:
+        r = current_release(session, REAL_DATASET)
+        _echo({"release_id": r and r.id, "built": overview.prepare(session, r) if r else 0})
 
 
 @app.command("ats-discover")

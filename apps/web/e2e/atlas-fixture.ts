@@ -148,7 +148,7 @@ function DATA_THROUGH_DEFAULT() {
   return "2026-09-30";
 }
 
-export async function atlasFixture(page: Page, mode: "real" | "not_configured" = "real", overview: "complete" | "gap" | null = null) {
+export async function atlasFixture(page: Page, mode: "real" | "not_configured" = "real", overview: "complete" | "gap" | null = null, opts: { sampleEvery?: number } = {}) {
   await page.route("http://api.fixture/api/v2/atlas/**", async (route: Route) => {
     const url = new URL(route.request().url());
     const q = url.searchParams;
@@ -188,13 +188,42 @@ export async function atlasFixture(page: Page, mode: "real" | "not_configured" =
         reporting_timezone: "America/Toronto", start, end, city_ids: CITIES.map((c) => c[0]), frames: overview ? frames.map(f => ({...f, national: f.national == null ? null : f.national + 137})) : frames, max_count: (base[occ] ?? 2) * REGION_WEIGHT.real * w * 1.3,
       });
     }
+    if (url.pathname.endsWith("/overview")) {
+      // The fixture history is short: every day from the first to the last complete window.
+      const occ = q.get("occupation") ?? "all";
+      const all = Array.from({ length: between(day(HISTORY_START, 29), DATA_THROUGH) + 1 }, (_, i) => frame(occ, day(HISTORY_START, 29 + i), 30, overview !== "complete"))
+        .map(f => ({ ...f, national: f.national == null ? null : f.national + 137 }));
+      const complete = (f: (typeof all)[number]) => f.quality === "complete";
+      const s = all.findIndex(complete), e = all.length - 1 - [...all].reverse().findIndex(complete);
+      // sampleEvery: like production, a longer history keeps only some dates (ends included)
+      const frames = all.slice(s, e + 1).filter((_, i, list) => !opts.sampleEvery || i % opts.sampleEvery === 0 || i === list.length - 1);
+      const incomplete: { start: string; end: string; reason: string }[] = [];
+      frames.forEach((f, i) => {
+        if (complete(f)) return;
+        if (incomplete.length && incomplete.at(-1)!.end === frames[i - 1]?.date) incomplete.at(-1)!.end = f.date;
+        else incomplete.push({ start: f.date, end: f.date, reason: "not covered: unknown, not zero" });
+      });
+      return json({
+        format: 1, dataset_id: "jobbank", data_mode: dataMode, release_id: q.get("release") ?? "fx1", occupation: occ, window: "30d",
+        start: frames[0]!.date, end: frames.at(-1)!.date, history_start: HISTORY_START, data_through: DATA_THROUGH, scale_max: 14000, samples: 120,
+        city_ids: CITIES.map((c) => c[0]), city_max: CITIES.map((_, i) => Math.max(0, ...frames.map(f => f.counts[i] ?? 0))), incomplete, frames,
+      });
+    }
     if (url.pathname.endsWith("/frame"))
       return json({ backfilled_days: 0, national: { total_unique: 1234, total_reason: null, city_unconfirmed: 12, remote_canada: 3 }, cities: [], notes: [] });
     if (url.pathname.includes("/series")) {
       const end = q.get("end") ?? DATA_THROUGH;
+      const occ = q.get("occupation") ?? "all";
+      const city = decodeURIComponent(url.pathname.split("/").at(-2)!);
+      const i = CITIES.findIndex((c) => c[0] === city);
+      const w = { "1d": 1, "7d": 7, "30d": 30 }[q.get("window") ?? "7d"] ?? 7;
+      const n = Math.min(Number(q.get("days") ?? 90), between(HISTORY_START, end) + 1);
       return json({
-        dataset_id: "jobbank", data_mode: dataMode, release_id: "fx1", city_id: "x", occupation: "all", window: "7d",
-        points: Array.from({ length: 60 }, (_, i) => ({ date: day(end, i - 59), count: 100 + i, quality: "complete", backfilled_days: 0 })),
+        dataset_id: "jobbank", data_mode: dataMode, release_id: q.get("release") ?? "fx1", city_id: city, occupation: occ, window: q.get("window") ?? "7d",
+        points: Array.from({ length: n }, (_, k) => {
+          const f = frame(occ, day(end, k - n + 1), w, overview !== "complete");
+          return { date: f.date, count: f.counts[i] ?? null, quality: f.quality, backfilled_days: 0 };
+        }),
       });
     }
     if (url.pathname.endsWith("/version"))

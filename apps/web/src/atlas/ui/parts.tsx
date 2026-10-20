@@ -10,7 +10,7 @@ import { changeLabel } from "../replay";
 import { legendTicks } from "../scale";
 import { addDays } from "../state";
 import s from "./atlas.module.css";
-import { HistoryChart } from "./HistoryChart";
+import { CityHistory } from "./HistoryChart";
 
 const fmtDate = new Intl.DateTimeFormat("en-CA", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 const fmtShort = new Intl.DateTimeFormat("en-CA", { month: "short", day: "numeric", timeZone: "UTC" });
@@ -593,7 +593,7 @@ function Sparkline({ series }: { series: SeriesResponse | undefined }) {
 
 export function CityCard(p: {
   city: City;
-  comparison?: { day: string; count: number | null; timeline: TimelineResponse };
+  comparison?: { day: string; count: number | null; history: { release: string; occupation: string; start: string; end: string } };
   count: number | null | undefined;
   quality: string;
   day: string;
@@ -604,6 +604,7 @@ export function CityCard(p: {
   lowerBound: boolean;
   onClose: () => void;
 }) {
+  const [historyOpen, setHistoryOpen] = useState(false);
   return (
     <Panel label={`${p.city.name} details`} className={`${s.card} ${p.comparison ? s.comparisonCard : ""}`} onClose={p.onClose} autoFocusClose>
       <h2>
@@ -619,8 +620,8 @@ export function CityCard(p: {
           </tbody>
         </table>
         <p className={s.cityChange} aria-label="Change from start">{p.comparison.count == null || p.count == null ? "Not comparable" : <>{p.count > p.comparison.count ? "+" : p.count < p.comparison.count ? "−" : ""}{fmtNum(Math.abs(p.count - p.comparison.count))} · {changeLabel(p.comparison.count, p.count)} vs start</>}</p>
-        <details className={s.small}><summary>History over time</summary>
-          <HistoryChart timeline={p.comparison.timeline} cityId={p.city.city_id} day={p.day} />
+        <details className={s.small} onToggle={e => setHistoryOpen(e.currentTarget.open)}><summary>History over time</summary>
+          {historyOpen && <CityHistory dataset={p.dataset} city={p.city.city_id} day={p.day} {...p.comparison.history} />}
         </details>
       </> : <><div className={s.bigCount}>
         {p.count == null ? "—" : `${fmtNum(p.count)} jobs`}

@@ -7,6 +7,8 @@ ranges are bounded.
 
 from __future__ import annotations
 
+import gzip
+import hashlib
 from collections import Counter, defaultdict
 from collections.abc import Iterator
 from datetime import date, timedelta
@@ -16,7 +18,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy.orm import Session
 
-from app.atlas import ats, groups, jobbank
+from app.atlas import ats, groups, jobbank, overview
 from app.atlas import datasets as ds
 from app.atlas.cities import GEONAMES_ATTRIBUTION
 from app.atlas.metrics import GROUP_SCALE_SQL, current_release, grouping_version, scale_maxima
@@ -29,6 +31,7 @@ from app.atlas.schemas import (
     CityCount,
     FrameResponse,
     NationalSummary,
+    OverviewResponse,
     SeriesPoint,
     SeriesResponse,
     SourceInfo,
@@ -48,6 +51,8 @@ DATASET_IDS = {"real": ds.REAL_DATASET, "ats": ds.ATS_DATASET}
 WindowParam = Literal["1d", "7d", "30d"]
 Occ = Literal[PUBLIC_IDS]  # type: ignore[valid-type]
 MAX_TIMELINE_DAYS = 400
+# One city's history reads only its own rows, so a whole release fits in one request.
+MAX_SERIES_DAYS = 4000
 NATURAL_EARTH = "Map outlines: Natural Earth (public domain)."
 NOT_CONFIGURED = (
     "Real data source is not connected yet (no published release of an admitted source)."
@@ -306,7 +311,7 @@ def series(
     occupation: Occ = "all",  # type: ignore[valid-type]
     window_key: WindowParam = Query(DEFAULT_WINDOW, alias="window"),
     end: date | None = None,
-    days: int = Query(90, ge=7, le=MAX_TIMELINE_DAYS),
+    days: int = Query(90, ge=7, le=MAX_SERIES_DAYS),
     release: str | None = Query(None, max_length=64),
     session: Session = Depends(get_session),
 ) -> SeriesResponse:
@@ -317,7 +322,7 @@ def series(
     end = end or info.data_through
     _check_day(info, end)
     start = max(info.history_start, end - timedelta(days=days - 1))
-    fr = d.frames(occupation, window_key, start, end, [city_id])
+    fr = d.city_frames(occupation, window_key, start, end, city_id)
     return SeriesResponse(
         dataset_id=info.dataset_id, data_mode=info.data_mode, release_id=info.release_id,
         city_id=city_id, occupation=occupation, window=window_key,
@@ -326,6 +331,34 @@ def series(
                             or f.quality == "missing" else "not_covered",
                             backfilled_days=f.backfilled_days) for f in fr],
     )  # fmt: skip
+
+
+@router.get("/overview", response_model=OverviewResponse)
+def history_overview(
+    request: Request,
+    dataset: Literal["real", "ats"] = "real",
+    occupation: Occ = "all",  # type: ignore[valid-type]
+    window_key: WindowParam = Query("30d", alias="window"),
+    release: str | None = Query(None, max_length=64),
+    session: Session = Depends(get_session),
+) -> Response:
+    """The prepared history overview (OverviewResponse) of one release, built once and stored.
+    A release-pinned URL never changes, so browsers may keep it as long as they like."""
+    body = overview.get_or_build(_open(session, dataset, release), occupation, window_key)
+    if body is None:
+        raise HTTPException(409, {"code": "NOT_ENOUGH_HISTORY",
+                                  "message": "fewer than two complete windows"})  # fmt: skip
+    etag = f'"{hashlib.sha256(body).hexdigest()[:20]}"'
+    headers = {
+        "ETag": etag, "Vary": "Accept-Encoding",
+        "Cache-Control": "public, max-age=31536000, immutable" if release else "no-cache",
+    }  # fmt: skip
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    if "gzip" in request.headers.get("accept-encoding", ""):
+        return Response(body, media_type="application/json",
+                        headers={**headers, "Content-Encoding": "gzip"})  # fmt: skip
+    return Response(gzip.decompress(body), media_type="application/json", headers=headers)
 
 
 @router.get("/version", response_model=VersionResponse)

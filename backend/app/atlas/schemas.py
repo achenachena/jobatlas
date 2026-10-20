@@ -88,6 +88,38 @@ class TimelineResponse(BaseModel):
     )
 
 
+class OverviewResponse(BaseModel):
+    """A prepared history overview: real dates sampled over the complete windows of one
+    release, occupation and window, for a timed replay. Not every day: dates between frames
+    are fetched from /timeline when needed, never interpolated."""
+
+    format: int = Field(description="payload format version")
+    dataset_id: str
+    data_mode: DataMode
+    release_id: str
+    occupation: str
+    window: Literal["1d", "7d", "30d"]
+    start: str = Field(description="first complete window (full length, covered, a national total)")
+    end: str = Field(description="last complete window")
+    history_start: str
+    data_through: str
+    scale_max: int | None = Field(
+        description="largest single-city count over the release's whole history (the fixed "
+        "city scale); null when the release does not publish it"
+    )
+    samples: int = Field(description="evenly spread dates, before gap boundaries are added")
+    city_ids: list[str]
+    city_max: list[int] = Field(
+        description="per city (aligned with city_ids): its largest count on any day from start "
+        "to end, every day included, for a stable drawing priority"
+    )
+    incomplete: list[Gap] = Field(
+        description="stretches between start and end whose windows are not complete; each "
+        "one's first day and the complete day after it are frames"
+    )
+    frames: list[TimelineFrame] = Field(description="in date order, start and end included")
+
+
 class SeriesPoint(BaseModel):
     date: str
     count: int | None

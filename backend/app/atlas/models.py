@@ -19,6 +19,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -239,3 +240,21 @@ class AtlasDailyMetric(Base):
     city_id: Mapped[str] = mapped_column(String(96), primary_key=True)  # "" unless scope=city
     day: Mapped[date] = mapped_column(Date, primary_key=True)
     count: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class AtlasOverview(Base):
+    """A release's prepared history overview for one occupation and window, gzipped JSON
+    (atlas/overview.py). Built once, never changed; removed with its release."""
+
+    __tablename__ = "atlas_overviews"
+
+    release_id: Mapped[str] = mapped_column(
+        ForeignKey("atlas_releases.id", ondelete="CASCADE"), primary_key=True
+    )
+    occupation: Mapped[str] = mapped_column(String(48), primary_key=True)
+    window: Mapped[str] = mapped_column(String(8), primary_key=True)
+    format: Mapped[int] = mapped_column(Integer, primary_key=True)
+    body: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

@@ -26,9 +26,16 @@ test("clicking a replay column opens matching start/current values without cover
   await expect(panel.getByRole("table")).toContainText(point.start.toLocaleString("en-CA"));
   await expect(panel.getByRole("table")).toContainText(point.current.toLocaleString("en-CA"));
   await expect(panel.getByLabel("Change from start")).toContainText(Math.abs(point.current-point.start).toLocaleString("en-CA"));
+  // the city's history is requested only when opened: one city, the whole replay range
+  const history: URL[] = [];
+  // completed requests only: in development, StrictMode's remount cancels a first one
+  page.on("requestfinished", r => { const u = new URL(r.url()); if (u.pathname.endsWith("/series")) history.push(u); });
+  await page.waitForTimeout(300);
+  expect(history).toEqual([]);
   await panel.getByText("History over time",{exact:true}).click();
   const chart=panel.getByRole("img",{name:/Posting history for this city/});
   await expect(chart).toBeVisible();
+  expect(history.map(u => [u.pathname.split("/").at(-2), u.searchParams.get("end"), u.searchParams.get("days"), u.searchParams.get("release")])).toEqual([["ca-on-toronto", "2026-09-30", "63", "fx1"]]);
   await expect(chart).toHaveAttribute("aria-label",/Jul 30, 2026 to Sep 30, 2026/);
   await expect(chart.locator("g path").first()).not.toHaveAttribute("d","");
   await page.setViewportSize({width:390,height:844});

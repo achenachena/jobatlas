@@ -18,7 +18,7 @@ import httpx
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.atlas import jobbank
+from app.atlas import jobbank, overview
 from app.atlas.cities import CityIndex, load_places, parse_geonames
 from app.atlas.metrics import REAL_DATASET, build_release, current_release, publish
 from app.atlas.models import AtlasCity, AtlasCoverage
@@ -109,6 +109,7 @@ def sync_jobbank(
             change_kind="coverage" if first_import or len(report.imported) > 1 else "update",
             changed=None if first_import else changed,
         )  # fmt: skip
+        overview.prepare(session, release)
         publish(session, release)
         report.release_id = release.id
     return report

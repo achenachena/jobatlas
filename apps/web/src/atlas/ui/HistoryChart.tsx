@@ -1,15 +1,24 @@
-import type { TimelineResponse } from "../api";
+import type { Dataset, SeriesResponse } from "../api";
+import { useCityHistory } from "../useAtlasData";
 import s from "./atlas.module.css";
 
 const dateFormat = new Intl.DateTimeFormat("en-CA", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 const fmtDay = (date: string) => dateFormat.format(new Date(`${date}T12:00:00Z`));
 const fmtNum = (count: number) => count.toLocaleString("en-CA");
 
-/** Use the prepared release's daily observations, never interpolated display values. */
-export function HistoryChart({ timeline, cityId, day }: { timeline: TimelineResponse; cityId: string; day: string }) {
-  const city = timeline.city_ids.indexOf(cityId);
-  const frames = timeline.frames.filter(frame => frame.date <= day);
-  const points = frames.map(frame => ({ date: frame.date, count: frame.quality === "complete" && frame.days_available === 30 ? frame.counts[city] ?? null : null, lower: frame.backfilled_days > 0 }));
+/** One city's whole history in the replay's release, loaded only when it is opened. */
+export function CityHistory(p: { dataset: Dataset; release: string; city: string; occupation: string; start: string; end: string; day: string }) {
+  const q = useCityHistory(p.dataset, p.release, p.city, p.occupation, p.start, p.end);
+  if (q.isPending) return <p className={s.small}>Loading history…</p>;
+  if (q.isError || q.data.release_id !== p.release || q.data.city_id !== p.city)
+    return <p className={s.small}>History could not be loaded. <button type="button" className={s.textBtn} onClick={() => void q.refetch()}>Retry</button></p>;
+  return <HistoryChart points={q.data.points} day={p.day} />;
+}
+
+/** Daily observations of one city up to `day`, never interpolated display values; a point
+ * counts only for a complete window (a partial one is unknown, not a smaller number). */
+export function HistoryChart({ points: series, day }: { points: SeriesResponse["points"]; day: string }) {
+  const points = series.filter(p => p.date <= day).map(p => ({ date: p.date, count: p.quality === "complete" ? p.count ?? null : null, lower: p.backfilled_days > 0 }));
   const known = points.filter(p => p.count != null);
   if (!known.length) return <p className={s.small}>No complete history available for this city.</p>;
   const peak = Math.max(...known.map(p => p.count!));
