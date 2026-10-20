@@ -17,6 +17,12 @@ export function HistoryChart({ timeline, cityId, day }: { timeline: TimelineResp
   const first = Date.parse(points[0]!.date), last = Date.parse(points.at(-1)!.date);
   const x = (date: string) => 35 + (Date.parse(date) - first) / Math.max(1, last - first) * 225;
   const y = (count: number) => 90 - count / max * 76;
+  const yearly = last - first >= 730 * 86_400_000;
+  const tickDates = yearly
+    ? [points[0]!.date, ...Array.from({ length: new Date(last).getUTCFullYear() - new Date(first).getUTCFullYear() }, (_, i) => `${new Date(first).getUTCFullYear() + i + 1}-01-01`)]
+    : [...new Set(Array.from({ length: 5 }, (_, i) => points[Math.round(i / 4 * (points.length - 1))]!.date))];
+  const ticks = tickDates.filter((date, i) => i === 0 || x(date) - x(tickDates[i - 1]!) >= 35);
+  const tickFormat = new Intl.DateTimeFormat("en-CA", yearly ? { year: "numeric", timeZone: "UTC" } : { month: "short", day: "numeric", timeZone: "UTC" });
   let solid = "", lower = "";
   for (let i = 1; i < points.length; i++) {
     const a = points[i - 1]!, b = points[i]!;
@@ -29,6 +35,10 @@ export function HistoryChart({ timeline, cityId, day }: { timeline: TimelineResp
   return <figure className={s.cityHistory}>
     <svg viewBox="0 0 270 106" role="img" aria-label={`Posting history for this city, ${fmtDay(points[0]!.date)} to ${fmtDay(end.date)}. Peak ${fmtNum(peak)} postings. Each point is a past-30-day window.${gaps ? " Gaps are not connected." : ""}`}>
       <path d="M35 14H260M35 90H260" className={s.historyGrid} />
+      {ticks.map((date, i) => <g key={date}>
+        <line x1={x(date)} x2={x(date)} y1="14" y2="94" className={s.historyGrid} />
+        <text x={x(date)} y="104" textAnchor={i === 0 ? "start" : x(date) > 240 ? "end" : "middle"}>{tickFormat.format(new Date(`${date}T12:00:00Z`))}</text>
+      </g>)}
       <text x="29" y="18" textAnchor="end">{fmtNum(max)}</text><text x="29" y="94" textAnchor="end">0</text>
       <g fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round">
         <path d={solid} /><path d={lower} strokeDasharray="3 3" />
