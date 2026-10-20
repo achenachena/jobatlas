@@ -6,6 +6,7 @@ import { type ReactNode, type RefObject, useEffect, useId, useRef, useState } fr
 import { type Capabilities, type City, type Dataset, DATASET_NAME, type Gap, type SeriesResponse, type SourcesResponse, type WindowKey } from "../api";
 import { useQuery } from "@tanstack/react-query";
 import { atlasGet, type FrameResponse } from "../api";
+import { changeLabel } from "../replay";
 import { legendTicks } from "../scale";
 import { addDays } from "../state";
 import s from "./atlas.module.css";
@@ -591,6 +592,7 @@ function Sparkline({ series }: { series: SeriesResponse | undefined }) {
 
 export function CityCard(p: {
   city: City;
+  comparison?: { day: string; count: number | null };
   count: number | null | undefined;
   quality: string;
   day: string;
@@ -602,11 +604,24 @@ export function CityCard(p: {
   onClose: () => void;
 }) {
   return (
-    <Panel label={`${p.city.name} details`} className={s.card} onClose={p.onClose} autoFocusClose>
+    <Panel label={`${p.city.name} details`} className={`${s.card} ${p.comparison ? s.comparisonCard : ""}`} onClose={p.onClose} autoFocusClose>
       <h2>
         {p.city.name}, {p.city.province}
       </h2>
-      <div className={s.bigCount}>
+      {p.comparison ? <>
+        <p className={s.small}>New postings · Past 30 days · {DATASET_NAME[p.dataset]}</p>
+        <table className={s.cityComparison} aria-label="Start and current comparison">
+          <thead><tr><th>Window ending</th><th>Postings</th></tr></thead>
+          <tbody>
+            <tr><th scope="row"><span>Start</span><time dateTime={p.comparison.day}>{fmtDay(p.comparison.day)}</time></th><td>{p.comparison.count == null ? "Unknown" : fmtNum(p.comparison.count)}</td></tr>
+            <tr><th scope="row"><span>Current</span><time dateTime={p.day}>{fmtDay(p.day)}</time></th><td>{p.count == null ? "Unknown" : fmtNum(p.count)}</td></tr>
+          </tbody>
+        </table>
+        <p className={s.cityChange} aria-label="Change from start">{p.comparison.count == null || p.count == null ? "Not comparable" : <>{p.count > p.comparison.count ? "+" : p.count < p.comparison.count ? "−" : ""}{fmtNum(Math.abs(p.count - p.comparison.count))} · {changeLabel(p.comparison.count, p.count)} vs start</>}</p>
+        <details className={s.small}><summary>Window details</summary>
+          <p>Start: {windowLabel(p.comparison.day, p.window)}<br/>Current: {windowLabel(p.day, p.window)}<br/>{p.occupationLabel}. Window differences are not seasonally adjusted.</p>
+        </details>
+      </> : <><div className={s.bigCount}>
         {p.count == null ? "—" : `${fmtNum(p.count)} jobs`}
         {p.lowerBound && p.count != null && <> <LowerBound /></>}
       </div>
@@ -615,7 +630,7 @@ export function CityCard(p: {
         Coverage: {qualityText(p.quality, DATASET_NAME[p.dataset])}
       </p>
       <Sparkline series={p.series} />
-      <p className={s.small}>Last 90 days, each point = its own {p.window} window.</p>
+      <p className={s.small}>Last 90 days, each point = its own {p.window} window.</p></>}
     </Panel>
   );
 }

@@ -27,6 +27,8 @@ test("occupation menu ranks national counts for the selected window and aligns w
   expect(requests).toHaveLength(4);
   expect(requests.every(url => url.searchParams.get("window") === "7d" && url.searchParams.get("date") === "2026-09-30" && url.searchParams.get("release") === "fx1")).toBe(true);
   const brand = (await page.getByRole("heading", {name:"JobAtlas"}).boundingBox())!;
-  expect((await button.boundingBox())!.x).toBe(brand.x);
-  expect((await menu.boundingBox())!.x).toBe(brand.x);
+  const left = (await button.boundingBox())!.x;
+  expect(Math.abs(left - brand.x)).toBeLessThan(2);
+  expect((await menu.boundingBox())!.x).toBe(left);
+  expect((await page.getByRole("radiogroup", {name:"Dataset"}).boundingBox())!.x).toBe(left);
 });

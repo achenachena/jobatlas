@@ -1302,7 +1302,10 @@ export class AtlasScene {
     let best: string | null = null;
     let bestD = 8;
     for (const b of this.bodies) {
-      if (!this.isBody(b)) continue;
+      const baseline = this.comparison?.visible && b.count != null ? this.comparison.baseline.get(b.id) : null;
+      const startHeight = baseline != null ? heightFor(baseline, this.scaleMax) : 0;
+      const visibleHeight = b.shown + (Math.max(b.shown, startHeight) - b.shown) * this.compareMat.uniforms.uCompare!.value;
+      if (!this.isBody(b) && !(visibleHeight > 0 && b.radius > 0 && this.expanded.has(b.id))) continue;
       const v = this.visual.get(b.id) ?? { x: b.chartX, z: b.chartZ, radius: b.radius };
       const [bx, by] = this.toScreen(v.x, this.landTop, v.z);
       if (Math.hypot(b.x - b.chartX, b.z - b.chartZ) > 1) {
@@ -1312,7 +1315,7 @@ export class AtlasScene {
         if (leaderDistance < bestD) { bestD = leaderDistance; best = b.id; }
       }
       if (Math.abs(x - bx) > 60 || y > by + 20) continue;
-      const [tx, ty] = this.toScreen(v.x, this.landTop + b.shown * this.heightScale(), v.z);
+      const [tx, ty] = this.toScreen(v.x, this.landTop + visibleHeight * this.heightScale(), v.z);
       const t = Math.max(0, Math.min(1, ((x - bx) * (tx - bx) + (y - by) * (ty - by)) / ((tx - bx) ** 2 + (ty - by) ** 2 || 1)));
       const d = Math.max(0, Math.hypot(x - (bx + t * (tx - bx)), y - (by + t * (ty - by))) - Math.min(rPx, b.radius / this.worldPerPx()) * 0.85);
       if (d < bestD) {

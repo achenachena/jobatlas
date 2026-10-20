@@ -1107,3 +1107,27 @@
 .rankingNote { padding: 6px 8px; font-size: 11px; color: var(--ink-muted); }
 
 .topMenuOpen { z-index: 8; }
+
+/* Compensate for the rounded font's leading J side-bearing. */
+.brand { margin-left: -0.065em; }
+.app .playbackDuration {
+  appearance: none;
+  width: 76px;
+  flex: 0 0 76px;
+  padding: 0 24px 0 4px;
+  font-size: 12px;
+  background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='m4 6 4 4 4-4' fill='none' stroke='%23172b70' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 4px center / 16px 16px;
+}
+.cityComparison { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.cityComparison th { text-align: left; font-weight: 500; }
+.cityComparison thead { color: var(--ink-muted); font-size: 11px; }
+.cityComparison th, .cityComparison td { padding: 5px 0; }
+.cityComparison th:last-child, .cityComparison td { text-align: right; }
+.cityComparison td { font-size: 18px; font-weight: 700; }
+.cityComparison tbody th span, .cityComparison time { display: block; }
+.cityComparison tbody th span { font-size: 11px; color: var(--ink-muted); }
+.cityChange { font-weight: 700; font-variant-numeric: tabular-nums; margin: 8px 0; }
+.comparisonCard { width: 280px; }
+@media (max-width: 759px) {
+  .comparisonCard { left: 16px; right: 16px; bottom: calc(146px + var(--safe-bottom)); width: auto; max-height: 38dvh; border-radius: 12px; }
+}

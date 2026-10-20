@@ -218,9 +218,9 @@ export function AtlasApp() {
   const occLabel = info?.occupations.find((o) => o.id === sel.occupation)?.label ?? sel.occupation;
   const countsKey = lastGood.current.key;
   const onSelect = useCallback((id: string | null) => {
-    setDetailsOpen(false);
+    setDetailsOpen(!!id && !!quick);
     set({ city: id });
-  }, [set]);
+  }, [set, quick]);
   const pickCity = (id: string) => {
     if (window.innerWidth < 760) setPanel(null); // one bottom drawer at a time on phones
     set({ city: id });
@@ -423,6 +423,7 @@ export function AtlasApp() {
       {selectedCity && day && detailsOpen && (
         <CityCard
           city={selectedCity}
+          comparison={quick && replay.baseline ? { day: replay.baseline.date, count: replay.baseline.counts[quick.timeline.city_ids.indexOf(selectedCity.city_id)] ?? null } : undefined}
           count={counts.get(selectedCity.city_id)}
           quality={counts.get(selectedCity.city_id) == null && status !== "missing" ? "not_covered" : status ?? "complete"}
           day={day}
