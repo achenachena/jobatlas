@@ -10,9 +10,9 @@ test("geography renders before the data service responds", async ({ page }) => {
     await page.goto("/", { waitUntil: "domcontentloaded" });
     await expect(page.locator("canvas").first()).toBeVisible();
     await expect(page.getByRole("status").filter({ hasText: "Loading posting data" })).toBeVisible();
-    expect(await page.evaluate(() => (window as any).__atlas.bars().length)).toBe(0);
+    expect(await page.evaluate(() => (window as any).__atlas.bodies.length)).toBe(0);
   } finally { release(); }
-  await expect.poll(() => page.evaluate(() => (window as any).__atlas.bars().length)).toBeGreaterThan(0);
+  await expect.poll(() => page.evaluate(() => (window as any).__atlas.bodies.length)).toBeGreaterThan(0);
 });
 
 test("paused startup does not download daily history chunks", async ({ page }) => {
@@ -20,7 +20,7 @@ test("paused startup does not download daily history chunks", async ({ page }) =
   const ranges: URL[] = [];
   page.on("request", request => { if (request.url().includes("/atlas/timeline?")) ranges.push(new URL(request.url())); });
   await page.goto("/");
-  await expect.poll(() => page.evaluate(() => (window as any).__atlas?.bars().length ?? 0)).toBeGreaterThan(0);
+  await expect.poll(() => page.evaluate(() => (window as any).__atlas?.bodies.length ?? 0)).toBeGreaterThan(0);
   expect(ranges.length).toBeGreaterThan(0);
   expect(ranges.every(url => url.searchParams.get("start") === url.searchParams.get("end"))).toBe(true);
 });
