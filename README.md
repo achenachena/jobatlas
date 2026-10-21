@@ -6,10 +6,6 @@ An interactive map of Canadian job postings by city, occupation, and time.
 
 ![JobAtlas map demo](docs/demo.gif)
 
-I built JobAtlas during my software engineering job search in Canada to explore where
-jobs were being posted. Filter by occupation, compare cities, and replay Job Bank history
-from January 2023, or explore employer boards from Greenhouse, Lever, and Ashby.
-
 ## Engineering
 
 ```text
