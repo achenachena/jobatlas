@@ -4,10 +4,17 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="A 3D map of new job postings across Canada, city by city, from Job Bank open data." />
+    <link rel="preload" href="/atlas/canada-geo.json" as="fetch" crossorigin />
+    <style>
+      .boot { position: fixed; inset: 0; background: #fffefb; color: #172b70; font-family: system-ui, sans-serif; }
+      .boot strong { position: absolute; top: 36px; left: 40px; font-size: 28px; font-weight: 500; }
+      .boot p { position: absolute; top: 50%; width: 100%; text-align: center; color: #657ba8; }
+      @media (max-width: 759px) { .boot strong { top: 16px; left: 16px; font-size: 22px; } }
+    </style>
     <title>JobAtlas</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"><div class="boot"><strong>JobAtlas</strong><p role="status">Loading the map…</p><noscript>Enable JavaScript to explore the interactive map.</noscript></div></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

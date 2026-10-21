@@ -27,6 +27,7 @@ import {
   useTimelineChunk,
 } from "./useAtlasData";
 
+const EMPTY_CITIES: NonNullable<ReturnType<typeof useCities>["data"]>["cities"] = [];
 const STEP_MS = 650;
 const WINDOW_DAYS: Record<WindowKey, number> = { "1d": 1, "7d": 7, "30d": 30 };
 
@@ -95,12 +96,16 @@ export function AtlasApp() {
 
   const geo = useQuery({
     queryKey: ["atlas", "geo"],
-    queryFn: async () => (await (await fetch("/atlas/canada-geo.json")).json()) as GeoData,
+    queryFn: async () => {
+      const response = await fetch("/atlas/canada-geo.json");
+      if (!response.ok) throw new Error("Map geography could not be loaded");
+      return await response.json() as GeoData;
+    },
     staleTime: Infinity,
   });
   const cities = useCities(sel.dataset, release);
   const args = { dataset: sel.dataset, release, occupation: sel.occupation, window: sel.window, historyStart, dataThrough };
-  const tl = useTimelineChunk(args, quick || preparing ? null : day, playing);
+  const tl = useTimelineChunk(args, quick || preparing || !playing ? null : day, playing);
   const normalScaleMax = useScaleMax(args, sel.scale, info);
   const scaleMax = quick?.scale ?? normalScaleMax;
   const sources = useSources();
@@ -313,14 +318,14 @@ export function AtlasApp() {
   return (
     <div className={s.app}>
       {import.meta.env.PROD && <Analytics mode="production" />}
-      {geo.data && cities.data && ready && scaleMax != null ? (
+      {geo.data ? (
         webgl ? (
           <SceneView
             geo={geo.data}
-            cities={cities.data.cities}
+            cities={ready && scaleMax != null ? cities.data?.cities ?? EMPTY_CITIES : EMPTY_CITIES}
             counts={counts}
             countsKey={countsKey}
-            scaleMax={scaleMax}
+            scaleMax={scaleMax ?? 1}
             priority={quick?.overview.priority ?? prio.current.list}
             playing={playing || !!quick}
             replayLocked={quickPlaying || replay.phase === "ready"}
@@ -333,7 +338,7 @@ export function AtlasApp() {
             onOpenDetails={() => setDetailsOpen(true)}
           />
         ) : (
-          <FallbackMap geo={geo.data} cities={cities.data.cities} counts={counts} scaleMax={scaleMax} selected={sel.city} onSelect={pickCity} />
+          <FallbackMap geo={geo.data} cities={ready && scaleMax != null ? cities.data?.cities ?? EMPTY_CITIES : EMPTY_CITIES} counts={counts} scaleMax={scaleMax ?? 1} selected={sel.city} onSelect={pickCity} />
         )
       ) : null}
 
@@ -360,7 +365,7 @@ export function AtlasApp() {
 
       {panel === "scale" && ready && (
         <ScalePanel
-          scaleMax={scaleMax}
+          scaleMax={scaleMax ?? 1}
           mode={sel.scale}
           occupationLabel={occLabel}
           onMode={(scale) => set({ scale })}
@@ -372,7 +377,7 @@ export function AtlasApp() {
         />
       )}
       {panel === "cities" && cities.data && (
-        <RankingList cities={cities.data.cities} counts={counts} selected={sel.city} onSelect={pickCity} onClose={() => setPanel(null)} />
+        <RankingList cities={ready && scaleMax != null ? cities.data?.cities ?? EMPTY_CITIES : EMPTY_CITIES} counts={counts} selected={sel.city} onSelect={pickCity} onClose={() => setPanel(null)} />
       )}
 
       {ready && day && (
@@ -487,7 +492,9 @@ export function AtlasApp() {
       </div>
 
       {/* blocking states */}
-      {caps.isPending && <Banner title="Loading the map…" />}
+      {!geo.data && !geo.isError && <div className={s.startupStatus} role="status">Loading the map…</div>}
+      {geo.data && (caps.isPending || (ready && (!cities.data || !frame || scaleMax == null))) && !caps.isError && !cities.isError && !initial.isError && <div className={s.startupStatus} role="status">Loading posting data…</div>}
+      {geo.isError && <Banner title="Could not load the map"><button type="button" className={s.textBtn} onClick={() => geo.refetch()}>Retry</button></Banner>}
       {caps.isError && (
         <Banner title="Could not reach the data service">
           <button type="button" className={s.textBtn} onClick={() => caps.refetch()}>
@@ -505,7 +512,7 @@ export function AtlasApp() {
           )}
         </Banner>
       )}
-      {ready && !expired && (tl.isError || cities.isError) && (
+      {ready && !expired && (tl.isError || initial.isError || cities.isError) && (
         <Banner title="Data could not be loaded">
           <button type="button" className={s.textBtn} onClick={() => void qc.invalidateQueries({ queryKey: ["atlas"] })}>
             Retry
