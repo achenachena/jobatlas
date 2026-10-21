@@ -1136,3 +1136,6 @@
   .comparisonCard:has(details[open]) .cityComparison td { font-size: 15px; }
   .cityHistory svg { height: 80px; }
 }
+
+/* Keep the geographic map visible while posting data is loading. */
+.startupStatus { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 8px 14px; border-radius: 8px; background: var(--paper); color: var(--ink-muted); font-size: 13px; z-index: 3; }
