@@ -8,6 +8,7 @@ import s from "./atlas.module.css";
 
 export function FallbackMap(p: {
   geo: GeoData;
+  preparing?: boolean;
   cities: City[];
   counts: Map<string, number | null>;
   scaleMax: number;
@@ -18,8 +19,8 @@ export function FallbackMap(p: {
   const path = (rings: [number, number][][]) => rings.map((r) => "M" + r.map(([x, y]) => `${x},${-y}`).join("L") + "Z").join("");
   return (
     <div className={s.fallback}>
-      <p className={s.fallbackNote}>2D view: WebGL is not available in this browser.</p>
-      <svg viewBox={`${minX - 100} ${-maxY - 300} ${maxX - minX + 200} ${maxY - minY + 400}`} role="img" aria-label="Map of Canada (2D view: WebGL is not available)">
+      <p className={s.fallbackNote}>{p.preparing ? "Preparing interactive map…" : "2D view: WebGL is not available in this browser."}</p>
+      <svg viewBox={`${minX - 100} ${-maxY - 300} ${maxX - minX + 200} ${maxY - minY + 400}`} role="img" aria-label={p.preparing ? "Map of Canada (interactive view loading)" : "Map of Canada (2D view: WebGL is not available)"}>
         {p.geo.provinces.map((pr) =>
           pr.polygons.map((poly, i) => <path key={`${pr.code}${i}`} d={path(poly)} fill={CEL.landLight} stroke={CEL.ink} strokeWidth={4} strokeLinejoin="round" />),
         )}
