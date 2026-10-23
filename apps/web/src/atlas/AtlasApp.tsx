@@ -4,18 +4,18 @@
 
 import { Analytics } from "@vercel/analytics/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { ApiError } from "../lib/api";
 import { atlasGet, DATASET_NAME, type FrameResponse, type TimelineResponse, type WindowKey } from "./api";
-import { type GeoData, webglAvailable } from "./scene/AtlasScene";
+import type { GeoData } from "./scene/AtlasScene";
+import { webglAvailable } from "./scene/webgl";
 import { addDays, DEFAULT_SELECTION, parseSelection, type Selection, serializeSelection } from "./state";
 import s from "./ui/atlas.module.css";
 import { useReplay } from "./useReplay";
 import { ReplayPanel } from "./ui/ReplayPanel";
 import { FallbackMap } from "./ui/FallbackMap";
 import { Brand, CityCard, DatasetSwitch, fmtDay, MoreMenu, type MoreItem, RankingList, ScalePanel, SourceLine, SourcesDialog, TimelineBar } from "./ui/parts";
-import { SceneView } from "./ui/SceneView";
 import {
   capabilitiesQuery,
   useCapabilities,
@@ -26,6 +26,9 @@ import {
   useSources,
   useTimelineChunk,
 } from "./useAtlasData";
+
+const loadScene = () => import("./ui/SceneView");
+const SceneView = lazy(() => loadScene().then(module => ({ default: module.SceneView })));
 
 const EMPTY_CITIES: NonNullable<ReturnType<typeof useCities>["data"]>["cities"] = [];
 const STEP_MS = 650;
@@ -52,6 +55,7 @@ export function AtlasApp() {
 
   const reducedMotion = useMedia("(prefers-reduced-motion: reduce)");
   const webgl = useMemo(() => webglAvailable(), []);
+  useEffect(() => { if (webgl) void loadScene().catch(() => {}); }, [webgl]);
   const [panel, setPanel] = useState<"cities" | "scale" | null>(null);
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -320,6 +324,7 @@ export function AtlasApp() {
       {import.meta.env.PROD && <Analytics mode="production" />}
       {geo.data ? (
         webgl ? (
+          <Suspense fallback={<FallbackMap geo={geo.data} cities={EMPTY_CITIES} counts={counts} scaleMax={scaleMax ?? 1} selected={null} onSelect={() => {}} preparing />}>
           <SceneView
             geo={geo.data}
             cities={ready && scaleMax != null ? cities.data?.cities ?? EMPTY_CITIES : EMPTY_CITIES}
@@ -337,6 +342,7 @@ export function AtlasApp() {
             onSelect={onSelect}
             onOpenDetails={() => setDetailsOpen(true)}
           />
+          </Suspense>
         ) : (
           <FallbackMap geo={geo.data} cities={ready && scaleMax != null ? cities.data?.cities ?? EMPTY_CITIES : EMPTY_CITIES} counts={counts} scaleMax={scaleMax ?? 1} selected={sel.city} onSelect={pickCity} />
         )

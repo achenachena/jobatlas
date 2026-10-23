@@ -27,7 +27,7 @@ test("ten-second overview uses one frame for map and national numbers, then reve
   expect(Date.now()-start).toBeGreaterThan(9000);
   expect(Date.now()-start).toBeLessThan(14000);
   await expect(page.getByRole("checkbox",{name:"Compare with start"})).toBeChecked();
-  await page.waitForTimeout(1100);
+  await expect.poll(() => page.evaluate(() => (window as any).__atlas.domeMat.uniforms.uCompare.value)).toBe(1);
   const numbers=await page.evaluate(()=>{
     const sc=(window as any).__atlas;
     return {sum:sc.bodies.reduce((n:number,b:any)=>n+(b.count??0),0), reveal:sc.domeMat.uniforms.uCompare.value,scale:sc.scaleMax};
