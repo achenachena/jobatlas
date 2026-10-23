@@ -4,7 +4,17 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), {
+    name: "preload-atlas-renderer",
+    transformIndexHtml: {
+      order: "post",
+      handler(_html, context) {
+        // Download beside the entry without waiting for React to request the chunk.
+        const renderer = Object.values(context.bundle ?? {}).find(asset => asset.type === "chunk" && asset.name === "SceneView");
+        return renderer ? [{ tag: "link", attrs: { rel: "modulepreload", href: `/${renderer.fileName}`, crossorigin: "" }, injectTo: "head" }] : [];
+      },
+    },
+  }],
   resolve: {
     alias: { "@api": fileURLToPath(new URL("../../packages/api-client", import.meta.url)) },
   },
