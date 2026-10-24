@@ -36,3 +36,5 @@ celerybeat-schedule*
 
 # Local design explorations; never part of the repo
 artifacts/
+# Agents' local screenshots, logs and baselines
+/scratchpad/
