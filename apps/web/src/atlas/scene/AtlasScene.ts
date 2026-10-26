@@ -566,11 +566,10 @@ export class AtlasScene {
     };
 
     const polys = geo.provinces.flatMap((pr) => pr.polygons);
-    // The land's distance field only matters once zoomed in near a coast: build it when the
-    // browser is idle (or on first need) instead of during the first paint.
+    // The land's distance field only matters once zoomed in near a coast: it is built when
+    // the browser is idle after the first bars are placed (or on first need).
     this.landPolys = polys;
     this.land = null;
-    slice(() => !this.disposed && this.landDistance());
     this.clearanceAt = landClearance(polys, geo.lakes);
     this.scene.add(slab(polys, top, [landPaint(this.domeMat.uniforms.uLight!.value), landPaint(this.domeMat.uniforms.uLight!.value, true)]));
 
@@ -714,6 +713,7 @@ export class AtlasScene {
       this.expanded = new Set(placed.keys());
       this.updateFootprints();
       this.markLayout();
+      if (!this.land) slice(() => !this.disposed && this.landDistance());
     }
     // Precompute the neighbouring levels in small idle slices, so the next zoom step across a
     // level does not stall on placement and no slice blocks input.
@@ -759,13 +759,21 @@ export class AtlasScene {
   private *placementSteps(level: number, ranked: Body[]): Generator<void, void> {
     const started = performance.now();
     const CELL = 120 / level; // wider than the largest foot + gap + foot
-    const grid = new Map<string, [number, number, number][]>();
+    // cells keyed by number (the map spans far fewer than 8192 cells a side); each holds
+    // x, z, radius triples; the hot loop compares squared distances
+    const key = (gx: number, gz: number) => (gx + 4096) * 8192 + gz + 4096;
+    const grid = new Map<number, number[]>();
     const blocked = (x: number, z: number, radius: number, gap: number) => {
       const gx = Math.floor(x / CELL), gz = Math.floor(z / CELL);
       for (let dx = -1; dx <= 1; dx++)
-        for (let dz = -1; dz <= 1; dz++)
-          for (const [ox, oz, or] of grid.get(`${gx + dx},${gz + dz}`) ?? [])
-            if (Math.hypot(x - ox, z - oz) < radius + or + gap) return true;
+        for (let dz = -1; dz <= 1; dz++) {
+          const cell = grid.get(key(gx + dx, gz + dz));
+          if (cell)
+            for (let i = 0; i < cell.length; i += 3) {
+              const ex = x - cell[i]!, ez = z - cell[i + 1]!, reach = radius + cell[i + 2]! + gap;
+              if (ex * ex + ez * ez < reach * reach) return true;
+            }
+        }
       return false;
     };
     const out = new Map<string, [number, number, number]>();
@@ -790,10 +798,10 @@ export class AtlasScene {
         for (const [x, z] of candidates) {
           if (blocked(x, z, radius, gap) || this.clearanceAt(x, -z) < radius / 0.7) continue;
           out.set(b.id, [x, z, radius]);
-          const key = `${Math.floor(x / CELL)},${Math.floor(z / CELL)}`;
-          const cell = grid.get(key);
-          if (cell) cell.push([x, z, radius]);
-          else grid.set(key, [[x, z, radius]]);
+          const k = key(Math.floor(x / CELL), Math.floor(z / CELL));
+          const cell = grid.get(k);
+          if (cell) cell.push(x, z, radius);
+          else grid.set(k, [x, z, radius]);
           break search;
         }
     }
