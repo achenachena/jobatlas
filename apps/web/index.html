@@ -5,6 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="A 3D map of new job postings across Canada, city by city, from Job Bank open data." />
     <link rel="preload" href="/atlas/canada-geo.json" as="fetch" crossorigin />
+    <!-- the first API calls, before the scripts run (the app needs both for the dataset switch) -->
+    <link rel="preconnect" href="%VITE_API_BASE_URL%" crossorigin />
+    <link rel="preload" href="%VITE_API_BASE_URL%/api/v2/atlas/capabilities?dataset=real" as="fetch" crossorigin />
+    <link rel="preload" href="%VITE_API_BASE_URL%/api/v2/atlas/capabilities?dataset=ats" as="fetch" crossorigin />
     <style>
       .boot { position: fixed; inset: 0; background: #fffefb; color: #172b70; font-family: system-ui, sans-serif; }
       .boot strong { position: absolute; top: 36px; left: 40px; font-size: 28px; font-weight: 500; }
