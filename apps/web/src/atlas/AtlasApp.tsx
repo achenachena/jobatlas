@@ -18,6 +18,9 @@ import { FallbackMap } from "./ui/FallbackMap";
 import { Brand, CityCard, DatasetSwitch, fmtDay, MoreMenu, type MoreItem, RankingList, ScalePanel, SourceLine, SourcesDialog, TimelineBar } from "./ui/parts";
 import {
   capabilitiesQuery,
+  frameQuery,
+  prefetchFirstView,
+  timelineQuery,
   useCapabilities,
   useCities,
   useLatestVersion,
@@ -48,6 +51,7 @@ function useMedia(query: string): boolean {
 export function AtlasApp() {
   const qc = useQueryClient();
   const [sel, setSelState] = useState<Selection>(() => parseSelection(window.location.search));
+  useState(() => prefetchFirstView(qc, sel)); // once, on the first render
   const set = useCallback((patch: Partial<Selection>) => setSelState((cur) => ({ ...cur, ...patch })), []);
   useEffect(() => {
     window.history.replaceState(null, "", `${window.location.pathname}${serializeSelection(sel)}`);
@@ -116,8 +120,7 @@ export function AtlasApp() {
 
   // Render a real single-day response without waiting for the playback chunk.
   const initial = useQuery({
-    queryKey: ["atlas", "timeline", sel.dataset, release, sel.occupation, sel.window, day, day],
-    queryFn: ({ signal }) => atlasGet<TimelineResponse>("/timeline", { dataset: sel.dataset, release: release ?? undefined, occupation: sel.occupation, window: sel.window, start: day ?? undefined, end: day ?? undefined }, signal),
+    ...timelineQuery(args, [day ?? "", day ?? ""]),
     enabled: ready && !!day && !playing && !quick && !preparing,
     staleTime: Infinity,
   });
@@ -159,11 +162,8 @@ export function AtlasApp() {
 
   // National summary (latest/paused only, from the frame endpoint).
   const national = useQuery({
-    queryKey: ["atlas", "frame", sel.dataset, release, sel.occupation, sel.window, day],
-    queryFn: ({ signal }) =>
-      atlasGet<FrameResponse>("/frame", { dataset: sel.dataset, release: release ?? undefined, occupation: sel.occupation, window: sel.window, date: day ?? undefined }, signal),
+    ...frameQuery(sel.dataset, release, sel.occupation, sel.window, day),
     enabled: ready && !playing && !!day && !quick && !preparing,
-    staleTime: Infinity,
   });
 
   // ---------------------------------------------------------------- playback

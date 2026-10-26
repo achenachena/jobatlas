@@ -1,6 +1,6 @@
 /** Data hooks for the atlas. Every query is bound to one release id, so frames, series and
  * the timeline always come from the same published version (spec §5, §10). */
-import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -8,6 +8,7 @@ import {
   type Capabilities,
   type CitiesResponse,
   type Dataset,
+  type FrameResponse,
   type SeriesResponse,
   type SourcesResponse,
   type TimelineResponse,
@@ -29,12 +30,38 @@ export function useCapabilities(dataset: Dataset, enabled = true) {
   return useQuery({ ...capabilitiesQuery(dataset), enabled });
 }
 
+export const citiesQuery = (dataset: Dataset, release: string | null | undefined) => ({
+  queryKey: ["atlas", "cities", dataset, release],
+  queryFn: ({ signal }: { signal: AbortSignal }) => atlasGet<CitiesResponse>("/cities", { dataset, release: release ?? undefined }, signal),
+  staleTime: Infinity,
+});
+
+export const frameQuery = (dataset: Dataset, release: string | null, occupation: string, window: string, day: string | null) => ({
+  queryKey: ["atlas", "frame", dataset, release, occupation, window, day],
+  queryFn: ({ signal }: { signal: AbortSignal }) =>
+    atlasGet<FrameResponse>("/frame", { dataset, release: release ?? undefined, occupation, window, date: day ?? undefined }, signal),
+  staleTime: Infinity,
+});
+
+/** The first view's data, requested the moment the capabilities arrive (not after the map's
+ * first render, which would otherwise hold the requests back): cities, the shown day's counts
+ * and the national summary, under the keys the hooks read. */
+export function prefetchFirstView(qc: QueryClient, s: { dataset: Dataset; occupation: string; window: WindowKey; date: string | null }): void {
+  void qc.fetchQuery(capabilitiesQuery(s.dataset)).then((caps) => {
+    const { release_id: release, history_start: start, data_through: end } = caps;
+    if (!release || !start || !end) return;
+    const day = !s.date ? end : s.date < start ? start : s.date > end ? end : s.date;
+    const a = { dataset: s.dataset, release, occupation: s.occupation, window: s.window, historyStart: start, dataThrough: end };
+    void qc.prefetchQuery(citiesQuery(s.dataset, release));
+    void qc.prefetchQuery({ ...timelineQuery(a, [day, day]), staleTime: Infinity });
+    void qc.prefetchQuery(frameQuery(s.dataset, release, s.occupation, s.window, day));
+  }, () => undefined); // the hooks report the error
+}
+
 export function useCities(dataset: Dataset, release: string | null | undefined) {
   return useQuery({
-    queryKey: ["atlas", "cities", dataset, release],
-    queryFn: ({ signal }) => atlasGet<CitiesResponse>("/cities", { dataset, release: release ?? undefined }, signal),
+    ...citiesQuery(dataset, release),
     enabled: !!release,
-    staleTime: Infinity,
     // a new release or dataset keeps the map on screen until its cities arrive
     placeholderData: keepPreviousData,
   });
@@ -65,7 +92,7 @@ interface TimelineArgs {
   dataThrough: string | null | undefined;
 }
 
-function timelineQuery(a: TimelineArgs, range: [string, string]) {
+export function timelineQuery(a: TimelineArgs, range: [string, string]) {
   return {
     queryKey: ["atlas", "timeline", a.dataset, a.release, a.occupation, a.window, range[0], range[1]],
     queryFn: ({ signal }: { signal: AbortSignal }) =>
