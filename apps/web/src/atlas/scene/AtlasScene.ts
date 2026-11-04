@@ -360,6 +360,8 @@ export class AtlasScene {
   /** camera half height at the home fit; zoom is relative to it (1 = home) */
   private homeHalfH = 1000;
   private homeTarget = new THREE.Vector3();
+  /** scratch for toScreen, which labels and picking call many times a frame */
+  private projected = new THREE.Vector3();
   private zoom = 1;
   private interacted = false;
   private gesture = false;
@@ -1318,7 +1320,7 @@ export class AtlasScene {
   // ------------------------------------------------------------ picking & labels
 
   private toScreen(x: number, y: number, z: number): [number, number] {
-    const p = new THREE.Vector3(x, y, z).project(this.camera);
+    const p = this.projected.set(x, y, z).project(this.camera);
     return [((p.x + 1) / 2) * this.host.clientWidth, ((1 - p.y) / 2) * this.host.clientHeight];
   }
 
@@ -1380,9 +1382,6 @@ export class AtlasScene {
   detail(): { expanded: string[]; regional: boolean } {
     return { expanded: this.priority.map((p) => p.id).filter((id) => this.expanded.has(id)), regional: this.regional };
   }
-
-  /** Data priority is independent of whether a coastal city fits a physical body. */
-  labelCandidates(): string[] { return this.priority.map(p => p.id); }
 
   /** World-space footprint audit, also useful to verify rendered boundary/spacing invariants. */
   footprints(): { id: string; x: number; z: number; radius: number; clearance: number }[] {

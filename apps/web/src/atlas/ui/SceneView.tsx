@@ -428,6 +428,7 @@ function placeLabels(sc: AtlasScene, el: HTMLElement, names: Map<string, string>
   const limit = mobile ? (regional ? 6 : 4) : regional ? 18 : 15;
   const candidates = mobile ? references.mobile : references.desktop;
   const anchors = new Map(sc.anchors(new Set(candidates)).map(a => [a.id, a]));
+  const bodies = [...anchors.values()].filter(a => a.body);
   const boxes: { x0: number; x1: number; y0: number; y1: number }[] = [];
   const out: Placed[] = [];
   for (const id of candidates) {
@@ -439,15 +440,17 @@ function placeLabels(sc: AtlasScene, el: HTMLElement, names: Map<string, string>
     // needs a longer leader to reach the quiet margin, without changing identity.
     const preferredDy = id === "ca-ab-calgary" ? 64 : 24;
     let best: { side: Side; dy: number; box: { x0: number; x1: number; y0: number; y1: number }; score: number } | null = null;
+    const sides: Side[] = sideFor(a, w) === "right" ? ["right", "left"] : ["left", "right"];
     // Prefer the quiet area just below the land, with short elbow leaders. Labels do not
     // disappear simply because a chart occupies their first horizontal slot.
     for (const dy of [24, 44, 64, 84, 104, 124, 0, -28, -52]) {
-      for (const side of [sideFor(a, w), sideFor(a, w) === "right" ? "left" : "right"] as Side[]) {
+      for (const side of sides) {
         const x0 = side === "right" ? a.bx + a.r + 8 : a.bx - a.r - 8 - textW;
         const box = { x0, x1: x0 + textW, y0: a.by + dy - 11, y1: a.by + dy + 11 };
         if (box.x0 < 12 || box.x1 > w - 12 || box.y1 > h - 92 || box.y0 < 96) continue;
         if (boxes.some(b => box.x0 < b.x1 && box.x1 > b.x0 && box.y0 < b.y1 && box.y1 > b.y0)) continue;
-        const collisions = [...anchors.values()].filter(other => other.body && other.id !== id && box.x0 < other.x + other.r && box.x1 > other.x - other.r && box.y0 < other.by + 3 && box.y1 > other.y - other.r).length;
+        let collisions = 0;
+        for (const o of bodies) if (o.id !== id && box.x0 < o.x + o.r && box.x1 > o.x - o.r && box.y0 < o.by + 3 && box.y1 > o.y - o.r) collisions++;
         const score = collisions * 1000 + Math.abs(dy - preferredDy);
         if (!best || score < best.score) best = { side, dy, box, score };
       }

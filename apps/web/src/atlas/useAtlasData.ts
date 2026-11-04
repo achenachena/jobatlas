@@ -1,7 +1,7 @@
 /** Data hooks for the atlas. Every query is bound to one release id, so frames, series and
  * the timeline always come from the same published version (spec §5, §10). */
 import { keepPreviousData, type QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   atlasGet,
@@ -16,7 +16,7 @@ import {
   type WindowKey,
 } from "./api";
 import { cityScaleMax } from "./scale";
-import { addDays, daysBetween } from "./state";
+import { addDays, clampDay, daysBetween } from "./state";
 
 export const CHUNK_DAYS = 120;
 
@@ -50,7 +50,7 @@ export function prefetchFirstView(qc: QueryClient, s: { dataset: Dataset; occupa
   void qc.fetchQuery(capabilitiesQuery(s.dataset)).then((caps) => {
     const { release_id: release, history_start: start, data_through: end } = caps;
     if (!release || !start || !end) return;
-    const day = !s.date ? end : s.date < start ? start : s.date > end ? end : s.date;
+    const day = clampDay(s.date ?? end, start, end)!;
     const a = { dataset: s.dataset, release, occupation: s.occupation, window: s.window, historyStart: start, dataThrough: end };
     void qc.prefetchQuery(citiesQuery(s.dataset, release));
     void qc.prefetchQuery({ ...timelineQuery(a, [day, day]), staleTime: Infinity });

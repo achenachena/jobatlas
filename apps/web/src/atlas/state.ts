@@ -23,6 +23,7 @@ export const DEFAULT_SELECTION: Selection = {
 };
 
 const WINDOWS: WindowKey[] = ["1d", "7d", "30d"];
+export const WINDOW_DAYS: Record<WindowKey, number> = { "1d": 1, "7d": 7, "30d": 30 };
 
 export function parseSelection(search: string): Selection {
   const p = new URLSearchParams(search);
@@ -53,6 +54,11 @@ export function addDays(iso: string, days: number): string {
   const d = new Date(`${iso}T12:00:00Z`);
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
+}
+
+export function clampDay(d: string | null, start: string | null, end: string | null): string | null {
+  if (!d || !start || !end) return d;
+  return d < start ? start : d > end ? end : d;
 }
 
 export function daysBetween(a: string, b: string): number {

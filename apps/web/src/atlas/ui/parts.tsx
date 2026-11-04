@@ -1,14 +1,24 @@
 /** Atlas controls and on-demand panels. English UI; city names keep their own spelling.
  * Defaults stay minimal (brand, occupation, timeline, map icons); everything else opens
  * from "More" or from the date and city notes. */
+import { useQuery } from "@tanstack/react-query";
 import { type ReactNode, type RefObject, useEffect, useId, useRef, useState } from "react";
 
-import { type Capabilities, type City, type Dataset, DATASET_NAME, type Gap, type SeriesResponse, type SourcesResponse, type WindowKey } from "../api";
-import { useQuery } from "@tanstack/react-query";
-import { atlasGet, type FrameResponse, type TimelineResponse } from "../api";
+import {
+  atlasGet,
+  type Capabilities,
+  type City,
+  type Dataset,
+  DATASET_NAME,
+  type FrameResponse,
+  type Gap,
+  type SeriesResponse,
+  type SourcesResponse,
+  type WindowKey,
+} from "../api";
 import { changeLabel } from "../replay";
 import { legendTicks } from "../scale";
-import { addDays } from "../state";
+import { addDays, daysBetween, WINDOW_DAYS } from "../state";
 import s from "./atlas.module.css";
 import { CityHistory } from "./HistoryChart";
 
@@ -17,7 +27,7 @@ const fmtShort = new Intl.DateTimeFormat("en-CA", { month: "short", day: "numeri
 const utc = (iso: string) => new Date(`${iso}T12:00:00Z`);
 export const fmtDay = (iso: string) => fmtDate.format(utc(iso));
 export const fmtNum = (n: number) => n.toLocaleString("en-CA");
-const WINDOW_DAYS: Record<WindowKey, number> = { "1d": 1, "7d": 7, "30d": 30 };
+const WINDOW_NAME: Record<WindowKey, string> = { "1d": "1 day", "7d": "7 days", "30d": "30 days" };
 
 /** The counted range, compact: "Sep 24–30, 2026", "Aug 31 – Sep 6, 2026", "Sep 30, 2026". */
 export function windowLabel(day: string, w: WindowKey): string {
@@ -453,8 +463,8 @@ export function TimelineBar(p: {
   onLatest: () => void;
   onWindow: (w: WindowKey) => void;
 }) {
-  const total = Math.max(1, dayIndex(p.historyStart, p.dataThrough));
-  const idx = dayIndex(p.historyStart, p.day);
+  const total = Math.max(1, daysBetween(p.historyStart, p.dataThrough));
+  const idx = daysBetween(p.historyStart, p.day);
   const id = useId();
   const [open, setOpen] = useState(false);
   const btn = useRef<HTMLButtonElement>(null);
@@ -480,7 +490,7 @@ export function TimelineBar(p: {
       <div className={s.when}>
         <button ref={btn} type="button" className={`${s.dateBtn} ${p.flash ? s.dateFlash : ""}`} id={id} aria-label={label} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
           <span>{fmtDay(p.day)}</span>
-          <small>New postings · Past {p.window === "1d" ? "1 day" : p.window === "7d" ? "7 days" : "30 days"}</small>
+          <small>New postings · Past {WINDOW_NAME[p.window]}</small>
         </button>
         {p.latestLink && !p.latest && (
           <button type="button" className={s.latestLink} onClick={p.onLatest}>
@@ -493,7 +503,7 @@ export function TimelineBar(p: {
             <div className={s.segment} role="radiogroup" aria-label="Time window">
               {(["1d", "7d", "30d"] as WindowKey[]).map((w) => (
                 <button key={w} type="button" role="radio" aria-checked={p.window === w} onClick={() => p.onWindow(w)}>
-                  {w === "1d" ? "1 day" : w === "7d" ? "7 days" : "30 days"}
+                  {WINDOW_NAME[w]}
                 </button>
               ))}
             </div>
@@ -527,8 +537,8 @@ export function TimelineBar(p: {
             aria-label={`${g.start} – ${g.end}: ${BACKFILLED}`}
             data-tip={BACKFILLED}
             style={{
-              left: `${(100 * dayIndex(p.historyStart, g.start)) / total}%`,
-              width: `${Math.max(0.6, (100 * (dayIndex(g.start, g.end) + 1)) / total)}%`,
+              left: `${(100 * daysBetween(p.historyStart, g.start)) / total}%`,
+              width: `${Math.max(0.6, (100 * (daysBetween(g.start, g.end) + 1)) / total)}%`,
             }}
           />
         ))}
@@ -538,8 +548,8 @@ export function TimelineBar(p: {
             className={s.gapMark}
             title={`No data ${g.start} – ${g.end}`}
             style={{
-              left: `${(100 * dayIndex(p.historyStart, g.start)) / total}%`,
-              width: `${Math.max(0.6, (100 * (dayIndex(g.start, g.end) + 1)) / total)}%`,
+              left: `${(100 * daysBetween(p.historyStart, g.start)) / total}%`,
+              width: `${Math.max(0.6, (100 * (daysBetween(g.start, g.end) + 1)) / total)}%`,
             }}
           />
         ))}
@@ -560,10 +570,6 @@ export function TimelineBar(p: {
 }
 
 const BACKFILLED = "Backfilled from postings still open when collection started — lower bounds";
-
-function dayIndex(a: string, b: string): number {
-  return Math.round((Date.parse(`${b}T12:00:00Z`) - Date.parse(`${a}T12:00:00Z`)) / 86_400_000);
-}
 
 // ---------------------------------------------------------------- city
 

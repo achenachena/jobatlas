@@ -7,10 +7,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { ApiError } from "../lib/api";
-import { atlasGet, DATASET_NAME, type FrameResponse, type TimelineResponse, type WindowKey } from "./api";
+import { DATASET_NAME, type Gap, type WindowKey } from "./api";
 import type { GeoData } from "./scene/AtlasScene";
 import { webglAvailable } from "./scene/webgl";
-import { addDays, DEFAULT_SELECTION, parseSelection, type Selection, serializeSelection } from "./state";
+import { addDays, clampDay, DEFAULT_SELECTION, parseSelection, type Selection, serializeSelection, WINDOW_DAYS } from "./state";
 import s from "./ui/atlas.module.css";
 import { useReplay } from "./useReplay";
 import { ReplayPanel } from "./ui/ReplayPanel";
@@ -35,7 +35,6 @@ const SceneView = lazy(() => loadScene().then(module => ({ default: module.Scene
 
 const EMPTY_CITIES: NonNullable<ReturnType<typeof useCities>["data"]>["cities"] = [];
 const STEP_MS = 650;
-const WINDOW_DAYS: Record<WindowKey, number> = { "1d": 1, "7d": 7, "30d": 30 };
 
 function useMedia(query: string): boolean {
   return useSyncExternalStore(
@@ -85,6 +84,11 @@ export function AtlasApp() {
   const [dailyPlayback, setDailyPlayback] = useState(false);
   const quick = replay.active;
   const quickPlaying = !!quick && replay.phase === "playing";
+  // the overview's start counts by city, built once per overview (not on every replay step)
+  const baseline = useMemo(
+    () => quick && replay.baseline ? new Map(quick.overview.city_ids.map((id, i) => [id, replay.baseline!.counts[i] ?? null])) : null,
+    [quick, replay.baseline],
+  );
   // While a replay is being prepared, ordinary exploration requests for the start date would
   // only compete with it: they wait.
   const preparing = launchReplay || replay.phase === "loading" || replay.phase === "ready";
@@ -168,7 +172,7 @@ export function AtlasApp() {
 
   // ---------------------------------------------------------------- playback
   const gaps = info?.gaps ?? [];
-  const inGap = (d: string) => gaps.some((g) => d >= g.start && d <= g.end);
+  const gapAt = (d: string) => gaps.find((g) => d >= g.start && d <= g.end);
   useEffect(() => {
     if (!playing || !day || !dataThrough) return;
     if (!frame) return; // wait for the real frame before moving on
@@ -178,10 +182,11 @@ export function AtlasApp() {
     }
     const next = addDays(day, 1);
     const t = setTimeout(() => {
-      if (inGap(next)) {
+      const gap = gapAt(next);
+      if (gap) {
         setPlaying(false);
         set({ date: next });
-        setToast(`Stopped at a data gap (${gapAt(next)?.start} – ${gapAt(next)?.end}). Unknown days are not drawn as zero.`);
+        setToast(`Stopped at a data gap (${gap.start} – ${gap.end}). Unknown days are not drawn as zero.`);
         return;
       }
       set({ date: next });
@@ -189,7 +194,6 @@ export function AtlasApp() {
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playing, day, frame, speed, dataThrough]);
-  const gapAt = (d: string) => gaps.find((g) => d >= g.start && d <= g.end);
 
   const togglePlay = () => {
     if (playing) return setPlaying(false);
@@ -259,8 +263,8 @@ export function AtlasApp() {
   // camera) and says what it could not keep. Its capabilities are fetched first, so no request
   // ever pairs one dataset with the other's release.
   const switchDataset = async (to: "real" | "ats") => {
-    const occupation = sel.occupation;
     if (to === sel.dataset) return;
+    const occupation = sel.occupation;
     setLaunchReplay(false);
     setPlaying(false);
     replay.cancel();
@@ -271,7 +275,6 @@ export function AtlasApp() {
       return setToast(`${DATASET_NAME[to]} is not available right now.`);
     }
     if (!next.history_start || !next.data_through) return setToast(`${DATASET_NAME[to]} is not available yet.`);
-    setPlaying(false);
     const notes: string[] = [];
     const patch: Partial<Selection> = { dataset: to, occupation };
     if (sel.date && (sel.date < next.history_start || sel.date > next.data_through)) {
@@ -319,6 +322,8 @@ export function AtlasApp() {
   const demo = info?.data_mode === "demo";
   const status = frame?.quality;
   const busy = ready && tl.isFetching && !frame;
+  const shownCities = ready && scaleMax != null ? cities.data?.cities ?? EMPTY_CITIES : EMPTY_CITIES;
+  const gapShown = ready && day ? gapTouching(day, gaps, WINDOW_DAYS[sel.window]) : undefined;
   return (
     <div className={s.app}>
       {import.meta.env.PROD && <Analytics mode="production" />}
@@ -327,14 +332,14 @@ export function AtlasApp() {
           <Suspense fallback={<FallbackMap geo={geo.data} cities={EMPTY_CITIES} counts={counts} scaleMax={scaleMax ?? 1} selected={null} onSelect={() => {}} preparing />}>
           <SceneView
             geo={geo.data}
-            cities={ready && scaleMax != null ? cities.data?.cities ?? EMPTY_CITIES : EMPTY_CITIES}
+            cities={shownCities}
             counts={counts}
             countsKey={countsKey}
             scaleMax={scaleMax ?? 1}
             priority={quick?.overview.priority ?? prio.current.list}
             playing={playing || !!quick}
             replayLocked={quickPlaying || replay.phase === "ready"}
-            comparison={quick ? { baseline: new Map(quick.overview.city_ids.map((id, i) => [id, replay.baseline!.counts[i] ?? null])), visible: replay.compare, key: quick.key } : undefined}
+            comparison={quick && baseline ? { baseline, visible: replay.compare, key: quick.key } : undefined}
             replayReady={replay.phase === "ready" ? replay.begin : undefined}
             reducedMotion={reducedMotion}
             selected={sel.city}
@@ -344,7 +349,7 @@ export function AtlasApp() {
           />
           </Suspense>
         ) : (
-          <FallbackMap geo={geo.data} cities={ready && scaleMax != null ? cities.data?.cities ?? EMPTY_CITIES : EMPTY_CITIES} counts={counts} scaleMax={scaleMax ?? 1} selected={sel.city} onSelect={pickCity} />
+          <FallbackMap geo={geo.data} cities={shownCities} counts={counts} scaleMax={scaleMax ?? 1} selected={sel.city} onSelect={pickCity} />
         )
       ) : null}
 
@@ -383,7 +388,7 @@ export function AtlasApp() {
         />
       )}
       {panel === "cities" && cities.data && (
-        <RankingList cities={ready && scaleMax != null ? cities.data?.cities ?? EMPTY_CITIES : EMPTY_CITIES} counts={counts} selected={sel.city} onSelect={pickCity} onClose={() => setPanel(null)} />
+        <RankingList cities={shownCities} counts={counts} selected={sel.city} onSelect={pickCity} onClose={() => setPanel(null)} />
       )}
 
       {ready && day && (
@@ -459,8 +464,8 @@ export function AtlasApp() {
         {replay.phase === "gap" && <div className={s.notice} role="status">Data gap at {day}. Unknown, not zero. <button onClick={replay.continueGap}>Continue to next complete window</button></div>}
         {ready && status === "missing" && replay.phase !== "gap" && (
           <div className={s.notice} role="status">
-            No data for this window ({gapTouching(day!, gaps, WINDOW_DAYS[sel.window])}). Unknown, not zero.
-            <button type="button" className={s.textBtn} onClick={() => quick ? replay.continueGap() : set({ date: skipGap(day!, gaps, dataThrough!, WINDOW_DAYS[sel.window]) })}>
+            No data for this window ({gapShown ? `gap ${gapShown.start} – ${gapShown.end}` : "gap"}). Unknown, not zero.
+            <button type="button" className={s.textBtn} onClick={() => quick ? replay.continueGap() : set({ date: skipGap(day!, gapShown, dataThrough!, WINDOW_DAYS[sel.window]) })}>
               Skip to next available
             </button>
           </div>
@@ -540,22 +545,15 @@ function Banner({ title, children }: { title: string; children?: React.ReactNode
   );
 }
 
-function clampDay(d: string | null, start: string | null, end: string | null): string | null {
-  if (!d || !start || !end) return d;
-  return d < start ? start : d > end ? end : d;
+/** The gap that the window ending on `day` touches. */
+function gapTouching(day: string, gaps: Gap[], windowDays: number): Gap | undefined {
+  const first = addDays(day, -(windowDays - 1));
+  return gaps.find((x) => x.start <= day && x.end >= first);
 }
 
-/** First day whose whole window is past the gap that the current window touches. */
-function skipGap(day: string, gaps: { start: string; end: string }[], end: string, windowDays: number): string | null {
-  const first = addDays(day, -(windowDays - 1));
-  const g = gaps.find((x) => x.start <= day && x.end >= first);
-  if (!g) return day;
-  const next = addDays(g.end, windowDays);
+/** First day whose whole window is past that gap. */
+function skipGap(day: string, gap: Gap | undefined, end: string, windowDays: number): string | null {
+  if (!gap) return day;
+  const next = addDays(gap.end, windowDays);
   return next >= end ? null : next;
-}
-
-function gapTouching(day: string, gaps: { start: string; end: string }[], windowDays: number): string {
-  const first = addDays(day, -(windowDays - 1));
-  const g = gaps.find((x) => x.start <= day && x.end >= first);
-  return g ? `gap ${g.start} – ${g.end}` : "gap";
 }
