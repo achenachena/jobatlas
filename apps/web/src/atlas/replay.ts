@@ -28,14 +28,10 @@ export interface Overview extends OverviewResponse {
 const KEEP = 6;
 const prepared = new Map<string, Overview>();
 
-export function overviewKey(caps: Capabilities, occupation: string): string {
-  return JSON.stringify([caps.dataset_id, caps.release_id, occupation, "30d"]);
-}
-
 /** One request for the whole overview; anything that does not match the selection or is not
  * a consistent, date-ordered series is rejected, never shown. */
 export async function loadOverview(caps: Capabilities, occupation: string, signal: AbortSignal): Promise<Overview> {
-  const key = overviewKey(caps, occupation);
+  const key = JSON.stringify([caps.dataset_id, caps.release_id, occupation, "30d"]);
   const hit = prepared.get(key);
   if (hit) {
     prepared.delete(key); prepared.set(key, hit); // most recently used last

@@ -126,7 +126,6 @@ export function AtlasApp() {
   const initial = useQuery({
     ...timelineQuery(args, [day ?? "", day ?? ""]),
     enabled: ready && !!day && !playing && !quick && !preparing,
-    staleTime: Infinity,
   });
   const currentTimeline = quick?.overview ?? (tl.data?.frames.some(f => f.date === day) && !tl.isPlaceholderData ? tl.data : initial.data);
 
@@ -150,9 +149,9 @@ export function AtlasApp() {
   // Seed priority from the first real response for this paused selection. Full chunk
   // arrival cannot reshuffle the overview; a newly selected date gets fresh priorities.
   // Playback freezes the order until paused.
-  const prio = useRef<{ key: string; data: unknown; list: { id: string; max: number }[] }>({ key: "", data: null, list: [] });
+  const prio = useRef<{ key: string; list: { id: string; max: number }[] }>({ key: "", list: [] });
   const prioKey = `${release}|${sel.occupation}|${sel.window}|${day}`;
-  if (currentTimeline && sameSelection && (!prio.current.list.length || (!playing && !quick && prio.current.key !== prioKey))) {
+  if (!quick && currentTimeline && sameSelection && (!prio.current.list.length || (!playing && prio.current.key !== prioKey))) {
     const max = new Map<string, number>();
     currentTimeline.city_ids.forEach((id, i) => {
       for (const f of currentTimeline.frames) {
@@ -161,7 +160,7 @@ export function AtlasApp() {
       }
     });
     const list = [...max].map(([id, m]) => ({ id, max: m })).sort((a, b) => b.max - a.max || (a.id < b.id ? -1 : 1));
-    prio.current = { key: prioKey, data: currentTimeline, list };
+    prio.current = { key: prioKey, list };
   }
 
   // National summary (latest/paused only, from the frame endpoint).

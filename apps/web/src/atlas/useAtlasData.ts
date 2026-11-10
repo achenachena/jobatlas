@@ -53,7 +53,7 @@ export function prefetchFirstView(qc: QueryClient, s: { dataset: Dataset; occupa
     const day = clampDay(s.date ?? end, start, end)!;
     const a = { dataset: s.dataset, release, occupation: s.occupation, window: s.window, historyStart: start, dataThrough: end };
     void qc.prefetchQuery(citiesQuery(s.dataset, release));
-    void qc.prefetchQuery({ ...timelineQuery(a, [day, day]), staleTime: Infinity });
+    void qc.prefetchQuery(timelineQuery(a, [day, day]));
     void qc.prefetchQuery(frameQuery(s.dataset, release, s.occupation, s.window, day));
   }, () => undefined); // the hooks report the error
 }
@@ -118,12 +118,13 @@ export function useTimelineChunk(a: TimelineArgs, date: string | null, prefetchN
     enabled: !!range && !!a.release,
     placeholderData: keepPreviousData,
   });
+  const { dataset, release, occupation, window, historyStart, dataThrough } = a;
   useEffect(() => {
-    if (!prefetchNext || !range || !a.dataThrough || !a.historyStart) return;
-    if (daysBetween(range[1], a.dataThrough) <= 0) return;
-    const next = chunkFor(addDays(range[1], 1), a.historyStart, a.dataThrough);
-    void qc.prefetchQuery(timelineQuery(a, next));
-  }, [prefetchNext, range, a, qc]);
+    if (!prefetchNext || !release || !range || !dataThrough || !historyStart) return;
+    if (daysBetween(range[1], dataThrough) <= 0) return;
+    const next = chunkFor(addDays(range[1], 1), historyStart, dataThrough);
+    void qc.prefetchQuery(timelineQuery({ dataset, release, occupation, window, historyStart, dataThrough }, next));
+  }, [prefetchNext, range, dataset, release, occupation, window, historyStart, dataThrough, qc]);
   return q;
 }
 

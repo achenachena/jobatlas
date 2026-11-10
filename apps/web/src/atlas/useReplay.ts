@@ -7,7 +7,7 @@ import { daysBetween } from "./state";
 type Phase = "idle" | "loading" | "ready" | "playing" | "paused" | "ended" | "gap" | "error";
 
 export function useReplay(selectionKey: string, reducedMotion: boolean) {
-  const [session, setSession] = useState<{ key: string; overview: Overview; scale: number; occupation: string } | null>(null);
+  const [session, setSession] = useState<{ key: string; overview: Overview; scale: number } | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
   const [duration, setDuration] = useState(10);
   const [index, setIndex] = useState(0);
@@ -38,7 +38,7 @@ export function useReplay(selectionKey: string, reducedMotion: boolean) {
       if (abort.signal.aborted) return;
       const scale = cityScaleMax(caps.quality, mode === "shared" ? "all" : occupation, "30d");
       if (scale == null) throw new Error("This release does not publish a fixed city scale for 30-day playback.");
-      setSession({ key: selectionKey, overview, scale, occupation });
+      setSession({ key: selectionKey, overview, scale });
       setIndex(0); clock.current = { elapsed: 0, started: 0, index: 0 }; setPhase("ready");
     } catch (e) { if (!abort.signal.aborted) { fail(e); setPhase("error"); } }
   };
