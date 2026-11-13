@@ -366,7 +366,7 @@ def release_cities(session: Session, release: AtlasRelease) -> list[AtlasCity]:
 def _daily(
     session: Session, release: AtlasRelease, occupation: str, first: date, last: date,
     city_id: str | None = None,
-) -> dict[tuple[str, str, date], int]:  # fmt: skip
+) -> dict[date, dict[tuple[str, str], int]]:  # fmt: skip
     q = select(
         AtlasDailyMetric.scope, AtlasDailyMetric.city_id, AtlasDailyMetric.day,
         AtlasDailyMetric.count,
@@ -377,7 +377,10 @@ def _daily(
     )  # fmt: skip
     if city_id is not None:
         q = q.where(AtlasDailyMetric.scope == "city", AtlasDailyMetric.city_id == city_id)
-    return {(s, c, d): n for s, c, d, n in session.execute(q)}
+    daily: dict[date, dict[tuple[str, str], int]] = defaultdict(dict)
+    for scope, city, day, count in session.execute(q):
+        daily[day][(scope, city)] = count
+    return daily
 
 
 def rolling_frames(
@@ -461,11 +464,8 @@ def frames(
     """`only_city`: read just the one city in `city_ids` (a long single-city history stays
     cheap); its frames then carry no national totals (None), never wrong ones."""
     n = WINDOWS[window_key]
-    rows = _daily(session, release, occupation, first_day - timedelta(days=n - 1), last_day,
+    daily = _daily(session, release, occupation, first_day - timedelta(days=n - 1), last_day,
                   city_ids[0] if only_city else None)  # fmt: skip
-    daily: dict[date, dict[tuple[str, str], int]] = defaultdict(dict)
-    for (scope, city, day), count in rows.items():
-        daily[day][(scope, city)] = count
     out = rolling_frames(first_day, last_day, window_key, release.history_start,
                          gap_days(release), daily, city_ids,
                          backfilled=_days(backfilled_span(release)))  # fmt: skip

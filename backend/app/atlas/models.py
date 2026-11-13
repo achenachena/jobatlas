@@ -1,9 +1,4 @@
-"""JobAtlas v2 statistics layer.
-
-Kept apart from the v1 street-level job tables: v1 `jobs.is_publishable` is a job-detail rule;
-v2 counts come only from sources whose permission record is approved (atlas/permissions.py).
-Demo data is never stored here (atlas/demo.py generates it on demand with its own dataset id).
-"""
+"""Atlas sources, postings, releases and statistics. Demo data is generated, never stored."""
 
 from __future__ import annotations
 
@@ -26,9 +21,12 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-from app.models import Base
+
+class Base(DeclarativeBase):
+    pass
+
 
 SOURCE_STATUSES = ("pending", "approved", "blocked", "expired")
 GEO_STATUSES = ("city", "unconfirmed", "remote")

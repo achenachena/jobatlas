@@ -31,7 +31,6 @@ from app.atlas.models import AtlasCity, AtlasDailyMetric, AtlasRelease
 from app.atlas.occupations import CLASSIFICATION_VERSION, OCCUPATIONS
 from app.atlas.permissions import admitted, source
 from app.atlas.windows import REPORTING_TZ, WINDOWS
-from app.core.timeutil import utcnow
 
 
 @dataclass(frozen=True)
@@ -246,7 +245,3 @@ def occupations_payload(keep: set[str] | None = None) -> list[dict]:
         for o in OCCUPATIONS
         if keep is None or o.id in keep
     ]
-
-
-def generated_at() -> datetime:
-    return utcnow()

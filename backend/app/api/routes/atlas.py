@@ -10,7 +10,6 @@ from __future__ import annotations
 import gzip
 import hashlib
 from collections import Counter, defaultdict
-from collections.abc import Iterator
 from datetime import date, timedelta
 from functools import lru_cache
 from typing import Literal
@@ -41,7 +40,8 @@ from app.atlas.schemas import (
     VersionResponse,
 )
 from app.atlas.windows import DEFAULT_WINDOW, WINDOWS, window
-from app.db.session import sync_session
+from app.core.timeutil import utcnow
+from app.db.session import get_session, sync_session
 
 router = APIRouter(prefix="/atlas", tags=["atlas"])
 
@@ -67,11 +67,6 @@ PUBLICATION = {
 # the last 30 days: about five a week, below which every city shows 0 or 1 and the choice
 # says nothing (in October 2026: Software development 381, Human resources 32, the rest 0).
 MIN_OCCUPATION_POSTINGS = 20
-
-
-def get_session() -> Iterator[Session]:
-    with sync_session() as session:
-        yield session
 
 
 def _open(session: Session, dataset: str, release: str | None = None):
@@ -228,7 +223,7 @@ def frame(
     return FrameResponse(
         dataset_id=info.dataset_id, data_mode=info.data_mode, release_id=info.release_id,
         window=window_key, window_start=w.start.isoformat(), window_end=w.end.isoformat(),
-        data_through=info.data_through.isoformat(), generated_at=ds.generated_at().isoformat(),
+        data_through=info.data_through.isoformat(), generated_at=utcnow().isoformat(),
         source_set_id=info.source_set_id, classification_version=info.classification_version,
         completeness=q, stale=info.stale, partial_day=w.partial_day,
         date=day.isoformat(), occupation=occupation, cities=cities_out,

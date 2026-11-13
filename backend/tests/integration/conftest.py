@@ -17,8 +17,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
-import app.atlas.models  # noqa: F401 - register v2 tables for truncation
-from app.models import Base
+from app.atlas.models import Base
 
 BACKEND = Path(__file__).resolve().parents[2]
 URL = os.environ.get("JOBATLAS_TEST_DATABASE_URL")
@@ -74,8 +73,8 @@ def client(engine):
     os.environ["DATABASE_URL"] = os.environ["JOBATLAS_TEST_DATABASE_URL"]
     os.environ.setdefault("REDIS_URL", "redis://localhost:63799/15")
     caches = (
-        config.get_settings, dbs.get_sync_engine, dbs._sync_factory, dbs.get_async_engine,
-        dbs._async_factory, routes._city_ids, routes._cities, routes.scale_max,
+        config.get_settings, dbs.get_sync_engine, dbs._sync_factory,
+        routes._city_ids, routes._cities, routes.scale_max,
         routes._ats_occupations, routes._grouped,
     )  # fmt: skip
     for fn in caches:

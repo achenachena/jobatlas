@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
-from redis.asyncio import Redis
+from redis import Redis
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.db.session import get_async_session
+from app.db.session import get_session
 
 router = APIRouter(tags=["health"])
 
@@ -16,22 +16,21 @@ async def live() -> dict:
 
 
 @router.get("/health/ready")
-async def ready(session: AsyncSession = Depends(get_async_session)) -> JSONResponse:
+def ready(session: Session = Depends(get_session)) -> JSONResponse:
     checks: dict[str, str] = {}
     try:
-        head = (await session.execute(text("SELECT version_num FROM alembic_version"))).scalar()
+        head = session.scalar(text("SELECT version_num FROM alembic_version"))
         checks["database"] = "ok" if head else "no_migrations"
         # every city has its region (atlas-groups), so the map's grouping is never missing
-        ungrouped = (await session.execute(text(
+        ungrouped = session.scalar(text(
             "SELECT count(*) FROM atlas_cities c WHERE NOT EXISTS "
-            "(SELECT 1 FROM atlas_city_groups g WHERE g.city_id = c.id)"))).scalar()  # fmt: skip
+            "(SELECT 1 FROM atlas_city_groups g WHERE g.city_id = c.id)"))  # fmt: skip
         checks["grouping"] = "ok" if not ungrouped else f"{ungrouped} cities without a group"
     except Exception as exc:  # noqa: BLE001 - report any dependency failure as not ready
         checks["database"] = f"error:{type(exc).__name__}"
     try:
-        redis = Redis.from_url(get_settings().redis_url, socket_timeout=2)
-        await redis.ping()
-        await redis.aclose()
+        with Redis.from_url(get_settings().redis_url, socket_timeout=2) as redis:
+            redis.ping()
         checks["redis"] = "ok"
     except Exception as exc:  # noqa: BLE001
         checks["redis"] = f"error:{type(exc).__name__}"
