@@ -1,7 +1,7 @@
 import { project } from "./projection";
 import { cityScaleMax, heightFor, legendTicks, MAX_HEIGHT } from "./scale";
 import { addDays, daysBetween, DEFAULT_SELECTION, parseSelection, serializeSelection } from "./state";
-import { windowLabel } from "./ui/parts";
+import { windowLabel } from "./format";
 import { chunkFor, CHUNK_DAYS } from "./useAtlasData";
 
 test("height is monotonic, square-root, and fixed by the playback scale", () => {

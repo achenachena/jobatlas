@@ -1,10 +1,7 @@
 import type { Dataset, SeriesResponse } from "../api";
+import { fmtDay, fmtNum } from "../format";
 import { useCityHistory } from "../useAtlasData";
 import s from "./atlas.module.css";
-
-const dateFormat = new Intl.DateTimeFormat("en-CA", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
-const fmtDay = (date: string) => dateFormat.format(new Date(`${date}T12:00:00Z`));
-const fmtNum = (count: number) => count.toLocaleString("en-CA");
 
 /** One city's whole history in the replay's release, loaded only when it is opened. */
 export function CityHistory(p: { dataset: Dataset; release: string; city: string; occupation: string; start: string; end: string; day: string }) {

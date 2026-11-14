@@ -3,12 +3,23 @@
  * request is an error, never a fallback to demo data. */
 import type { components } from "@api/schema";
 
-import { API_BASE_URL, ApiError } from "../lib/api";
+const API_BASE_URL: string =
+  (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "http://localhost:8010";
+
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code: string | null,
+    readonly requestId: string | null,
+  ) {
+    super(message);
+  }
+}
 
 export type Capabilities = components["schemas"]["Capabilities"];
 export type CitiesResponse = components["schemas"]["CitiesResponse"];
 export type City = components["schemas"]["City"];
-export type Group = components["schemas"]["Group"];
 export type FrameResponse = components["schemas"]["FrameResponse"];
 export type TimelineResponse = components["schemas"]["TimelineResponse"];
 export type OverviewResponse = components["schemas"]["OverviewResponse"];

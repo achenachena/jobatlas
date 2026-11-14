@@ -6,16 +6,16 @@ import { Analytics } from "@vercel/analytics/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
-import { ApiError } from "../lib/api";
-import { DATASET_NAME, type Gap, type WindowKey } from "./api";
+import { ApiError, DATASET_NAME, type Gap, type WindowKey } from "./api";
 import type { GeoData } from "./scene/AtlasScene";
 import { webglAvailable } from "./scene/webgl";
 import { addDays, clampDay, DEFAULT_SELECTION, parseSelection, type Selection, serializeSelection, WINDOW_DAYS } from "./state";
 import s from "./ui/atlas.module.css";
+import { fmtDay } from "./format";
 import { useReplay } from "./useReplay";
 import { ReplayPanel } from "./ui/ReplayPanel";
 import { FallbackMap } from "./ui/FallbackMap";
-import { Brand, CityCard, DatasetSwitch, fmtDay, MoreMenu, type MoreItem, RankingList, ScalePanel, SourceLine, SourcesDialog, TimelineBar } from "./ui/parts";
+import { Brand, CityCard, DatasetSwitch, MoreMenu, type MoreItem, RankingList, ScalePanel, SourceLine, SourcesDialog, TimelineBar } from "./ui/parts";
 import {
   capabilitiesQuery,
   frameQuery,
@@ -371,7 +371,7 @@ export function AtlasApp() {
         )}
       />
       <MoreMenu onPick={onMore} disabled={!ready} />
-      {ready && <ReplayPanel day={day} windowDays={WINDOW_DAYS[sel.window]} counts={sameSelection && frame ? counts : new Map()} national={sameSelection ? frame?.national : null} baseline={replay.baseline} timeline={quick?.overview} selected={selectedCity} dataset={DATASET_NAME[sel.dataset]} compare={replay.compare} onCompare={replay.setCompare} /> }
+      {ready && <ReplayPanel day={day} windowDays={WINDOW_DAYS[sel.window]} counts={sameSelection && frame ? counts : new Map()} national={sameSelection ? frame?.national : null} baseline={replay.baseline} baselineCounts={baseline} selected={selectedCity} dataset={DATASET_NAME[sel.dataset]} compare={replay.compare} onCompare={replay.setCompare} /> }
 
       {panel === "scale" && ready && (
         <ScalePanel
@@ -442,7 +442,7 @@ export function AtlasApp() {
       {selectedCity && day && detailsOpen && (
         <CityCard
           city={selectedCity}
-          comparison={quick && replay.baseline ? { history: { release: quick.overview.release_id, occupation: quick.overview.occupation, start: quick.overview.start, end: quick.overview.end }, day: replay.baseline.date, count: replay.baseline.counts[quick.overview.city_ids.indexOf(selectedCity.city_id)] ?? null } : undefined}
+          comparison={quick && replay.baseline ? { history: { release: quick.overview.release_id, occupation: quick.overview.occupation, start: quick.overview.start, end: quick.overview.end }, day: replay.baseline.date, count: baseline?.get(selectedCity.city_id) ?? null } : undefined}
           count={counts.get(selectedCity.city_id)}
           quality={counts.get(selectedCity.city_id) == null && status !== "missing" ? "not_covered" : status ?? "complete"}
           day={day}

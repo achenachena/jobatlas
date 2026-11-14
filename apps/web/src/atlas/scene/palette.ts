@@ -13,7 +13,6 @@ export const CEL = {
   dataTop: "#edfff9",
   dataGlow: "#adf5e7",
   dataInk: "#263d91",
-  contactShadow: "#9dbcdc",
   zero: "#a9c8e0",
   unknown: "#7f91aa",
   line: { data: 1.25, selected: 2.2, coast: 0.85, island: 0.65, province: 0.35 },
@@ -22,17 +21,12 @@ export const CEL = {
   landDepth: 45,
   /** Common world-space footprint; zoom scales the complete object uniformly. */
   bodyDiameter: 200,
-  shadowOpacity: 0.45,
-  cel: { threshold: 0.22, feather: 0.025 },
   /** normalised [x, y, w, h] the land and body tips fit into, and where the map centres */
   safeDesktop: [0.005, 0.065, 0.99, 0.85],
   centreDesktop: [0.5, 0.485],
   safeMobile: [0.005, 0.1, 0.99, 0.76],
   detail: {
     bodyLimit: 6000, // every city with postings is a body (the gazetteer has ~5,700 cities)
-    nationalLabels: 4,
-    regionalLabels: 6,
-    mobileLabels: 2,
     enterRegional: 2.2,
     exitRegional: 1.8,
     settleMs: 180,

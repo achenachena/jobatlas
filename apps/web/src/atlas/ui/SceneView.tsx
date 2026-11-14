@@ -7,7 +7,8 @@ import { changeLabel, REFERENCE_CITIES } from "../replay";
 import type { City } from "../api";
 import { type Anchor, AtlasScene, type GeoData } from "../scene/AtlasScene";
 import s from "./atlas.module.css";
-import { fmtNum, Icon } from "./parts";
+import { fmtNum } from "../format";
+import { Icon } from "./parts";
 
 interface Props {
   geo: GeoData;
