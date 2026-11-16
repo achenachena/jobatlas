@@ -176,3 +176,10 @@ def test_ashby_payload_prefers_addresses_and_keeps_publishedat_for_baseline(loc)
 )
 def test_recognize(url, expected):
     assert recognize(url) == expected
+
+
+def test_platform_names_accept_one_pass_iterators():
+    from app.atlas.ats import PLATFORM_NAMES, platforms
+
+    assert platforms(iter(PLATFORM_NAMES)) == list(PLATFORM_NAMES.values())
+    assert platforms(iter(())) == []

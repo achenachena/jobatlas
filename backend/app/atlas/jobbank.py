@@ -110,35 +110,41 @@ def download(url: str, client: httpx.Client | None = None) -> tuple[Path, str]:
     own = client is None
     client = client or _client()
     digest = hashlib.sha256()
-    tmp = tempfile.NamedTemporaryFile(prefix="jobbank-", suffix=".csv", delete=False)
+    path = None
     try:
-        for _ in range(5):
-            with client.stream("GET", url) as resp:
-                if resp.status_code in (301, 302, 303, 307, 308):
-                    url = str(resp.url.join(resp.headers["location"]))
-                    _check_host(url)
-                    continue
-                resp.raise_for_status()
-                size = 0
-                for chunk in resp.iter_bytes(1 << 16):
-                    size += len(chunk)
-                    if size > MAX_BYTES:
-                        raise JobBankError("file larger than the cap")
-                    digest.update(chunk)
-                    tmp.write(chunk)
-                break
-        else:
-            raise JobBankError("too many redirects")
+        with tempfile.NamedTemporaryFile(prefix="jobbank-", suffix=".csv", delete=False) as tmp:
+            path = Path(tmp.name)
+            for _ in range(5):
+                with client.stream("GET", url) as resp:
+                    if resp.status_code in (301, 302, 303, 307, 308):
+                        url = str(resp.url.join(resp.headers["location"]))
+                        _check_host(url)
+                        continue
+                    resp.raise_for_status()
+                    size = 0
+                    for chunk in resp.iter_bytes(1 << 16):
+                        size += len(chunk)
+                        if size > MAX_BYTES:
+                            raise JobBankError("file larger than the cap")
+                        digest.update(chunk)
+                        tmp.write(chunk)
+                    break
+            else:
+                raise JobBankError("too many redirects")
+    except BaseException:
+        if path is not None:
+            path.unlink(missing_ok=True)
+        raise
     finally:
-        tmp.close()
         if own:
             client.close()
-    return Path(tmp.name), digest.hexdigest()
+    return path, digest.hexdigest()
 
 
 def _encoding(path: Path) -> str:
     """Most months are UTF-16 with a BOM; mid-2024 months are UTF-8 (or cp1252) CSV."""
-    head = path.open("rb").read(4)
+    with path.open("rb") as fh:
+        head = fh.read(4)
     if head[:2] in (b"\xff\xfe", b"\xfe\xff"):
         return "utf-16"
     if head[:3] == b"\xef\xbb\xbf":

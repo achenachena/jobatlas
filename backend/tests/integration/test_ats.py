@@ -297,3 +297,49 @@ def test_a_superseded_release_stays_readable_for_a_day(swept, client):
     # a release id of the other dataset is not served under this one
     other = client.get(frame, params={"dataset": "real", "release": r3.id})
     assert other.json()["error"]["code"] == "RELEASE_NOT_FOUND"
+
+
+@pytest.mark.parametrize("preserve_note", [None, "backfilled: reviewed coverage"])
+def test_coverage_batches_initial_and_catchup_days(seeded, preserve_note):
+    from sqlalchemy import event
+
+    session = seeded
+    key = "ats-greenhouse"
+    statements = []
+    engine = session.get_bind()
+
+    def record(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", record)
+    try:
+        assert ats.update_coverage(session, key, DAY1)
+        assert len(statements) == 2  # one read and one write for all backfilled days
+        if preserve_note:
+            session.execute(update(AtlasCoverage).where(
+                AtlasCoverage.source_key == key, AtlasCoverage.period_start == DAY1.date(),
+            ).values(note=preserve_note))
+            session.commit()
+        statements.clear()
+        later = DAY1 + timedelta(days=4)
+        assert ats.update_coverage(session, key, later)
+        assert len(statements) == 2  # catchup no longer queries or writes each day separately
+        assert not ats.update_coverage(session, key, later)
+    finally:
+        event.remove(engine, "before_cursor_execute", record)
+
+    session.expire_all()
+    rows = list(session.scalars(select(AtlasCoverage).where(
+        AtlasCoverage.source_key == key,
+    ).order_by(AtlasCoverage.period_start)))
+    assert len(rows) == ats.BACKFILL_DAYS + 5
+    assert all(r.status == "partial" and r.note.startswith("backfilled")
+               for r in rows[:ats.BACKFILL_DAYS])
+    first = rows[ats.BACKFILL_DAYS]
+    assert (first.status, first.note) == (
+        ("partial", preserve_note) if preserve_note else ("complete", None)
+    )
+    assert all(r.status == "complete" and r.note is None for r in rows[-4:-1])
+    assert (rows[-1].period_start, rows[-1].status, rows[-1].note) == (
+        later.date(), "partial", "in progress",
+    )

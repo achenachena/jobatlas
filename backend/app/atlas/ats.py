@@ -510,9 +510,12 @@ def store(session: Session, f: Fetched, now: datetime) -> int:
 def update_coverage(session: Session, key: str, now: datetime) -> bool:
     """Extend a source's daily coverage to today. Returns True if any day changed state."""
     today = _toronto_day(now)
-    last = session.scalar(
-        select(func.max(AtlasCoverage.period_start)).where(AtlasCoverage.source_key == key)
-    )
+    latest = session.execute(
+        select(AtlasCoverage.period_start, AtlasCoverage.note)
+        .where(AtlasCoverage.source_key == key)
+        .order_by(AtlasCoverage.period_start.desc()).limit(1)
+    ).first()
+    last = latest.period_start if latest else None
     plan: dict[date, tuple[str, str]] = {}
     if last is None:
         for i in range(BACKFILL_DAYS, 0, -1):
@@ -523,21 +526,20 @@ def update_coverage(session: Session, key: str, now: datetime) -> bool:
     else:
         d = last
         while d < today:
-            prev = session.scalar(select(AtlasCoverage).where(
-                AtlasCoverage.source_key == key, AtlasCoverage.period_start == d))  # fmt: skip
-            if prev is None or prev.note == "in progress":
+            # No rows exist after the latest period; only that period may need preserving.
+            if d > last or latest.note == "in progress":
                 plan[d] = ("complete", "")
             d += timedelta(days=1)
     plan[today] = ("partial", "in progress")
-    for day, (status, note) in plan.items():
-        session.execute(
-            insert(AtlasCoverage)
-            .values(source_key=key, period_start=day, period_end=day, status=status,
-                    note=note or None, rows=0)
-            .on_conflict_do_update(constraint="uq_atlas_coverage_period",
-                                   set_={"status": status, "note": note or None,
-                                         "imported_at": now})
-        )  # fmt: skip
+    stmt = insert(AtlasCoverage).values([
+        {"source_key": key, "period_start": day, "period_end": day,
+         "status": status, "note": note or None, "rows": 0}
+        for day, (status, note) in plan.items()
+    ])
+    session.execute(stmt.on_conflict_do_update(
+        constraint="uq_atlas_coverage_period",
+        set_={"status": stmt.excluded.status, "note": stmt.excluded.note, "imported_at": now},
+    ))
     session.commit()
     return last != today
 
@@ -561,7 +563,8 @@ def counted(session: Session, keys: list[str]) -> dict:
 
 
 def platforms(keys: Iterable[str]) -> list[str]:
-    return [name for key, name in PLATFORM_NAMES.items() if key in set(keys)]
+    keys = set(keys)
+    return [name for key, name in PLATFORM_NAMES.items() if key in keys]
 
 
 def attribution(names: list[str]) -> str:
