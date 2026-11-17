@@ -27,7 +27,7 @@ from app.atlas.models import (
 )
 from app.atlas.occupations import CLASSIFICATION_VERSION
 from app.atlas.permissions import admitted, source
-from app.atlas.windows import WINDOWS, window
+from app.atlas.windows import WINDOWS
 from app.core.timeutil import utcnow
 
 METRIC = "new_postings"
@@ -402,26 +402,31 @@ def rolling_frames(
     the history is `partial`."""
     n = WINDOWS[window_key]
     running: dict[tuple[str, str], int] = defaultdict(int)
-    d = first_day - timedelta(days=n - 1)
+    step = timedelta(days=1)
+    span = timedelta(days=n - 1)
+    missing = filled = 0
+    d = first_day - span
     while d < first_day:
         for key, count in daily.get(d, {}).items():
             running[key] += count
-        d += timedelta(days=1)
+        missing += d in gaps
+        filled += d in backfilled
+        d += step
     out = []
     d = first_day
     while d <= last_day:
         for key, count in daily.get(d, {}).items():
             running[key] += count
-        w = window(window_key, d, history_start=history_start)
-        missing = sum(1 for i in range(n) if (d - timedelta(days=i)) in gaps)
-        filled = sum(1 for i in range(n) if (d - timedelta(days=i)) in backfilled)
+        missing += d in gaps
+        filled += d in backfilled
+        days_available = min(n, max(0, (d - history_start).days + 1))
         notes = []
         if missing:
             quality = "missing"
             notes.append(f"{missing} day(s) of this window are not covered")
-        elif w.days_available < n:
+        elif days_available < n:
             quality = "partial"
-            notes.append(f"only {w.days_available} of {n} days have data (history starts "
+            notes.append(f"only {days_available} of {n} days have data (history starts "
                          f"{history_start})")  # fmt: skip
         else:
             quality = "complete"
@@ -434,19 +439,21 @@ def rolling_frames(
                          "open when collection started: lower bounds")  # fmt: skip
         if quality == "missing":
             out.append(Frame(d, dict.fromkeys(city_ids), None, None, None, quality,
-                             w.days_available, notes, filled))  # fmt: skip
+                             days_available, notes, filled))  # fmt: skip
         else:
             cities = {
                 c: (None if c in not_covered else running.get(("city", c), 0)) for c in city_ids
             }
             out.append(Frame(
                 d, cities, running.get(("national", ""), 0), running.get(("unconfirmed", ""), 0),
-                running.get(("remote", ""), 0), quality, w.days_available, notes, filled,
+                running.get(("remote", ""), 0), quality, days_available, notes, filled,
             ))  # fmt: skip
-        old = d - timedelta(days=n - 1)
+        old = d - span
         for key, count in daily.get(old, {}).items():
             running[key] -= count
-        d += timedelta(days=1)
+        missing -= old in gaps
+        filled -= old in backfilled
+        d += step
     return out
 
 
