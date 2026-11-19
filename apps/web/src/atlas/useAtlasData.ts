@@ -44,8 +44,8 @@ export const frameQuery = (dataset: Dataset, release: string | null, occupation:
 });
 
 /** The first view's data, requested the moment the capabilities arrive (not after the map's
- * first render, which would otherwise hold the requests back): cities, the shown day's counts
- * and the national summary, under the keys the hooks read. */
+ * first render, which would otherwise hold the requests back): cities and the shown day's
+ * counts, under the keys the hooks read. */
 export function prefetchFirstView(qc: QueryClient, s: { dataset: Dataset; occupation: string; window: WindowKey; date: string | null }): void {
   void qc.fetchQuery(capabilitiesQuery(s.dataset)).then((caps) => {
     const { release_id: release, history_start: start, data_through: end } = caps;
@@ -54,7 +54,6 @@ export function prefetchFirstView(qc: QueryClient, s: { dataset: Dataset; occupa
     const a = { dataset: s.dataset, release, occupation: s.occupation, window: s.window, historyStart: start, dataThrough: end };
     void qc.prefetchQuery(citiesQuery(s.dataset, release));
     void qc.prefetchQuery(timelineQuery(a, [day, day]));
-    void qc.prefetchQuery(frameQuery(s.dataset, release, s.occupation, s.window, day));
   }, () => undefined); // the hooks report the error
 }
 

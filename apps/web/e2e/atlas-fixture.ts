@@ -18,17 +18,9 @@ export const CITIES = [
 ] as const;
 /** the largest group weight (the Toronto area), for the region-total scale */
 const REGION_WEIGHT = { real: 17, ats: 10 };
-export const GROUPS = [
-  { id: "cma-535", display_name: "Toronto", official_name: "Toronto", kind: "cma", provinces: ["ON"], lat: 43.7, lon: -79.42 },
-  { id: "cma-462", display_name: "Montréal", official_name: "Montréal", kind: "cma", provinces: ["QC"], lat: 45.51, lon: -73.59 },
-  { id: "cma-933", display_name: "Vancouver", official_name: "Vancouver", kind: "cma", provinces: ["BC"], lat: 49.25, lon: -123.12 },
-  ...CITIES.filter((c) => c[5].startsWith("single")).map(([, name, prov, lat, lon, group]) => ({ id: group, display_name: name, official_name: null, kind: "single", provinces: [prov], lat, lon })),
-];
 const citiesBody = (list: readonly (typeof CITIES)[number][]) => ({
   attribution: "GeoNames",
-  grouping_version: "fx",
-  cities: list.map(([id, name, prov, lat, lon, group]) => ({ city_id: id, name, province: prov, country: "CA", lat, lon, population: 1, aliases: [], kind: "city", evidence: "fixture", group_id: group })),
-  groups: GROUPS.map((g) => ({ ...g, members: list.filter((c) => c[5] === g.id).length })).filter((g) => g.members),
+  cities: list.map(([id, name, prov, lat, lon]) => ({ city_id: id, name, province: prov, lat, lon, population: 1, aliases: [] })),
 });
 export const HISTORY_START = "2026-07-01";
 export const DATA_THROUGH = "2026-09-30";

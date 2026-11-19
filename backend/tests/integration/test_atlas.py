@@ -163,8 +163,11 @@ def test_release_frames_and_api(session, seeded, tmp_path, client):
     rel2 = build_release(session, REAL_DATASET, [jobbank.SOURCE_KEY])
     publish(session, rel2)
     assert client.get("/api/v2/atlas/version").headers["etag"] != etag
-    pinned = client.get("/api/v2/atlas/frame", params={"release": rel.id}).json()
-    assert pinned["release_id"] == rel.id
+    pinned = client.get("/api/v2/atlas/frame", params={"release": rel.id})
+    assert pinned.json()["release_id"] == rel.id
+    # a pinned response never changes: built once, and browsers keep it
+    assert pinned.headers["cache-control"] == "public, max-age=31536000, immutable"
+    assert client.get("/api/v2/atlas/frame", params={"release": rel.id}).content == pinned.content
 
     src = {s["key"]: s for s in client.get("/api/v2/atlas/sources").json()["sources"]}
     assert set(src) == {"jobbank-open-data"}  # registered ATS sources are not shown here

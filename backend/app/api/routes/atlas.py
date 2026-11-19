@@ -9,12 +9,15 @@ from __future__ import annotations
 
 import gzip
 import hashlib
-from collections import Counter, defaultdict
+import threading
+from collections import OrderedDict, defaultdict
+from collections.abc import Callable
 from datetime import date, timedelta
 from functools import lru_cache
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.atlas import ats, groups, jobbank, overview
@@ -154,19 +157,54 @@ def _ats_occupations(release_id: str) -> list[dict]:
     return ds.occupations_payload({o for o, n in totals.items() if n >= MIN_OCCUPATION_POSTINGS})
 
 
+# Compressed bodies of release-pinned responses, newest last. A pinned URL never changes, so
+# each is built once (serialising and compressing the 5,700 cities is most of a request) and
+# browsers may keep it.
+_PINNED: OrderedDict[str, bytes] = OrderedDict()
+_PINNED_LOCK = threading.Lock()
+PINNED_BYTES = 48_000_000
+
+
+def _gzip_response(request: Request, body: bytes, headers: dict) -> Response:
+    if "gzip" in request.headers.get("accept-encoding", ""):
+        return Response(body, media_type="application/json",
+                        headers={**headers, "Content-Encoding": "gzip"})  # fmt: skip
+    return Response(gzip.decompress(body), media_type="application/json", headers=headers)
+
+
+def _pinned(request: Request, release: str | None, build: Callable[[], BaseModel], salt=""):
+    """The response, from the cache when the URL names a release (salt: anything else the body
+    depends on)."""
+    if not release:
+        return build()
+    key = f"{request.url.path}?{request.url.query}|{salt}"
+    with _PINNED_LOCK:
+        body = _PINNED.get(key)
+        if body is not None:
+            _PINNED.move_to_end(key)
+    if body is None:
+        body = gzip.compress(build().model_dump_json().encode(), 6)
+        with _PINNED_LOCK:
+            _PINNED[key] = body
+            while sum(map(len, _PINNED.values())) > PINNED_BYTES:
+                _PINNED.popitem(last=False)
+    headers = {"Cache-Control": "public, max-age=31536000, immutable", "Vary": "Accept-Encoding"}
+    return _gzip_response(request, body, headers)
+
+
 @router.get("/cities", response_model=CitiesResponse)
 def cities(
+    request: Request,
     dataset: DatasetParam = "real",
     release: str | None = Query(None, max_length=64),
     session: Session = Depends(get_session),
 ):
     d = _open(session, dataset, release)
     info = d.info()
-    grouping = grouping_version(session)
-    cities_out, groups_out = _grouped(info.release_id, dataset, grouping)
-    return CitiesResponse(dataset_id=info.dataset_id, data_mode=info.data_mode,
-                          release_id=info.release_id, cities=cities_out, groups=groups_out,
-                          grouping_version=grouping, attribution=GEONAMES_ATTRIBUTION)  # fmt: skip
+    return _pinned(request, release, lambda: CitiesResponse(
+        dataset_id=info.dataset_id, data_mode=info.data_mode, release_id=info.release_id,
+        cities=_cities(info.release_id, dataset), attribution=GEONAMES_ATTRIBUTION,
+    ))  # fmt: skip
 
 
 @lru_cache(maxsize=32)
@@ -181,36 +219,24 @@ def _city_ids(release_id: str, dataset: str) -> tuple[str, ...]:
     return tuple(c["city_id"] for c in _cities(release_id, dataset))
 
 
-@lru_cache(maxsize=32)
-def _grouped(release_id: str, dataset: str, grouping: str | None) -> tuple[list, list]:
-    """The release's cities with their group, and the groups they fall in (members: how many
-    of these cities each holds)."""
-    with sync_session() as session:
-        group_of = groups.membership(session)
-        stored = groups.stored_groups(session)
-    cities_out = [{**c, "group_id": group_of.get(c["city_id"])}
-                  for c in _cities(release_id, dataset)]  # fmt: skip
-    counts = Counter(c["group_id"] for c in cities_out if c["group_id"])
-    groups_out = [{"id": g.id, "display_name": g.display_name, "official_name": g.official_name,
-                   "kind": g.kind, "provinces": g.provinces, "lat": g.lat, "lon": g.lon,
-                   "members": counts[g.id]}
-                  for gid, g in sorted(stored.items()) if gid in counts]  # fmt: skip
-    return cities_out, groups_out
-
-
 @router.get("/frame", response_model=FrameResponse)
 def frame(
+    request: Request,
     dataset: DatasetParam = "real",
     occupation: Occ = "all",  # type: ignore[valid-type]
     window_key: WindowParam = Query(DEFAULT_WINDOW, alias="window"),
     day: date | None = Query(None, alias="date"),
     release: str | None = Query(None, max_length=64),
     session: Session = Depends(get_session),
-) -> FrameResponse:
+):
     d = _open(session, dataset, release)
     info = d.info()
     day = day or info.data_through
     _check_day(info, day)
+    return _pinned(request, release, lambda: _frame(d, info, dataset, occupation, window_key, day))
+
+
+def _frame(d, info: ds.Info, dataset: str, occupation: str, window_key: str, day: date):
     ids = list(_city_ids(info.release_id, dataset))
     f = d.frames(occupation, window_key, day, day, ids)[0]
     w = window(window_key, day, history_start=info.history_start, cutoff=_cutoff(info, day))
@@ -238,6 +264,7 @@ def frame(
 
 @router.get("/timeline", response_model=TimelineResponse)
 def timeline(
+    request: Request,
     dataset: DatasetParam = "real",
     occupation: Occ = "all",  # type: ignore[valid-type]
     window_key: WindowParam = Query(DEFAULT_WINDOW, alias="window"),
@@ -245,7 +272,7 @@ def timeline(
     end: date | None = None,
     release: str | None = Query(None, max_length=64),
     session: Session = Depends(get_session),
-) -> TimelineResponse:
+):
     d = _open(session, dataset, release)
     info = d.info()
     end = end or info.data_through
@@ -255,6 +282,13 @@ def timeline(
     if end < start or (end - start).days + 1 > MAX_TIMELINE_DAYS:
         msg = f"at most {MAX_TIMELINE_DAYS} days per request"
         raise HTTPException(400, {"code": "RANGE_TOO_LARGE", "message": msg})
+    grouping = grouping_version(session)
+    return _pinned(request, release, lambda: _timeline(d, info, dataset, occupation, window_key,
+                                                       start, end, grouping), grouping)  # fmt: skip
+
+
+def _timeline(d, info: ds.Info, dataset: str, occupation: str, window_key: str, start: date,
+              end: date, grouping: str | None) -> TimelineResponse:  # fmt: skip
     ids = list(_city_ids(info.release_id, dataset))
     fr = d.frames(occupation, window_key, start, end, ids)
     return TimelineResponse(
@@ -265,8 +299,7 @@ def timeline(
                               days_available=f.days_available,
                               counts=[f.cities.get(c) for c in ids], national=f.national,
                               notes=f.notes, backfilled_days=f.backfilled_days) for f in fr],
-        max_count=scale_max(dataset, info.release_id, occupation, window_key,
-                            grouping_version(session)),
+        max_count=scale_max(dataset, info.release_id, occupation, window_key, grouping),
     )  # fmt: skip
 
 
@@ -350,10 +383,7 @@ def history_overview(
     }  # fmt: skip
     if request.headers.get("if-none-match") == etag:
         return Response(status_code=304, headers=headers)
-    if "gzip" in request.headers.get("accept-encoding", ""):
-        return Response(body, media_type="application/json",
-                        headers={**headers, "Content-Encoding": "gzip"})  # fmt: skip
-    return Response(gzip.decompress(body), media_type="application/json", headers=headers)
+    return _gzip_response(request, body, headers)
 
 
 @router.get("/version", response_model=VersionResponse)

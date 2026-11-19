@@ -314,7 +314,3 @@ def ungrouped(session: Session) -> int:
 def membership(session: Session) -> dict[str, str]:
     """city id -> group id (empty before the first `atlas-groups`)."""
     return dict(session.execute(select(AtlasCityGroup.city_id, AtlasCityGroup.group_id)).all())
-
-
-def stored_groups(session: Session) -> dict[str, AtlasGroup]:
-    return {g.id: g for g in session.scalars(select(AtlasGroup))}
