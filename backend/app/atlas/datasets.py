@@ -53,9 +53,8 @@ class Info:
 
 def city_payload(c: AtlasCity) -> dict:
     return {
-        "city_id": c.id, "name": c.name, "province": c.province, "country": c.country,
-        "lat": round(c.lat, 4), "lon": round(c.lon, 4), "population": c.population,
-        "aliases": [], "kind": c.kind, "evidence": c.evidence,
+        "city_id": c.id, "name": c.name, "province": c.province,
+        "lat": round(c.lat, 4), "lon": round(c.lon, 4), "population": c.population, "aliases": [],
     }  # fmt: skip
 
 

@@ -1,5 +1,5 @@
-"""City groups end to end: grouping stored in the database, /cities groups and the region scale
-(real PostgreSQL; boundaries are simplified boxes)."""
+"""City groups end to end: grouping stored in the database and the region scale (real
+PostgreSQL; boundaries are simplified boxes)."""
 
 from collections import defaultdict
 from datetime import date
@@ -8,7 +8,8 @@ import pytest
 
 from app.atlas import groups, jobbank
 from app.atlas.cities import CityIndex, load_places, parse_geonames
-from app.atlas.metrics import REAL_DATASET, build_release, publish
+from app.atlas.metrics import REAL_DATASET, build_release, grouping_version, publish
+from app.atlas.models import AtlasGroup
 from app.atlas.permissions import sync_registry
 from tests.integration.test_atlas import _import, _row
 
@@ -71,23 +72,20 @@ def _region_max(client, group_of):
 
 def test_groups_and_region_scale(session, released, client):
     assert released.quality["scale_max"]["all"]["7d"] == 3  # one city's largest week
-    before = client.get("/api/v2/atlas/cities").json()
-    assert before["grouping_version"] is None and before["groups"] == []
-    assert all(c["group_id"] is None for c in before["cities"])
+    assert grouping_version(session) is None and groups.membership(session) == {}
     # without a grouping each city is its own region: the scale is the city scale
     assert client.get("/api/v2/atlas/timeline").json()["max_count"] == 3
 
     v = _store(session, [TORONTO_CMA])
-    cities = client.get("/api/v2/atlas/cities").json()
-    assert cities["grouping_version"] == v
-    group_of = {c["city_id"]: c["group_id"] for c in cities["cities"]}
+    assert grouping_version(session) == v
+    group_of = groups.membership(session)
     assert group_of == {"ca-on-toronto": "cma-535", "ca-on-mississauga": "cma-535",
                         "ca-qc-montreal": "single-ca-qc-montreal"}  # fmt: skip
-    assert cities["groups"] == [
-        {"id": "cma-535", "display_name": "Toronto", "official_name": "Toronto", "kind": "cma",
-         "provinces": ["ON"], "lat": 43.7, "lon": -79.42, "members": 2},
-        {"id": "single-ca-qc-montreal", "display_name": "Montréal", "official_name": None,
-         "kind": "single", "provinces": ["QC"], "lat": 45.51, "lon": -73.59, "members": 1},
+    stored = session.query(AtlasGroup).order_by(AtlasGroup.id).all()
+    assert [(g.id, g.display_name, g.official_name, g.kind, g.provinces, g.lat, g.lon)
+            for g in stored] == [
+        ("cma-535", "Toronto", "Toronto", "cma", ["ON"], 43.7, -79.42),
+        ("single-ca-qc-montreal", "Montréal", None, "single", ["QC"], 45.51, -73.59),
     ]  # fmt: skip
     attributions = client.get("/api/v2/atlas/sources").json()["attributions"]
     assert (
@@ -111,18 +109,14 @@ def test_groups_and_region_scale(session, released, client):
 
     # Recomputing with another result changes the version, and the API follows it.
     v2 = _store(session, [])
-    assert v2 != v
-    after = client.get("/api/v2/atlas/cities").json()
-    assert after["grouping_version"] == v2
-    assert {c["group_id"] for c in after["cities"]} == {"cluster-ca-on-toronto",
-                                                        "single-ca-qc-montreal"}  # fmt: skip
+    assert v2 != v and grouping_version(session) == v2
+    assert set(groups.membership(session).values()) == {"cluster-ca-on-toronto",
+                                                         "single-ca-qc-montreal"}  # fmt: skip
 
 
 def test_demo_scale_uses_region_totals(session, released, client):
     _store(session, [TORONTO_CMA])
-    group_of = {c["city_id"]: c["group_id"]
-                for c in client.get("/api/v2/atlas/cities", params={"dataset": "demo"}).json()
-                ["cities"]}  # fmt: skip
+    group_of = groups.membership(session)
     caps = client.get("/api/v2/atlas/capabilities", params={"dataset": "demo"}).json()
     tl = client.get("/api/v2/atlas/timeline", params={
         "dataset": "demo", "start": caps["history_start"], "end": "2023-12-31"}).json()  # fmt: skip

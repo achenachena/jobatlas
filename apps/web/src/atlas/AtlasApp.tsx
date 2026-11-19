@@ -163,10 +163,10 @@ export function AtlasApp() {
     prio.current = { key: prioKey, list };
   }
 
-  // National summary (latest/paused only, from the frame endpoint).
+  // National summary (latest/paused only, from the frame endpoint), for the scale panel.
   const national = useQuery({
     ...frameQuery(sel.dataset, release, sel.occupation, sel.window, day),
-    enabled: ready && !playing && !!day && !quick && !preparing,
+    enabled: ready && !playing && !!day && !quick && !preparing && panel === "scale",
   });
 
   // ---------------------------------------------------------------- playback

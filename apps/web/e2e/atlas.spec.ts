@@ -406,7 +406,7 @@ test("reference labels distinguish duplicate names using canonical geography", a
       ["ca-bc-vancouver", "Vancouver", "BC", 49.25, -123.12],
       ["ca-ab-calgary", "Calgary", "AB", 51.05, -114.07],
       ["ca-pe-toronto", "Toronto", "PE", 46.3, -63.5],
-    ].map(([city_id, name, province, lat, lon]) => ({ city_id, name, province, lat, lon, country: "CA", population: 1, aliases: [], kind: "city", evidence: "fixture" })),
+    ].map(([city_id, name, province, lat, lon]) => ({ city_id, name, province, lat, lon, population: 1, aliases: [] })),
   } }));
   await page.goto("/"); await ready(page);
   await expect(page.locator("[class*=labels] [data-city-id='ca-on-toronto']")).toBeVisible();

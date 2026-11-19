@@ -273,16 +273,6 @@ export interface components {
             release_id: string;
             /** Cities */
             cities: components["schemas"]["City"][];
-            /**
-             * Groups
-             * @description the regions these cities fall in
-             */
-            groups: components["schemas"]["Group"][];
-            /**
-             * Grouping Version
-             * @description changes whenever the grouping changes; null before a grouping exists
-             */
-            grouping_version: string | null;
             /** Attribution */
             attribution: string;
         };
@@ -294,8 +284,6 @@ export interface components {
             name: string;
             /** Province */
             province: string;
-            /** Country */
-            country: string;
             /** Lat */
             lat: number;
             /** Lon */
@@ -304,15 +292,6 @@ export interface components {
             population: number;
             /** Aliases */
             aliases: string[];
-            /** Kind */
-            kind: string;
-            /** Evidence */
-            evidence: string;
-            /**
-             * Group Id
-             * @description the city's region (CitiesResponse.groups); null before a grouping exists
-             */
-            group_id: string | null;
         };
         /** CityCount */
         CityCount: {
@@ -411,43 +390,6 @@ export interface components {
             end: string;
             /** Reason */
             reason: string;
-        };
-        /** Group */
-        Group: {
-            /** Id */
-            id: string;
-            /**
-             * Display Name
-             * @description the official CMA/CA name when it names the anchor city (dashes as ' – '), else the anchor city's name; shown as '{display_name} area' except for kind single
-             */
-            display_name: string;
-            /**
-             * Official Name
-             * @description CMA/CA name as published, for a tooltip
-             */
-            official_name: string | null;
-            /**
-             * Kind
-             * @enum {string}
-             */
-            kind: "cma" | "ca" | "cluster" | "single";
-            /**
-             * Provinces
-             * @description anchor's province first; several across a border
-             */
-            provinces: string[];
-            /**
-             * Lat
-             * @description anchor: the most populous member city's position
-             */
-            lat: number;
-            /** Lon */
-            lon: number;
-            /**
-             * Members
-             * @description cities of this response in the group
-             */
-            members: number;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
