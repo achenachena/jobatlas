@@ -715,7 +715,9 @@ export class AtlasScene {
       this.expanded = new Set(placed.keys());
       this.updateFootprints();
       this.markLayout();
-      if (!this.land) slice(() => !this.disposed && this.landDistance());
+      // only after the first bars: an empty placement (data still loading) would queue it in
+      // front of them
+      if (!this.land && placed.size) slice(() => !this.disposed && this.landDistance());
     }
     // Precompute the neighbouring levels in small idle slices, so the next zoom step across a
     // level does not stall on placement and no slice blocks input.
