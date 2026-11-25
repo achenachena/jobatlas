@@ -3,9 +3,6 @@
  * request is an error, never a fallback to demo data. */
 import type { components } from "@api/schema";
 
-const API_BASE_URL: string =
-  (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "http://localhost:8010";
-
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -42,7 +39,9 @@ export async function atlasGet<T>(
 ): Promise<T> {
   const q = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== "") q.set(k, String(v));
-  const url = `${API_BASE_URL}/api/v2/atlas${path}?${q}`;
+  // The site's own origin: Vercel rewrites /api to the API in production (no second DNS lookup
+  // or TLS connection, and its CDN keeps release-pinned responses); Vite proxies it locally.
+  const url = `/api/v2/atlas${path}?${q}`;
   signal?.throwIfAborted();
   let res: Response;
   try {

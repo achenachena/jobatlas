@@ -141,7 +141,7 @@ function DATA_THROUGH_DEFAULT() {
 }
 
 export async function atlasFixture(page: Page, mode: "real" | "not_configured" = "real", overview: "complete" | "gap" | null = null, opts: { sampleEvery?: number } = {}) {
-  await page.route("http://api.fixture/api/v2/atlas/**", async (route: Route) => {
+  await page.route("**/api/v2/atlas/**", async (route: Route) => {
     const url = new URL(route.request().url());
     const q = url.searchParams;
     if (q.get("dataset") === "ats") return atsRoute(route, url);

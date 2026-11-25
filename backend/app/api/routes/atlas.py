@@ -163,6 +163,9 @@ def _ats_occupations(release_id: str) -> list[dict]:
 _PINNED: OrderedDict[str, bytes] = OrderedDict()
 _PINNED_LOCK = threading.Lock()
 PINNED_BYTES = 48_000_000
+# CDN-Cache-Control: the web's CDN (Vercel, which rewrites /api here) keeps it as well.
+PINNED_HEADERS = {"Cache-Control": "public, max-age=31536000, immutable",
+                  "CDN-Cache-Control": "max-age=31536000"}  # fmt: skip
 
 
 def _gzip_response(request: Request, body: bytes, headers: dict) -> Response:
@@ -188,7 +191,7 @@ def _pinned(request: Request, release: str | None, build: Callable[[], BaseModel
             _PINNED[key] = body
             while sum(map(len, _PINNED.values())) > PINNED_BYTES:
                 _PINNED.popitem(last=False)
-    headers = {"Cache-Control": "public, max-age=31536000, immutable", "Vary": "Accept-Encoding"}
+    headers = {**PINNED_HEADERS, "Vary": "Accept-Encoding"}
     return _gzip_response(request, body, headers)
 
 
@@ -377,10 +380,8 @@ def history_overview(
         raise HTTPException(409, {"code": "NOT_ENOUGH_HISTORY",
                                   "message": "fewer than two complete windows"})  # fmt: skip
     etag = f'"{hashlib.sha256(body).hexdigest()[:20]}"'
-    headers = {
-        "ETag": etag, "Vary": "Accept-Encoding",
-        "Cache-Control": "public, max-age=31536000, immutable" if release else "no-cache",
-    }  # fmt: skip
+    headers = {"ETag": etag, "Vary": "Accept-Encoding",
+               **(PINNED_HEADERS if release else {"Cache-Control": "no-cache"})}  # fmt: skip
     if request.headers.get("if-none-match") == etag:
         return Response(status_code=304, headers=headers)
     return _gzip_response(request, body, headers)

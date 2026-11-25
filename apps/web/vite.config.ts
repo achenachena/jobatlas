@@ -3,6 +3,9 @@ import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 
+// The API on the site's own origin, as Vercel serves it in production.
+const api = { target: process.env.API_PROXY_TARGET ?? "http://localhost:8010", changeOrigin: true };
+
 export default defineConfig({
   plugins: [react(), {
     name: "preload-atlas-renderer",
@@ -18,7 +21,8 @@ export default defineConfig({
   resolve: {
     alias: { "@api": fileURLToPath(new URL("../../packages/api-client", import.meta.url)) },
   },
-  server: { port: 5173, fs: { allow: ["..", "../../packages"] } },
+  server: { port: 5173, fs: { allow: ["..", "../../packages"] }, proxy: { "/api": api } },
+  preview: { proxy: { "/api": api } },
   test: {
     environment: "jsdom",
     globals: true,

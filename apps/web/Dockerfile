@@ -7,6 +7,6 @@ WORKDIR /app/apps/web
 RUN npm ci
 COPY apps/web/ ./
 EXPOSE 5173
-# Build at startup so Compose runtime VITE_API_BASE_URL is embedded correctly.
+# Build at startup; the preview server proxies /api to the Compose API (API_PROXY_TARGET).
 # The user-facing local service serves production assets, not StrictMode dev replays.
 CMD ["sh", "-c", "npm run build && npx vite preview --host 0.0.0.0 --port 5173"]

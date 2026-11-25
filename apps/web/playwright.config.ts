@@ -17,6 +17,6 @@ export default defineConfig({
     command: "npx vite --port 5174 --strictPort",
     url: "http://localhost:5174",
     reuseExistingServer: true,
-    env: { VITE_API_BASE_URL: "http://api.fixture", VITE_ATLAS_POLL_MS: "1500" },
+    env: { VITE_ATLAS_POLL_MS: "1500" },
   },
 });

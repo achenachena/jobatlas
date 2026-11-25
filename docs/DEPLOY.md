@@ -5,7 +5,7 @@
 | Part | Location |
 | --- | --- |
 | Web | Vercel project (`VERCEL_PROJECT_ID`, `VERCEL_ORG_ID`), https://jobatlas-eight.vercel.app |
-| API | https://jobatlas.184-195-161-235.sslip.io (Caddy, automatic TLS) |
+| API | https://jobatlas.184-195-161-235.sslip.io (Caddy, automatic TLS); the web reaches it on its own origin through the `/api` rewrite in `apps/web/vercel.json` |
 | Server | EC2 (`DEPLOY_INSTANCE_ID`), us-east-1, t3.small (CPU credits `standard`), Ubuntu, IPv4 only |
 | Source on server | `/home/ubuntu/jobatlas` (git checkout, detached at the released SHA) |
 | Server config | `/home/ubuntu/deploy/.env` (`POSTGRES_PASSWORD`, `JOBATLAS_ENV`, `CORS_ORIGINS`, `ATLAS_USER_AGENT`, `API_DOMAIN`); never committed |
@@ -14,7 +14,7 @@
 | Backups | `/home/ubuntu/backups/` on the server |
 
 The instance public IP changes if the instance is stopped and started; then update the API
-domain in `.env`, the `VITE_API_BASE_URL` Vercel variable and the `API_URL` GitHub variable.
+domain in `.env`, the `/api` rewrite in `apps/web/vercel.json` and the `API_URL` GitHub variable.
 
 ## How a release works
 
