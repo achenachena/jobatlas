@@ -83,15 +83,20 @@ interface CameraState {
 }
 
 /** Run `cb` in a short slice of main-thread time: when the browser is idle, or soon if `urgent`
- * (Safari has no requestIdleCallback). */
+ * (Safari has no requestIdleCallback). Soon is a message, not setTimeout(0): browsers hold a
+ * chain of timeouts back 4 ms each, which slowed the placement the first bars wait for. */
 type Deadline = { timeRemaining(): number };
+const soon = new MessageChannel();
+const queued: (() => void)[] = [];
+soon.port1.onmessage = () => queued.shift()?.();
 function slice(cb: (d: Deadline) => void, urgent = false): void {
-  if (urgent || !window.requestIdleCallback)
-    window.setTimeout(() => {
+  if (urgent || !window.requestIdleCallback) {
+    queued.push(() => {
       const end = performance.now() + 8;
       cb({ timeRemaining: () => end - performance.now() });
-    }, 0);
-  else window.requestIdleCallback(cb, { timeout: 500 });
+    });
+    soon.port2.postMessage(null);
+  } else window.requestIdleCallback(cb, { timeout: 500 });
 }
 
 /** Detail level for a zoom: steps of 1.5× (1, 1.5, 2.25, …). */

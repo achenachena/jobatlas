@@ -101,7 +101,7 @@ test("sources dialog shows definitions and attribution", async ({ page }) => {
 });
 
 test("not configured: explicit state, demo only on request and labelled", async ({ page }) => {
-  await page.unroute("http://api.fixture/api/v2/atlas/**");
+  await page.unroute("**/api/v2/atlas/**");
   await atlasFixture(page, "not_configured");
   await page.goto("/");
   await expect(page.getByRole("alert").getByText("Data source not connected yet")).toBeVisible();

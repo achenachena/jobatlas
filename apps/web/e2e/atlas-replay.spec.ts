@@ -146,7 +146,7 @@ test("a date between sampled frames shows its own exact frame, fetched on demand
   const asked = page.waitForRequest(r => r.url().includes("/timeline?") && new URL(r.url()).searchParams.get("start") === "2026-07-31" && new URL(r.url()).searchParams.get("end") === "2026-07-31");
   await page.getByRole("slider").press("ArrowRight"); // Jul 31: not in the overview
   await asked;
-  const exact = await page.evaluate(async () => (await (await fetch("http://api.fixture/api/v2/atlas/timeline?dataset=real&release=fx1&occupation=all&window=30d&start=2026-07-31&end=2026-07-31")).json()).frames[0].national);
+  const exact = await page.evaluate(async () => (await (await fetch("/api/v2/atlas/timeline?dataset=real&release=fx1&occupation=all&window=30d&start=2026-07-31&end=2026-07-31")).json()).frames[0].national);
   await expect(page.getByTestId("national-total")).toHaveText(exact.toLocaleString("en-CA"));
   await expect(page.getByRole("button",{name:"Jul 2–31, 2026",exact:true})).toBeVisible();
   await expect(page.getByTestId("national-change")).not.toContainText("Not comparable");

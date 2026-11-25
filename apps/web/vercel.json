@@ -1,3 +1,6 @@
 {
-  "git": { "deploymentEnabled": { "main": false } }
+  "git": { "deploymentEnabled": { "main": false } },
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "https://jobatlas.184-195-161-235.sslip.io/api/:path*" }
+  ]
 }
